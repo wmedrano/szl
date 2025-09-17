@@ -65,6 +65,7 @@ test "build with Symbol creates symbol val" {
     const result = try vm.builder().build(symbol);
 
     try testing.expect(result.repr == .symbol);
+    try testing.expect(@TypeOf(result.repr.symbol) == Symbol.Interned);
     try testing.expect(
         symbol.eql(try vm.interner.get(result.repr.symbol)),
     );
@@ -76,10 +77,13 @@ test "build with Symbol.Interned creates symbol val" {
 
     const symbol = Symbol{ .data = "interned-symbol" };
     const interned = try vm.interner.intern(symbol);
+    const result = try vm.builder().build(interned);
 
+    try testing.expect(result.repr == .symbol);
+    try testing.expect(@TypeOf(result.repr.symbol) == Symbol.Interned);
     try std.testing.expectEqual(
         interned,
-        (try vm.builder().build(symbol)).repr.symbol,
+        result.repr.symbol,
     );
 }
 
@@ -106,4 +110,40 @@ test "build with comptime_int creates i64 val" {
         Val{ .repr = Val.Repr{ .i64 = 123 } },
         result,
     );
+}
+
+test "build with Symbol returns a symbol" {
+    var vm = Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const symbol = Symbol{ .data = "hello-world" };
+    const result = try vm.builder().build(symbol);
+
+    try testing.expect(result.repr == .symbol);
+    try testing.expectFmt("hello-world", "{any}", .{vm.pretty(result)});
+}
+
+test "build with Symbol.Interned returns a symbol" {
+    var vm = Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const symbol = Symbol{ .data = "test-symbol" };
+    const interned = try vm.interner.intern(symbol);
+    const result = try vm.builder().build(interned);
+
+    try testing.expect(result.repr == .symbol);
+    try testing.expectFmt("test-symbol", "{any}", .{vm.pretty(result)});
+}
+
+test "build with Cons creates cons val" {
+    var vm = Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try vm.builder().build(Cons{
+        .car = try vm.builder().build(1),
+        .cdr = try vm.builder().build(2)
+    });
+
+    try testing.expect(result.repr == .cons);
+    try testing.expectFmt("(1 . 2)", "{any}", .{vm.pretty(result)});
 }

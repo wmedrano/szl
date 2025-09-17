@@ -81,4 +81,3 @@ pub fn builder(self: *Vm) Builder {
 pub fn pretty(self: *const Vm, val: Val) PrettyPrinter {
     return PrettyPrinter{ .vm = self, .val = val };
 }
-
