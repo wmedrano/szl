@@ -11,6 +11,18 @@ const Symbol = @This();
 /// The string data representing this symbol.
 data: []const u8,
 
+/// Creates a new symbol with the provided string data.
+/// The symbol will reference the provided string slice without copying it.
+///
+/// Args:
+///   str: The string data for the symbol (not copied).
+///
+/// Returns:
+///   A new Symbol instance referencing the provided string data.
+pub fn init(str: []const u8) Symbol {
+    return Symbol{ .data = str };
+}
+
 /// Compares two symbols for equality based on their string content.
 /// Two symbols are considered equal if their underlying string data is identical,
 /// regardless of memory location or other structural differences.

@@ -7,13 +7,19 @@
 const std = @import("std");
 const testing = std.testing;
 
+const Builder = @import("Builder.zig");
+const Cons = @import("Cons.zig");
+const Handle = @import("object_pool.zig").Handle;
+const ObjectPool = @import("object_pool.zig").ObjectPool;
+const PrettyPrinter = @import("PrettyPrinter.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
-const Builder = @import("Builder.zig");
 
 const Vm = @This();
 
+allocator: std.mem.Allocator,
 interner: Symbol.Interner,
+cons: ObjectPool(Cons),
 
 /// Configuration options for initializing the virtual machine.
 pub const Options = struct {
@@ -32,7 +38,9 @@ pub const Options = struct {
 pub fn init(options: Options) Vm {
     const interner = Symbol.Interner.init(options.allocator);
     return Vm{
+        .allocator = options.allocator,
         .interner = interner,
+        .cons = ObjectPool(Cons).init(),
     };
 }
 
@@ -44,6 +52,7 @@ pub fn init(options: Options) Vm {
 ///   self: Pointer to the VM to deinitialize.
 pub fn deinit(self: *Vm) void {
     self.interner.deinit();
+    self.cons.deinit(self.allocator);
 }
 
 /// Creates a new Builder instance for converting Zig values to Scheme values.
@@ -58,3 +67,18 @@ pub fn deinit(self: *Vm) void {
 pub fn builder(self: *Vm) Builder {
     return Builder{ .vm = self };
 }
+
+/// Creates a PrettyPrinter for formatting a Scheme value.
+/// The PrettyPrinter can be used with Zig's standard formatting functions
+/// to display Scheme values in a human-readable format.
+///
+/// Args:
+///   self: Pointer to the VM that owns the value's data.
+///   val: The Scheme value to format.
+///
+/// Returns:
+///   A PrettyPrinter instance ready for formatting.
+pub fn pretty(self: *const Vm, val: Val) PrettyPrinter {
+    return PrettyPrinter{ .vm = self, .val = val };
+}
+

@@ -6,6 +6,9 @@
 const std = @import("std");
 const testing = std.testing;
 
+const Cons = @import("Cons.zig");
+const object_pool = @import("object_pool.zig");
+const Handle = object_pool.Handle;
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
@@ -32,9 +35,15 @@ pub fn build(self: Builder, v: anytype) !Val {
     const type_info = @TypeOf(v);
     switch (type_info) {
         Val.Repr => return Val{ .repr = v },
-        void => return self.build(Val.Repr{ .end_of_list = {} }),
+        void => return self.build(Val.Repr{ .nil = {} }),
+        i64, comptime_int => return self.build(Val.Repr{ .i64 = v }),
         Symbol.Interned => return self.build(Val.Repr{ .symbol = v }),
         Symbol => return self.build(try self.vm.interner.intern(v)),
+        Handle(Cons) => return self.build(Val.Repr{ .cons = v }),
+        Cons => {
+            const handle = try self.vm.cons.put(self.vm.allocator, v);
+            return self.build(handle);
+        },
         else => @compileError("type " ++ @typeName(type_info) ++ " not supported for toVal."),
     }
 }
@@ -43,7 +52,7 @@ test "build with void is end_of_list" {
     var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
     try testing.expectEqual(
-        Val{ .repr = Val.Repr{ .end_of_list = {} } },
+        Val{ .repr = Val.Repr{ .nil = {} } },
         try vm.builder().build({}),
     );
 }
@@ -71,5 +80,30 @@ test "build with Symbol.Interned creates symbol val" {
     try std.testing.expectEqual(
         interned,
         (try vm.builder().build(symbol)).repr.symbol,
+    );
+}
+
+test "build with i64 creates i64 val" {
+    var vm = Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const value: i64 = 42;
+    const result = try vm.builder().build(value);
+
+    try testing.expectEqual(
+        Val{ .repr = Val.Repr{ .i64 = 42 } },
+        result,
+    );
+}
+
+test "build with comptime_int creates i64 val" {
+    var vm = Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try vm.builder().build(123);
+
+    try testing.expectEqual(
+        Val{ .repr = Val.Repr{ .i64 = 123 } },
+        result,
     );
 }
