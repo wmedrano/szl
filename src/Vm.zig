@@ -19,6 +19,7 @@ const Val = @import("Val.zig");
 const Vm = @This();
 
 allocator: std.mem.Allocator,
+stack: std.ArrayList(Val),
 interner: Symbol.Interner,
 pairs: ObjectPool(Pair),
 
@@ -40,6 +41,7 @@ pub fn init(options: Options) Vm {
     const interner = Symbol.Interner.init(options.allocator);
     return Vm{
         .allocator = options.allocator,
+        .stack = .{},
         .interner = interner,
         .pairs = ObjectPool(Pair).init(),
     };
@@ -54,6 +56,7 @@ pub fn init(options: Options) Vm {
 pub fn deinit(self: *Vm) void {
     self.interner.deinit();
     self.pairs.deinit(self.allocator);
+    self.stack.deinit(self.allocator);
 }
 
 /// Creates a PrettyPrinter for formatting a Scheme value.

@@ -17,6 +17,33 @@ const PrettyPrinter = @This();
 vm: *const Vm,
 val: Val,
 
+pub const Slice = struct {
+    vm: *const Vm,
+    vals: []const Val,
+
+    /// Formats a slice of values as a list for pretty printing.
+    /// This method enables Slice to be used with std.fmt functions.
+    ///
+    /// Args:
+    ///   self: The Slice instance to format.
+    ///   writer: The writer to output the formatted representation to.
+    ///
+    /// Returns:
+    ///   Nothing on success, or a write error if the writer fails.
+    pub fn format(
+        self: Slice,
+        writer: anytype,
+    ) error{WriteFailed}!void {
+        try writer.writeAll("(");
+        for (self.vals, 0..) |val, i| {
+            if (i > 0) try writer.writeAll(" ");
+            const printer = PrettyPrinter{ .vm = self.vm, .val = val };
+            try printer.formatValue(writer, val);
+        }
+        try writer.writeAll(")");
+    }
+};
+
 /// Formats the value for pretty printing using the standard format interface.
 /// This method enables PrettyPrinter to be used with std.fmt functions.
 ///
@@ -303,5 +330,24 @@ test "boolean in mixed type list formats correctly" {
         "(42 #t)",
         "{f}",
         .{PrettyPrinter{ .vm = &vm, .val = val }},
+    );
+}
+
+test "slice formats as list" {
+    var vm = Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const vals = [_]Val{
+        Val{ .repr = .{ .i64 = 1 } },
+        Val{ .repr = .{ .i64 = 2 } },
+        Val{ .repr = .{ .i64 = 3 } },
+    };
+
+    const slice = Slice{ .vm = &vm, .vals = &vals };
+
+    try testing.expectFmt(
+        "(1 2 3)",
+        "{f}",
+        .{slice},
     );
 }

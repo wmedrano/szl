@@ -33,6 +33,20 @@ pub fn pretty(self: Inspector, val: Val) PrettyPrinter {
     return PrettyPrinter{ .vm = self.vm, .val = val };
 }
 
+/// Creates a PrettyPrinter.Slice for formatting a slice of Scheme values.
+/// The PrettyPrinter.Slice can be used with Zig's standard formatting functions
+/// to display a slice of Scheme values as a parenthesized list.
+///
+/// Args:
+///   self: Pointer to the VM that owns the values' data.
+///   vals: The slice of Scheme values to format.
+///
+/// Returns:
+///   A PrettyPrinter.Slice instance ready for formatting.
+pub fn prettySlice(self: Inspector, vals: []const Val) PrettyPrinter.Slice {
+    return PrettyPrinter.Slice{ .vm = self.vm, .vals = vals };
+}
+
 /// Converts a Scheme value to a Zig type.
 /// This function provides type-safe conversion from the dynamic value system
 /// back to compile-time known Zig types.
