@@ -119,7 +119,7 @@ test "build with Symbol returns a symbol" {
     try std.testing.expect(result.repr == .symbol);
     try std.testing.expectFmt(
         "hello-world",
-        "{any}",
+        "{f}",
         .{vm.inspector().pretty(result)},
     );
 }
@@ -135,7 +135,7 @@ test "build with Symbol.Interned returns a symbol" {
     try std.testing.expect(result.repr == .symbol);
     try std.testing.expectFmt(
         "test-symbol",
-        "{any}",
+        "{f}",
         .{vm.inspector().pretty(result)},
     );
 }
@@ -152,7 +152,7 @@ test "build with Pair creates cons val" {
     try std.testing.expect(result.repr == .pair);
     try std.testing.expectFmt(
         "(1 . 2)",
-        "{any}",
+        "{f}",
         .{vm.inspector().pretty(result)},
     );
 }

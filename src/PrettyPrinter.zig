@@ -29,12 +29,8 @@ val: Val,
 ///   Nothing on success, or a write error if the writer fails.
 pub fn format(
     self: PrettyPrinter,
-    comptime fmt: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = fmt;
-    _ = options;
+    writer: *std.Io.Writer,
+) error{WriteFailed}!void {
     try self.formatValue(writer, self.val);
 }
 
@@ -44,7 +40,7 @@ pub fn format(
 ///   self: The PrettyPrinter instance.
 ///   writer: The writer to output to.
 ///   val: The value to format.
-fn formatValue(self: PrettyPrinter, writer: anytype, val: Val) anyerror!void {
+fn formatValue(self: PrettyPrinter, writer: anytype, val: Val) error{WriteFailed}!void {
     switch (val.repr) {
         .nil => try writer.writeAll("()"),
         .boolean => |b| {
@@ -93,7 +89,6 @@ fn formatCdr(self: PrettyPrinter, writer: anytype, cdr: Val) !void {
             try self.formatCdr(writer, cons.cdr);
         },
         else => {
-            // Improper list (dotted pair)
             try writer.writeAll(" . ");
             try self.formatValue(writer, cdr);
         },
@@ -108,7 +103,7 @@ test "int formats as int" {
 
     try std.testing.expectFmt(
         "42",
-        "{}",
+        "{f}",
         .{PrettyPrinter{ .vm = &vm, .val = val }},
     );
 }
@@ -121,7 +116,7 @@ test "nil formats as empty list" {
 
     try std.testing.expectFmt(
         "()",
-        "{}",
+        "{f}",
         .{PrettyPrinter{ .vm = &vm, .val = val }},
     );
 }
@@ -134,7 +129,7 @@ test "symbol formats as text" {
     const val = Val{ .repr = .{ .symbol = symbol } };
     try std.testing.expectFmt(
         "test-symbol",
-        "{}",
+        "{f}",
         .{PrettyPrinter{ .vm = &vm, .val = val }},
     );
 }
@@ -151,7 +146,7 @@ test "cons pair formats with dot" {
 
     try std.testing.expectFmt(
         "(1 . 2)",
-        "{}",
+        "{f}",
         .{PrettyPrinter{ .vm = &vm, .val = val }},
     );
 }
@@ -174,7 +169,7 @@ test "proper list formats without dots" {
 
     try std.testing.expectFmt(
         "(1 2)",
-        "{}",
+        "{f}",
         .{PrettyPrinter{ .vm = &vm, .val = val }},
     );
 }
@@ -197,7 +192,7 @@ test "nested cons structures format correctly" {
 
     try std.testing.expectFmt(
         "(1 2 . 3)",
-        "{}",
+        "{f}",
         .{PrettyPrinter{ .vm = &vm, .val = val }},
     );
 }
@@ -215,7 +210,7 @@ test "single element list formats correctly" {
 
     try std.testing.expectFmt(
         "(42)",
-        "{}",
+        "{f}",
         .{PrettyPrinter{ .vm = &vm, .val = val }},
     );
 }
@@ -239,7 +234,7 @@ test "mixed types in list format correctly" {
 
     try std.testing.expectFmt(
         "(42 foo)",
-        "{}",
+        "{f}",
         .{PrettyPrinter{ .vm = &vm, .val = val }},
     );
 }
@@ -252,7 +247,7 @@ test "boolean true formats as #t" {
 
     try std.testing.expectFmt(
         "#t",
-        "{}",
+        "{f}",
         .{PrettyPrinter{ .vm = &vm, .val = val }},
     );
 }
@@ -265,7 +260,7 @@ test "boolean false formats as #f" {
 
     try std.testing.expectFmt(
         "#f",
-        "{}",
+        "{f}",
         .{PrettyPrinter{ .vm = &vm, .val = val }},
     );
 }
@@ -282,7 +277,7 @@ test "boolean in cons pair formats correctly" {
 
     try std.testing.expectFmt(
         "(#t . #f)",
-        "{}",
+        "{f}",
         .{PrettyPrinter{ .vm = &vm, .val = val }},
     );
 }
@@ -305,7 +300,7 @@ test "boolean in mixed type list formats correctly" {
 
     try std.testing.expectFmt(
         "(42 #t)",
-        "{}",
+        "{f}",
         .{PrettyPrinter{ .vm = &vm, .val = val }},
     );
 }

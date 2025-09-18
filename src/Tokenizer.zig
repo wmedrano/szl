@@ -32,6 +32,8 @@ pub fn next(self: *Tokenizer) ?Span {
     return self.eatSymbol();
 }
 
+/// Returns the text content of the next token, or null if no more tokens are
+/// available.
 pub fn nextText(self: *Tokenizer) ?[]const u8 {
     const span = self.next() orelse return null;
     return self.text(span);
