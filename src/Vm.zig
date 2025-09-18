@@ -5,6 +5,7 @@
 //! and provides the foundation for evaluating Scheme expressions.
 
 const std = @import("std");
+const testing = std.testing;
 
 const Builder = @import("Builder.zig");
 const Handle = @import("object_pool.zig").Handle;
@@ -110,6 +111,81 @@ pub fn builder(self: *Vm) Builder {
     return Builder{ .vm = self };
 }
 
+/// Creates an Inspector instance for examining and formatting Scheme values.
+/// The Inspector provides utilities for type-safe conversion from the dynamic
+/// value system back to compile-time known Zig types and pretty-printing capabilities.
+///
+/// Args:
+///   self: Pointer to the VM that will be used by the Inspector.
+///
+/// Returns:
+///   An Inspector instance configured to use this VM.
 pub fn inspector(self: *const Vm) Inspector {
     return Inspector{ .vm = self };
+}
+
+/// Evaluates a string of Scheme source code and returns the result.
+/// Parses the source string into expressions using the Reader and evaluates
+/// each expression in sequence, returning the value of the last expression.
+///
+/// Args:
+///   self: Pointer to the VM instance.
+///   source: The Scheme source code string to evaluate.
+///
+/// Returns:
+///   The value of the last expression evaluated, or unit value if no expressions.
+///
+/// Errors:
+///   - May return parsing errors from the Reader if the source is malformed.
+///   - May return evaluation errors (when evaluation is implemented).
+pub fn evalStr(self: *Vm, source: []const u8) !Val {
+    var reader = self.builder().read(source);
+    var ret = Val.init({});
+    while (try reader.next()) |expr| {
+        // TODO: Evaluate the expression. We return it for now.
+        ret = expr;
+    }
+    return ret;
+}
+
+test "evalStr with single symbol returns symbol value" {
+    var vm = Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try vm.evalStr("hello");
+    try testing.expectEqual(
+        try vm.toVal(Symbol.init("hello")),
+        result,
+    );
+}
+
+test "evalStr with multiple expressions returns last expression value" {
+    var vm = Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try vm.evalStr("#t #f hello");
+    try testing.expectEqual(
+        try vm.toVal(Symbol.init("hello")),
+        result,
+    );
+}
+
+test "evalStr with empty string returns unit value" {
+    var vm = Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try vm.evalStr("");
+    try testing.expectEqual(Val.init({}), result);
+}
+
+test "evalStr with list expression returns list value" {
+    var vm = Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try vm.evalStr("(hello world)");
+    try testing.expectFmt(
+        "(hello world)",
+        "{f}",
+        .{vm.pretty(result)},
+    );
 }
