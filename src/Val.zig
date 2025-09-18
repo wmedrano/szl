@@ -2,7 +2,8 @@
 //!
 //! This module defines the core value types that can be stored and manipulated
 //! in the Scheme interpreter. Values are represented using a tagged union to
-//! efficiently handle the dynamic typing inherent in Scheme.
+//! efficiently handle the dynamic typing inherent in Scheme. Supports nil,
+//! booleans, integers, symbols, pairs, and procedures.
 
 const std = @import("std");
 const testing = std.testing;
@@ -10,6 +11,7 @@ const testing = std.testing;
 const object_pool = @import("object_pool.zig");
 const Handle = object_pool.Handle;
 const Pair = @import("Pair.zig");
+const Procedure = @import("Procedure.zig");
 const Symbol = @import("Symbol.zig");
 const Vm = @import("Vm.zig");
 
@@ -43,12 +45,24 @@ pub const Repr = union(enum) {
     ///
     /// Pairs are the fundamental building blocks for lists and pairs in Scheme.
     pair: Handle(Pair),
+
+    /// Represents a procedure (function) that can be called in the interpreter.
+    /// Procedures include both built-in functions and user-defined functions.
+    procedure: Handle(Procedure),
 };
 
 /// Create a new `Val` for a supported type.
 ///
-/// Only primitive types are supported. For more complex types, try
-/// `Vm.builder`.
+/// Supported primitive types:
+///   - Val, Val.Repr: Pass-through values
+///   - void: Converted to nil
+///   - bool: Converted to boolean values
+///   - i64, comptime_int: Converted to integer values
+///   - Symbol.Interned: Converted to symbol values
+///   - Handle(Pair): Converted to pair values
+///   - Handle(Procedure): Converted to procedure values
+///
+/// For more complex types like Symbol, Pair, or Procedure structs, use `Vm.builder()`.
 pub fn init(v: anytype) Val {
     const type_info = @TypeOf(v);
     switch (type_info) {
@@ -59,6 +73,7 @@ pub fn init(v: anytype) Val {
         i64, comptime_int => return init(Val.Repr{ .i64 = v }),
         Symbol.Interned => return init(Val.Repr{ .symbol = v }),
         Handle(Pair) => return init(Val.Repr{ .pair = v }),
+        Handle(Procedure) => return init(Val.Repr{ .procedure = v }),
         else => @compileError("type " ++ @typeName(type_info) ++ " not supported for Val.init."),
     }
 }
@@ -124,4 +139,22 @@ test "isTruthy returns true for pair" {
     });
 
     try testing.expectEqual(true, cons_val.isTruthy());
+}
+
+test "isTruthy returns true for procedure" {
+    var vm = Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const test_procedure = Procedure{
+        .name = try vm.interner.internStatic(@import("Symbol.zig").init("test-proc")),
+        .func = struct {
+            fn testFunc(vm_ptr: *Vm) Val {
+                _ = vm_ptr;
+                return Val{ .repr = .{ .nil = {} } };
+            }
+        }.testFunc,
+    };
+    const procedure_handle = try vm.toVal(test_procedure);
+
+    try testing.expectEqual(true, procedure_handle.isTruthy());
 }

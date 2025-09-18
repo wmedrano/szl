@@ -9,6 +9,7 @@ const testing = std.testing;
 const object_pool = @import("object_pool.zig");
 const Handle = object_pool.Handle;
 const Pair = @import("Pair.zig");
+const Procedure = @import("Procedure.zig");
 const Reader = @import("Reader.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
@@ -22,6 +23,18 @@ vm: *Vm,
 /// This function provides type-safe conversion from compile-time known
 /// Zig types to the dynamic value system used by the Scheme interpreter.
 ///
+/// Supported types:
+///   - Val, Val.Repr: Pass-through values
+///   - void: Converted to nil (empty list)
+///   - bool: Converted to boolean values
+///   - i64, comptime_int: Converted to integer values
+///   - Symbol, Symbol.Interned: Converted to interned symbols
+///   - Handle(Pair): Direct pair handles
+///   - Pair: Stored in object pool and converted to pair values
+///   - Handle(Procedure): Direct procedure handles
+///   - Procedure: Stored in object pool and converted to procedure values
+///   - []const Val, []Val: Converted to proper Scheme lists
+///
 /// Args:
 ///   self: Pointer to the Builder.
 ///   v: The value to convert to a Scheme value.
@@ -31,9 +44,19 @@ vm: *Vm,
 pub fn build(self: Builder, v: anytype) !Val {
     const type_info = @TypeOf(v);
     switch (type_info) {
-        Val, Val.Repr, void, bool, i64, comptime_int, Symbol.Interned, Handle(Pair) => return Val.init(v),
+        Val,
+        Val.Repr,
+        void,
+        bool,
+        i64,
+        comptime_int,
+        Symbol.Interned,
+        Handle(Pair),
+        Handle(Procedure),
+        => return Val.init(v),
         Symbol => return Val.init(try self.vm.interner.intern(v)),
         Pair => return Val.init(try self.vm.pairs.put(self.vm.allocator, v)),
+        Procedure => return Val.init(try self.vm.procedures.put(self.vm.allocator, v)),
         []const Val, []Val => {
             if (v.len == 0) return self.build({});
             var val = try self.build({});
@@ -302,5 +325,29 @@ test "build with multiple element []Val creates proper list" {
     try testing.expectEqual(
         try vm.builder().build({}),
         third_pair.cdr,
+    );
+}
+
+test "build with Procedure creates procedure val" {
+    var vm = Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const test_procedure = Procedure{
+        .name = try vm.interner.internStatic(Symbol.init("test-proc")),
+        .func = struct {
+            fn testFunc(vm_ptr: *Vm) Val {
+                _ = vm_ptr;
+                return Val.init(42);
+            }
+        }.testFunc,
+    };
+
+    const result = try vm.builder().build(test_procedure);
+
+    try testing.expect(result.repr == .procedure);
+    try testing.expectFmt(
+        "#<procedure:test-proc>",
+        "{f}",
+        .{vm.inspector().pretty(result)},
     );
 }

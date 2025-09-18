@@ -2,7 +2,8 @@
 //!
 //! This module provides the core virtual machine that manages the execution
 //! environment for Scheme programs. It handles symbol interning, value conversion,
-//! and provides the foundation for evaluating Scheme expressions.
+//! stack management with procedure call frames, and provides the foundation for
+//! evaluating Scheme expressions.
 
 const std = @import("std");
 const testing = std.testing;
@@ -13,6 +14,7 @@ const Inspector = @import("Inspector.zig");
 const ObjectPool = @import("object_pool.zig").ObjectPool;
 const Pair = @import("Pair.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
+const Procedure = @import("Procedure.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 
@@ -20,8 +22,11 @@ const Vm = @This();
 
 allocator: std.mem.Allocator,
 stack: std.ArrayList(Val),
+stack_frames: std.ArrayList(StackFrame),
+current_stack_frame: StackFrame,
 interner: Symbol.Interner,
 pairs: ObjectPool(Pair),
+procedures: ObjectPool(Procedure),
 
 /// Configuration options for initializing the virtual machine.
 pub const Options = struct {
@@ -29,38 +34,57 @@ pub const Options = struct {
     allocator: std.mem.Allocator,
 };
 
+/// Represents a stack frame for procedure calls.
+///
+/// Each frame tracks the start position of its arguments on the stack, enabling
+/// proper scoping and parameter access during procedure execution.
+pub const StackFrame = struct {
+    /// Index into the stack where this frame's arguments begin.
+    stack_start: usize,
+};
+
 /// Initializes a new virtual machine with the given options.
-/// Creates a new symbol interner and sets up the runtime environment.
+///
+/// Creates a new symbol interner, sets up the runtime environment, initializes
+/// the execution stack and stack frame management for procedure calls.
 ///
 /// Args:
 ///   options: Configuration options including the allocator to use.
 ///
 /// Returns:
-///   A new Vm instance ready for use.
+///   A new Vm instance ready for use with stack frame support.
 pub fn init(options: Options) Vm {
     const interner = Symbol.Interner.init(options.allocator);
     return Vm{
         .allocator = options.allocator,
         .stack = .{},
+        .stack_frames = .{},
+        .current_stack_frame = StackFrame{
+            .stack_start = 0,
+        },
         .interner = interner,
         .pairs = ObjectPool(Pair).init(),
+        .procedures = ObjectPool(Procedure).init(),
     };
 }
 
-/// Releases all memory associated with the virtual machine.
-/// This includes the symbol interner and all internal data structures.
-/// After calling this function, the VM should not be used.
+/// Releases all memory associated with the virtual machine.  This includes all
+/// interned symbols and value.
 ///
 /// Args:
 ///   self: Pointer to the VM to deinitialize.
 pub fn deinit(self: *Vm) void {
     self.interner.deinit();
-    self.pairs.deinit(self.allocator);
     self.stack.deinit(self.allocator);
+    self.stack_frames.deinit(self.allocator);
+    self.pairs.deinit(self.allocator);
+    self.procedures.deinit(self.allocator);
 }
 
 /// Creates a PrettyPrinter for formatting a Scheme value.
-/// Provides a formatted representation of values for debugging and display purposes.
+///
+/// Provides a formatted representation of values for debugging and display
+/// purposes.
 ///
 /// Args:
 ///   self: Pointer to the VM that owns the value's data.
@@ -73,8 +97,9 @@ pub fn pretty(self: *Vm, val: Val) PrettyPrinter {
 }
 
 /// Converts a Zig value to a Scheme value representation.
-/// Provides type-safe conversion from compile-time known Zig types to the dynamic
-/// value system used by the Scheme interpreter.
+///
+/// Provides type-safe conversion from compile-time known Zig types to the
+/// dynamic value system used by the Scheme interpreter.
 ///
 /// Args:
 ///   self: Pointer to the VM.
@@ -87,8 +112,9 @@ pub fn toVal(self: *Vm, val: anytype) !Val {
 }
 
 /// Converts a Scheme value to a Zig type.
-/// Provides type-safe conversion from the dynamic value system back to compile-time
-/// known Zig types.
+///
+/// Provides type-safe conversion from the dynamic value system back to
+/// compile-time known Zig types.
 ///
 /// Args:
 ///   self: Pointer to the VM.

@@ -11,6 +11,7 @@ const object_pool = @import("object_pool.zig");
 const Handle = object_pool.Handle;
 const Pair = @import("Pair.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
+const Procedure = @import("Procedure.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
@@ -59,8 +60,13 @@ pub fn prettySlice(self: Inspector, vals: []const Val) PrettyPrinter.Slice {
 /// Returns:
 ///   The converted value of type T, or an error if the conversion is not possible.
 ///
-/// Note:
-///   Currently supports void, bool, i64, Symbol.Interned, and Handle(Pair).
+/// Supported conversions:
+///   - nil → void
+///   - boolean → bool
+///   - i64 → i64
+///   - symbol → Symbol.Interned, Symbol
+///   - pair → Handle(Pair), Pair
+///   - procedure → Handle(Procedure), Procedure
 pub fn to(self: Inspector, T: type, val: Val) !T {
     switch (val.repr) {
         .nil => switch (T) {
@@ -83,6 +89,10 @@ pub fn to(self: Inspector, T: type, val: Val) !T {
         .pair => |c| switch (T) {
             Handle(Pair) => return c,
             Pair => return self.vm.pairs.get(c) orelse error.ObjectNotFound,
+            else => return error.TypeMismatch,
+        },
+        .procedure => |p| switch (T) {
+            Procedure => return self.vm.procedures.get(p) orelse error.ObjectNotFound,
             else => return error.TypeMismatch,
         },
     }

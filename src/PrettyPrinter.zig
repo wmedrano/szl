@@ -2,12 +2,16 @@
 //!
 //! This module provides a formatter that can display Scheme values in a
 //! human-readable format. It integrates with Zig's standard formatting
-//! system and handles all value types including lists, symbols, and numbers.
+//! system and handles all value types including lists, symbols, numbers,
+//! and procedures.
 
 const std = @import("std");
 const testing = std.testing;
 
+const object_pool = @import("object_pool.zig");
+const Handle = object_pool.Handle;
 const Pair = @import("Pair.zig");
+const Procedure = @import("Procedure.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
@@ -32,7 +36,7 @@ pub const Slice = struct {
     ///   Nothing on success, or a write error if the writer fails.
     pub fn format(
         self: Slice,
-        writer: anytype,
+        writer: *std.Io.Writer,
     ) error{WriteFailed}!void {
         try writer.writeAll("(");
         for (self.vals, 0..) |val, i| {
@@ -63,12 +67,13 @@ pub fn format(
 }
 
 /// Internal recursive helper to format different value types.
+/// Handles nil, boolean, integer, symbol, pair, and procedure values.
 ///
 /// Args:
 ///   self: The PrettyPrinter instance.
 ///   writer: The writer to output to.
 ///   val: The value to format.
-fn formatValue(self: PrettyPrinter, writer: anytype, val: Val) error{WriteFailed}!void {
+fn formatValue(self: PrettyPrinter, writer: *std.Io.Writer, val: Val) error{WriteFailed}!void {
     switch (val.repr) {
         .nil => try writer.writeAll("()"),
         .boolean => |b| {
@@ -79,7 +84,7 @@ fn formatValue(self: PrettyPrinter, writer: anytype, val: Val) error{WriteFailed
         .symbol => |sym| {
             const symbol = self.vm.interner.get(sym) catch |err| switch (err) {
                 error.InvalidId => {
-                    try writer.print("<invalid-symbol:{d}>", .{sym.id});
+                    try writer.print("#<invalid-symbol:{d}>", .{sym.id});
                     return;
                 },
             };
@@ -87,7 +92,7 @@ fn formatValue(self: PrettyPrinter, writer: anytype, val: Val) error{WriteFailed
         },
         .pair => |handle| {
             const cons = self.vm.pairs.get(handle) orelse {
-                try writer.writeAll("<invalid-cons>");
+                try writer.writeAll("#<invalid-cons>");
                 return;
             };
             try writer.writeAll("(");
@@ -95,7 +100,32 @@ fn formatValue(self: PrettyPrinter, writer: anytype, val: Val) error{WriteFailed
             try self.formatCdr(writer, cons.cdr);
             try writer.writeAll(")");
         },
+        .procedure => |proc_handle| try self.formatProcedure(writer, proc_handle),
     }
+}
+
+/// Formats a procedure value for pretty printing.
+///
+/// Args:
+///   self: The PrettyPrinter instance.
+///   writer: The writer to output to.
+///   proc_handle: The procedure handle to format.
+fn formatProcedure(self: PrettyPrinter, writer: *std.Io.Writer, proc_handle: Handle(Procedure)) error{WriteFailed}!void {
+    const proc = self.vm.procedures.get(proc_handle) orelse {
+        try writer.print("#<invalid-procedure:{d}>", .{proc_handle.idx});
+        return;
+    };
+    const name_symbol = proc.name orelse {
+        try writer.print("#<anonymous-procedure:{d}>", .{proc_handle.idx});
+        return;
+    };
+    const name = self.vm.interner.get(name_symbol) catch |err| switch (err) {
+        error.InvalidId => {
+            try writer.print("#<invalid-procedure:{d}>", .{name_symbol.id});
+            return;
+        },
+    };
+    try writer.print("#<procedure:{s}>", .{name.data});
 }
 
 /// Formats the cdr (tail) part of a pair, handling proper list notation.
@@ -104,12 +134,12 @@ fn formatValue(self: PrettyPrinter, writer: anytype, val: Val) error{WriteFailed
 ///   self: The PrettyPrinter instance.
 ///   writer: The writer to output to.
 ///   cdr: The cdr value to format.
-fn formatCdr(self: PrettyPrinter, writer: anytype, cdr: Val) !void {
+fn formatCdr(self: PrettyPrinter, writer: *std.Io.Writer, cdr: Val) !void {
     switch (cdr.repr) {
         .nil => {}, // Proper list termination, no output needed
         .pair => |handle| {
             const cons = self.vm.pairs.get(handle) orelse {
-                try writer.writeAll(" . <invalid-cons>");
+                try writer.writeAll(" . #<invalid-cons>");
                 return;
             };
             try writer.writeAll(" ");
