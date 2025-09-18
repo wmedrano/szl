@@ -19,7 +19,7 @@ const Vm = @This();
 
 allocator: std.mem.Allocator,
 interner: Symbol.Interner,
-cons: ObjectPool(Pair),
+pairs: ObjectPool(Pair),
 
 /// Configuration options for initializing the virtual machine.
 pub const Options = struct {
@@ -40,7 +40,7 @@ pub fn init(options: Options) Vm {
     return Vm{
         .allocator = options.allocator,
         .interner = interner,
-        .cons = ObjectPool(Pair).init(),
+        .pairs = ObjectPool(Pair).init(),
     };
 }
 
@@ -52,7 +52,7 @@ pub fn init(options: Options) Vm {
 ///   self: Pointer to the VM to deinitialize.
 pub fn deinit(self: *Vm) void {
     self.interner.deinit();
-    self.cons.deinit(self.allocator);
+    self.pairs.deinit(self.allocator);
 }
 
 /// Creates a new Builder instance for converting Zig values to Scheme values.

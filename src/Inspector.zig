@@ -65,9 +65,9 @@ pub fn to(self: Inspector, T: type, val: Val) !T {
             Symbol => return self.vm.interner.get(s),
             else => return error.TypeMismatch,
         },
-        .cons => |c| switch (T) {
+        .pair => |c| switch (T) {
             Handle(Pair) => return c,
-            Pair => return self.vm.cons.get(c) orelse error.ObjectNotFound,
+            Pair => return self.vm.pairs.get(c) orelse error.ObjectNotFound,
             else => return error.TypeMismatch,
         },
     }
@@ -128,7 +128,7 @@ test "to converts cons to Handle(Pair)" {
     const result = try vm.inspector().to(Handle(Pair), val);
 
     // Verify we can retrieve the original cons through the handle
-    const retrieved_cons = vm.cons.get(result) orelse return error.TestUnexpectedResult;
+    const retrieved_cons = vm.pairs.get(result) orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(try vm.builder().build(1), retrieved_cons.car);
     try std.testing.expectEqual(try vm.builder().build(2), retrieved_cons.cdr);
 }

@@ -26,22 +26,20 @@ vm: *Vm,
 ///
 /// Returns:
 ///   A Val representing the converted value, or a compile error for unsupported types.
-///
-/// Note:
-///   Currently supports void, bool, i64, Symbol, and Pair types.
 pub fn build(self: Builder, v: anytype) !Val {
     const type_info = @TypeOf(v);
     switch (type_info) {
-        Val.Repr => return Val{ .repr = v },
-        void => return self.build(Val.Repr{ .nil = {} }),
-        bool => return self.build(Val.Repr{ .boolean = v }),
-        i64, comptime_int => return self.build(Val.Repr{ .i64 = v }),
-        Symbol.Interned => return self.build(Val.Repr{ .symbol = v }),
-        Symbol => return self.build(try self.vm.interner.intern(v)),
-        Handle(Pair) => return self.build(Val.Repr{ .cons = v }),
-        Pair => {
-            const handle = try self.vm.cons.put(self.vm.allocator, v);
-            return self.build(handle);
+        Val, Val.Repr, void, bool, i64, comptime_int, Symbol.Interned, Handle(Pair) => return Val.init(v),
+        Symbol => return Val.init(try self.vm.interner.intern(v)),
+        Pair => return Val.init(try self.vm.pairs.put(self.vm.allocator, v)),
+        []const Val, []Val => {
+            if (v.len == 0) return self.build({});
+            var val = try self.build({});
+            for (0..v.len) |n| {
+                const idx = v.len - n - 1;
+                val = try self.build(Pair.init(v[idx], val));
+            }
+            return val;
         },
         else => @compileError("type " ++ @typeName(type_info) ++ " not supported for toVal."),
     }
@@ -119,7 +117,11 @@ test "build with Symbol returns a symbol" {
     const result = try vm.builder().build(symbol);
 
     try std.testing.expect(result.repr == .symbol);
-    try std.testing.expectFmt("hello-world", "{any}", .{vm.inspector().pretty(result)});
+    try std.testing.expectFmt(
+        "hello-world",
+        "{any}",
+        .{vm.inspector().pretty(result)},
+    );
 }
 
 test "build with Symbol.Interned returns a symbol" {
@@ -131,7 +133,11 @@ test "build with Symbol.Interned returns a symbol" {
     const result = try vm.builder().build(interned);
 
     try std.testing.expect(result.repr == .symbol);
-    try std.testing.expectFmt("test-symbol", "{any}", .{vm.inspector().pretty(result)});
+    try std.testing.expectFmt(
+        "test-symbol",
+        "{any}",
+        .{vm.inspector().pretty(result)},
+    );
 }
 
 test "build with Pair creates cons val" {
@@ -143,8 +149,12 @@ test "build with Pair creates cons val" {
         .cdr = try vm.builder().build(2),
     });
 
-    try std.testing.expect(result.repr == .cons);
-    try std.testing.expectFmt("(1 . 2)", "{any}", .{vm.inspector().pretty(result)});
+    try std.testing.expect(result.repr == .pair);
+    try std.testing.expectFmt(
+        "(1 . 2)",
+        "{any}",
+        .{vm.inspector().pretty(result)},
+    );
 }
 
 test "build with bool true creates boolean val" {
@@ -168,5 +178,90 @@ test "build with bool false creates boolean val" {
     try std.testing.expectEqual(
         Val{ .repr = Val.Repr{ .boolean = false } },
         result,
+    );
+}
+
+test "build with empty []Val creates nil" {
+    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    defer vm.deinit();
+
+    const empty_array: []Val = &.{};
+    const result = try vm.builder().build(empty_array);
+
+    try std.testing.expectEqual(
+        Val{ .repr = Val.Repr{ .nil = {} } },
+        result,
+    );
+}
+
+test "build with empty []const Val creates nil" {
+    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    defer vm.deinit();
+
+    const empty_array: []const Val = &.{};
+    const result = try vm.builder().build(empty_array);
+
+    try std.testing.expectEqual(
+        Val{ .repr = Val.Repr{ .nil = {} } },
+        result,
+    );
+}
+
+test "build with single element []Val creates proper list" {
+    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    defer vm.deinit();
+
+    const array: []const Val = &.{try vm.builder().build(42)};
+    const result = try vm.builder().build(array);
+
+    try std.testing.expect(result.repr == .pair);
+    const pair = try vm.inspector().to(Pair, result);
+    try std.testing.expectEqual(
+        try vm.builder().build(42),
+        pair.car,
+    );
+    try std.testing.expectEqual(
+        try vm.builder().build({}),
+        pair.cdr,
+    );
+}
+
+test "build with multiple element []Val creates proper list" {
+    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    defer vm.deinit();
+
+    const array: []const Val = &.{
+        try vm.builder().build(1),
+        try vm.builder().build(2),
+        try vm.builder().build(3),
+    };
+    const result = try vm.builder().build(array);
+
+    // Check that result is a proper list: (1 2 3)
+    try std.testing.expect(result.repr == .pair);
+
+    const first_pair = try vm.inspector().to(Pair, result);
+    try std.testing.expectEqual(
+        try vm.builder().build(1),
+        first_pair.car,
+    );
+
+    try std.testing.expect(first_pair.cdr.repr == .pair);
+    const second_pair = try vm.inspector().to(Pair, first_pair.cdr);
+    try std.testing.expectEqual(
+        try vm.builder().build(2),
+        second_pair.car,
+    );
+
+    try std.testing.expect(second_pair.cdr.repr == .pair);
+    const third_pair = try vm.inspector().to(Pair, second_pair.cdr);
+    try std.testing.expectEqual(
+        try vm.builder().build(3),
+        third_pair.car,
+    );
+
+    try std.testing.expectEqual(
+        try vm.builder().build({}),
+        third_pair.cdr,
     );
 }

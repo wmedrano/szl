@@ -41,8 +41,26 @@ pub const Repr = union(enum) {
     /// Represents a pair using a handle to an object pool.
     ///
     /// Pairs are the fundamental building blocks for lists and pairs in Scheme.
-    cons: Handle(Pair),
+    pair: Handle(Pair),
 };
+
+/// Create a new `Val` for a supported type.
+///
+/// Only primitive types are supported. For more complex types, try
+/// `Vm.builder`.
+pub fn init(v: anytype) Val {
+    const type_info = @TypeOf(v);
+    switch (type_info) {
+        Val => return v,
+        Val.Repr => return Val{ .repr = v },
+        void => return init(Val.Repr{ .nil = {} }),
+        bool => return init(Val.Repr{ .boolean = v }),
+        i64, comptime_int => return init(Val.Repr{ .i64 = v }),
+        Symbol.Interned => return init(Val.Repr{ .symbol = v }),
+        Handle(Pair) => return init(Val.Repr{ .pair = v }),
+        else => @compileError("type " ++ @typeName(type_info) ++ " not supported for Val.init."),
+    }
+}
 
 /// Determines if a value is truthy according to Scheme semantics.
 /// In Scheme, only the boolean value false (#f) is considered falsy.
