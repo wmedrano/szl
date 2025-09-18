@@ -5,11 +5,11 @@
 //! and provides the foundation for evaluating Scheme expressions.
 
 const std = @import("std");
-const testing = std.testing;
 
 const Builder = @import("Builder.zig");
 const Cons = @import("Cons.zig");
 const Handle = @import("object_pool.zig").Handle;
+const Inspector = @import("Inspector.zig");
 const ObjectPool = @import("object_pool.zig").ObjectPool;
 const PrettyPrinter = @import("PrettyPrinter.zig");
 const Symbol = @import("Symbol.zig");
@@ -68,16 +68,6 @@ pub fn builder(self: *Vm) Builder {
     return Builder{ .vm = self };
 }
 
-/// Creates a PrettyPrinter for formatting a Scheme value.
-/// The PrettyPrinter can be used with Zig's standard formatting functions
-/// to display Scheme values in a human-readable format.
-///
-/// Args:
-///   self: Pointer to the VM that owns the value's data.
-///   val: The Scheme value to format.
-///
-/// Returns:
-///   A PrettyPrinter instance ready for formatting.
-pub fn pretty(self: *const Vm, val: Val) PrettyPrinter {
-    return PrettyPrinter{ .vm = self, .val = val };
+pub fn inspector(self: *const Vm) Inspector {
+    return Inspector{ .vm = self };
 }

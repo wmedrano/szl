@@ -4,7 +4,6 @@
 //! Zig types to the dynamic value system used by the Scheme interpreter.
 
 const std = @import("std");
-const testing = std.testing;
 
 const Cons = @import("Cons.zig");
 const object_pool = @import("object_pool.zig");
@@ -49,38 +48,38 @@ pub fn build(self: Builder, v: anytype) !Val {
 }
 
 test "build with void is end_of_list" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = Vm.init(.{ .allocator = std.testing.allocator });
     defer vm.deinit();
-    try testing.expectEqual(
+    try std.testing.expectEqual(
         Val{ .repr = Val.Repr{ .nil = {} } },
         try vm.builder().build({}),
     );
 }
 
 test "build with Symbol creates symbol val" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = Vm.init(.{ .allocator = std.testing.allocator });
     defer vm.deinit();
 
     const symbol = Symbol{ .data = "test-symbol" };
     const result = try vm.builder().build(symbol);
 
-    try testing.expect(result.repr == .symbol);
-    try testing.expect(@TypeOf(result.repr.symbol) == Symbol.Interned);
-    try testing.expect(
+    try std.testing.expect(result.repr == .symbol);
+    try std.testing.expect(@TypeOf(result.repr.symbol) == Symbol.Interned);
+    try std.testing.expect(
         symbol.eql(try vm.interner.get(result.repr.symbol)),
     );
 }
 
 test "build with Symbol.Interned creates symbol val" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = Vm.init(.{ .allocator = std.testing.allocator });
     defer vm.deinit();
 
     const symbol = Symbol{ .data = "interned-symbol" };
     const interned = try vm.interner.intern(symbol);
     const result = try vm.builder().build(interned);
 
-    try testing.expect(result.repr == .symbol);
-    try testing.expect(@TypeOf(result.repr.symbol) == Symbol.Interned);
+    try std.testing.expect(result.repr == .symbol);
+    try std.testing.expect(@TypeOf(result.repr.symbol) == Symbol.Interned);
     try std.testing.expectEqual(
         interned,
         result.repr.symbol,
@@ -88,55 +87,55 @@ test "build with Symbol.Interned creates symbol val" {
 }
 
 test "build with i64 creates i64 val" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = Vm.init(.{ .allocator = std.testing.allocator });
     defer vm.deinit();
 
     const value: i64 = 42;
     const result = try vm.builder().build(value);
 
-    try testing.expectEqual(
+    try std.testing.expectEqual(
         Val{ .repr = Val.Repr{ .i64 = 42 } },
         result,
     );
 }
 
 test "build with comptime_int creates i64 val" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = Vm.init(.{ .allocator = std.testing.allocator });
     defer vm.deinit();
 
     const result = try vm.builder().build(123);
 
-    try testing.expectEqual(
+    try std.testing.expectEqual(
         Val{ .repr = Val.Repr{ .i64 = 123 } },
         result,
     );
 }
 
 test "build with Symbol returns a symbol" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = Vm.init(.{ .allocator = std.testing.allocator });
     defer vm.deinit();
 
     const symbol = Symbol{ .data = "hello-world" };
     const result = try vm.builder().build(symbol);
 
-    try testing.expect(result.repr == .symbol);
-    try testing.expectFmt("hello-world", "{any}", .{vm.pretty(result)});
+    try std.testing.expect(result.repr == .symbol);
+    try std.testing.expectFmt("hello-world", "{any}", .{vm.inspector().pretty(result)});
 }
 
 test "build with Symbol.Interned returns a symbol" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = Vm.init(.{ .allocator = std.testing.allocator });
     defer vm.deinit();
 
     const symbol = Symbol{ .data = "test-symbol" };
     const interned = try vm.interner.intern(symbol);
     const result = try vm.builder().build(interned);
 
-    try testing.expect(result.repr == .symbol);
-    try testing.expectFmt("test-symbol", "{any}", .{vm.pretty(result)});
+    try std.testing.expect(result.repr == .symbol);
+    try std.testing.expectFmt("test-symbol", "{any}", .{vm.inspector().pretty(result)});
 }
 
 test "build with Cons creates cons val" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = Vm.init(.{ .allocator = std.testing.allocator });
     defer vm.deinit();
 
     const result = try vm.builder().build(Cons{
@@ -144,6 +143,6 @@ test "build with Cons creates cons val" {
         .cdr = try vm.builder().build(2)
     });
 
-    try testing.expect(result.repr == .cons);
-    try testing.expectFmt("(1 . 2)", "{any}", .{vm.pretty(result)});
+    try std.testing.expect(result.repr == .cons);
+    try std.testing.expectFmt("(1 . 2)", "{any}", .{vm.inspector().pretty(result)});
 }
