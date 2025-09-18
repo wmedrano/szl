@@ -8,6 +8,7 @@ const std = @import("std");
 const testing = std.testing;
 
 const Procedure = @import("Procedure.zig");
+const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
 
@@ -79,7 +80,7 @@ pub fn loadMany(vm: *Vm, vals: []const Val) !void {
 }
 
 /// Evaluates a procedure with the specified number of arguments.
-/// Creates a new stack frame, calls the procedure function, and restores the previous frame.
+/// Creates a new stack frame, executes the procedure implementation, and restores the previous frame.
 /// The procedure and its arguments are expected to be on the stack, with the procedure
 /// at the position just before the arguments.
 ///
@@ -94,13 +95,22 @@ pub fn eval_procedure(vm: *Vm, arg_count: usize) !void {
     try vm.stack_frames.append(vm.allocator, vm.current_stack_frame);
     vm.current_stack_frame = Vm.StackFrame{
         .stack_start = vm.stack.items.len - arg_count,
+        .instructions = &.{},
+        .instruction_idx = 0,
     };
     const procedure_idx = vm.current_stack_frame.stack_start - 1;
     const procedure = try vm.fromVal(Procedure, vm.stack.items[procedure_idx]);
-    const return_val = procedure.func(vm);
-    try vm.stack.resize(vm.allocator, procedure_idx + 1);
-    vm.stack.items[procedure_idx] = return_val;
-    vm.current_stack_frame = vm.stack_frames.pop() orelse return error.StackUnderflow;
+    switch (procedure.implementation) {
+        .native => |native| {
+            const return_val = native.func(vm);
+            try vm.stack.resize(vm.allocator, procedure_idx + 1);
+            vm.stack.items[procedure_idx] = return_val;
+            vm.current_stack_frame = vm.stack_frames.pop() orelse return error.StackUnderflow;
+        },
+        .bytecode => |bytecode| {
+            vm.current_stack_frame.instructions = bytecode.instructions;
+        },
+    }
 }
 
 test "execute load instruction pushes value onto stack" {
@@ -124,14 +134,14 @@ test "execute eval_procedure instruction calls procedure with arguments" {
 
     const test_procedure = Procedure{
         .name = null,
-        .func = struct {
+        .implementation = .{ .native = .{ .func = struct {
             fn addTwo(vm_ptr: *Vm) Val {
                 const args = Procedure.localStack(vm_ptr);
                 const val1 = vm_ptr.fromVal(i64, args[0]) catch unreachable;
                 const val2 = vm_ptr.fromVal(i64, args[1]) catch unreachable;
                 return Val.init(val1 + val2);
             }
-        }.addTwo,
+        }.addTwo } },
     };
     try loadMany(&vm, &.{
         try vm.toVal(test_procedure),
@@ -144,5 +154,71 @@ test "execute eval_procedure instruction calls procedure with arguments" {
         "(30)",
         "{f}",
         .{vm.inspector().prettySlice(vm.stack.items)},
+    );
+}
+
+test "execute bytecode procedure loads instructions into stack frame" {
+    var vm = Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const proc = try vm.toVal(Procedure{
+        .name = try vm.interner.internStatic(Symbol.init("test-bytecode")),
+        .implementation = .{
+            .bytecode = .{
+                .instructions = &[_]Instruction{
+                    Instruction{ .repr = .{ .load = Val.init(5) } },
+                    Instruction{ .repr = .{ .load = Val.init(7) } },
+                },
+            },
+        },
+    });
+    try load(&vm, proc);
+
+    try execute(Instruction{ .repr = .{ .eval_procedure = .{ .arg_count = 0 } } }, &vm);
+    try testing.expectEqualDeep(
+        Vm.StackFrame{
+            .stack_start = 1,
+            .instructions = &[_]Instruction{
+                Instruction{ .repr = .{ .load = Val.init(5) } },
+                Instruction{ .repr = .{ .load = Val.init(7) } },
+            },
+            .instruction_idx = 0,
+        },
+        vm.current_stack_frame,
+    );
+}
+
+test "execute bytecode procedure with arguments sets correct stack start" {
+    var vm = Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const proc = try vm.toVal(Procedure{
+        .name = try vm.interner.internStatic(Symbol.init("test-with-args")),
+        .implementation = .{
+            .bytecode = .{
+                .instructions = &[_]Instruction{
+                    Instruction{ .repr = .{ .load = Val.init(42) } },
+                },
+            },
+        },
+    });
+
+    try loadMany(&vm, &.{
+        proc,
+        Val.init(10),
+        Val.init(20),
+        Val.init(30),
+    });
+
+    try execute(Instruction{ .repr = .{ .eval_procedure = .{ .arg_count = 3 } } }, &vm);
+    try testing.expectEqualDeep(
+        Vm.StackFrame{
+            .stack_start = 1,
+            .instructions = &[_]Instruction{
+                Instruction{ .repr = .{ .load = Val.init(42) } },
+            },
+            .instruction_idx = 0,
+        },
+        vm.current_stack_frame,
     );
 }

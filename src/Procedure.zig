@@ -7,6 +7,7 @@
 const std = @import("std");
 const testing = std.testing;
 
+const Instruction = @import("Instruction.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
@@ -18,9 +19,34 @@ const Procedure = @This();
 /// debugging, and reflection.
 name: ?Symbol.Interned,
 
-/// The function implementation for this procedure.
-/// Takes a pointer to the VM and returns a value.
-func: *const fn (*Vm) Val,
+/// The implementation for this procedure.
+/// Can be either a native Zig function or compiled bytecode.
+implementation: Impl,
+
+/// Implementation types for procedures.
+/// Procedures can be implemented either as native Zig functions
+/// or as compiled bytecode instructions.
+pub const Impl = union(enum) {
+    /// Native Zig function implementation.
+    native: Native,
+    /// Bytecode implementation with compiled instructions.
+    bytecode: Bytecode,
+};
+
+/// Native Zig function wrapper for procedures.
+/// Contains a function pointer that takes a VM and returns a value.
+pub const Native = struct {
+    /// Function pointer that implements the procedure logic.
+    /// Takes a pointer to the VM and returns a value.
+    func: *const fn (*Vm) Val,
+};
+
+/// Bytecode implementation for procedures.
+/// Contains compiled instructions that will be executed by the VM.
+pub const Bytecode = struct {
+    /// Array of instructions that implement the procedure logic.
+    instructions: []const Instruction,
+};
 
 /// Gets the local stack slice for the current procedure call.
 /// Returns the portion of the VM's stack that contains the arguments

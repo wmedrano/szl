@@ -146,13 +146,13 @@ test "isTruthy returns true for procedure" {
     defer vm.deinit();
 
     const test_procedure = Procedure{
-        .name = try vm.interner.internStatic(@import("Symbol.zig").init("test-proc")),
-        .func = struct {
+        .name = try vm.interner.internStatic(Symbol.init("test-proc")),
+        .implementation = .{ .native = .{ .func = struct {
             fn testFunc(vm_ptr: *Vm) Val {
                 _ = vm_ptr;
                 return Val{ .repr = .{ .nil = {} } };
             }
-        }.testFunc,
+        }.testFunc } },
     };
     const procedure_handle = try vm.toVal(test_procedure);
 

@@ -368,9 +368,9 @@ test "slice formats as list" {
     defer vm.deinit();
 
     const vals = [_]Val{
-        Val{ .repr = .{ .i64 = 1 } },
-        Val{ .repr = .{ .i64 = 2 } },
-        Val{ .repr = .{ .i64 = 3 } },
+        Val.init(1),
+        Val.init(2),
+        Val.init(3),
     };
 
     const slice = Slice{ .vm = &vm, .vals = &vals };
