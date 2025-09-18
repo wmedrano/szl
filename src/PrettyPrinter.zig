@@ -47,6 +47,10 @@ pub fn format(
 fn formatValue(self: PrettyPrinter, writer: anytype, val: Val) anyerror!void {
     switch (val.repr) {
         .nil => try writer.writeAll("()"),
+        .boolean => |b| {
+            const s = if (b) "#t" else "#f";
+            try writer.print("{s}", .{s});
+        },
         .i64 => |n| try writer.print("{d}", .{n}),
         .symbol => |sym| {
             const symbol = self.vm.interner.get(sym) catch |err| switch (err) {
@@ -235,6 +239,72 @@ test "mixed types in list format correctly" {
 
     try std.testing.expectFmt(
         "(42 foo)",
+        "{}",
+        .{PrettyPrinter{ .vm = &vm, .val = val }},
+    );
+}
+
+test "boolean true formats as #t" {
+    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    defer vm.deinit();
+
+    const val = Val{ .repr = Val.Repr{ .boolean = true } };
+
+    try std.testing.expectFmt(
+        "#t",
+        "{}",
+        .{PrettyPrinter{ .vm = &vm, .val = val }},
+    );
+}
+
+test "boolean false formats as #f" {
+    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    defer vm.deinit();
+
+    const val = Val{ .repr = Val.Repr{ .boolean = false } };
+
+    try std.testing.expectFmt(
+        "#f",
+        "{}",
+        .{PrettyPrinter{ .vm = &vm, .val = val }},
+    );
+}
+
+test "boolean in cons pair formats correctly" {
+    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    defer vm.deinit();
+
+    const car = Val{ .repr = .{ .boolean = true } };
+    const cdr = Val{ .repr = .{ .boolean = false } };
+    const cons = Cons{ .car = car, .cdr = cdr };
+    const handle = try vm.cons.put(std.testing.allocator, cons);
+    const val = Val{ .repr = .{ .cons = handle } };
+
+    try std.testing.expectFmt(
+        "(#t . #f)",
+        "{}",
+        .{PrettyPrinter{ .vm = &vm, .val = val }},
+    );
+}
+
+test "boolean in mixed type list formats correctly" {
+    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    defer vm.deinit();
+
+    const nil = Val{ .repr = .{ .nil = {} } };
+    const bool_val = Val{ .repr = .{ .boolean = true } };
+    const number_val = Val{ .repr = .{ .i64 = 42 } };
+
+    const cdr_cons = Cons{ .car = bool_val, .cdr = nil };
+    const cdr_handle = try vm.cons.put(std.testing.allocator, cdr_cons);
+    const cdr_val = Val{ .repr = .{ .cons = cdr_handle } };
+
+    const car_cons = Cons{ .car = number_val, .cdr = cdr_val };
+    const car_handle = try vm.cons.put(std.testing.allocator, car_cons);
+    const val = Val{ .repr = .{ .cons = car_handle } };
+
+    try std.testing.expectFmt(
+        "(42 #t)",
         "{}",
         .{PrettyPrinter{ .vm = &vm, .val = val }},
     );

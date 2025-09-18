@@ -28,13 +28,13 @@ vm: *Vm,
 ///   A Val representing the converted value, or a compile error for unsupported types.
 ///
 /// Note:
-///   Currently only supports void type (converted to end_of_list).
-///   Additional type support will be added as needed.
+///   Currently supports void, bool, i64, Symbol, and Cons types.
 pub fn build(self: Builder, v: anytype) !Val {
     const type_info = @TypeOf(v);
     switch (type_info) {
         Val.Repr => return Val{ .repr = v },
         void => return self.build(Val.Repr{ .nil = {} }),
+        bool => return self.build(Val.Repr{ .boolean = v }),
         i64, comptime_int => return self.build(Val.Repr{ .i64 = v }),
         Symbol.Interned => return self.build(Val.Repr{ .symbol = v }),
         Symbol => return self.build(try self.vm.interner.intern(v)),
@@ -140,9 +140,33 @@ test "build with Cons creates cons val" {
 
     const result = try vm.builder().build(Cons{
         .car = try vm.builder().build(1),
-        .cdr = try vm.builder().build(2)
+        .cdr = try vm.builder().build(2),
     });
 
     try std.testing.expect(result.repr == .cons);
     try std.testing.expectFmt("(1 . 2)", "{any}", .{vm.inspector().pretty(result)});
+}
+
+test "build with bool true creates boolean val" {
+    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    defer vm.deinit();
+
+    const result = try vm.builder().build(true);
+
+    try std.testing.expectEqual(
+        Val{ .repr = Val.Repr{ .boolean = true } },
+        result,
+    );
+}
+
+test "build with bool false creates boolean val" {
+    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    defer vm.deinit();
+
+    const result = try vm.builder().build(false);
+
+    try std.testing.expectEqual(
+        Val{ .repr = Val.Repr{ .boolean = false } },
+        result,
+    );
 }

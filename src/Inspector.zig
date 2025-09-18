@@ -45,11 +45,15 @@ pub fn pretty(self: Inspector, val: Val) PrettyPrinter {
 ///   The converted value of type T, or an error if the conversion is not possible.
 ///
 /// Note:
-///   Currently supports void, i64, Symbol.Interned, and Handle(Cons).
+///   Currently supports void, bool, i64, Symbol.Interned, and Handle(Cons).
 pub fn to(self: Inspector, T: type, val: Val) !T {
     switch (val.repr) {
         .nil => switch (T) {
             void => return {},
+            else => return error.TypeMismatch,
+        },
+        .boolean => |b| switch (T) {
+            bool => return b,
             else => return error.TypeMismatch,
         },
         .i64 => |i| switch (T) {
@@ -84,9 +88,11 @@ test "to converts i64 to i64" {
     defer vm.deinit();
 
     const val = try vm.builder().build(@as(i64, 42));
-    const result = try vm.inspector().to(i64, val);
 
-    try std.testing.expectEqual(@as(i64, 42), result);
+    try std.testing.expectEqual(
+        @as(i64, 42),
+        try vm.inspector().to(i64, val),
+    );
 }
 
 test "to converts symbol to Symbol.Interned" {
@@ -164,6 +170,38 @@ test "to returns TypeMismatch for nil to non-void" {
     defer vm.deinit();
 
     const val = try vm.builder().build({});
+
+    try std.testing.expectError(
+        error.TypeMismatch,
+        vm.inspector().to(i64, val),
+    );
+}
+
+test "to converts boolean true to bool" {
+    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    defer vm.deinit();
+
+    const val = try vm.builder().build(true);
+    const result = try vm.inspector().to(bool, val);
+
+    try std.testing.expectEqual(true, result);
+}
+
+test "to converts boolean false to bool" {
+    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    defer vm.deinit();
+
+    const val = try vm.builder().build(false);
+    const result = try vm.inspector().to(bool, val);
+
+    try std.testing.expectEqual(false, result);
+}
+
+test "to returns TypeMismatch for boolean to non-bool" {
+    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    defer vm.deinit();
+
+    const val = try vm.builder().build(true);
 
     try std.testing.expectError(
         error.TypeMismatch,
