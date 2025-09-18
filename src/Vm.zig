@@ -7,10 +7,10 @@
 const std = @import("std");
 
 const Builder = @import("Builder.zig");
-const Cons = @import("Cons.zig");
 const Handle = @import("object_pool.zig").Handle;
 const Inspector = @import("Inspector.zig");
 const ObjectPool = @import("object_pool.zig").ObjectPool;
+const Pair = @import("Pair.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
@@ -19,7 +19,7 @@ const Vm = @This();
 
 allocator: std.mem.Allocator,
 interner: Symbol.Interner,
-cons: ObjectPool(Cons),
+cons: ObjectPool(Pair),
 
 /// Configuration options for initializing the virtual machine.
 pub const Options = struct {
@@ -40,7 +40,7 @@ pub fn init(options: Options) Vm {
     return Vm{
         .allocator = options.allocator,
         .interner = interner,
-        .cons = ObjectPool(Cons).init(),
+        .cons = ObjectPool(Pair).init(),
     };
 }
 

@@ -5,9 +5,9 @@
 
 const std = @import("std");
 
-const Cons = @import("Cons.zig");
 const object_pool = @import("object_pool.zig");
 const Handle = object_pool.Handle;
+const Pair = @import("Pair.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
@@ -28,7 +28,7 @@ vm: *Vm,
 ///   A Val representing the converted value, or a compile error for unsupported types.
 ///
 /// Note:
-///   Currently supports void, bool, i64, Symbol, and Cons types.
+///   Currently supports void, bool, i64, Symbol, and Pair types.
 pub fn build(self: Builder, v: anytype) !Val {
     const type_info = @TypeOf(v);
     switch (type_info) {
@@ -38,8 +38,8 @@ pub fn build(self: Builder, v: anytype) !Val {
         i64, comptime_int => return self.build(Val.Repr{ .i64 = v }),
         Symbol.Interned => return self.build(Val.Repr{ .symbol = v }),
         Symbol => return self.build(try self.vm.interner.intern(v)),
-        Handle(Cons) => return self.build(Val.Repr{ .cons = v }),
-        Cons => {
+        Handle(Pair) => return self.build(Val.Repr{ .cons = v }),
+        Pair => {
             const handle = try self.vm.cons.put(self.vm.allocator, v);
             return self.build(handle);
         },
@@ -134,11 +134,11 @@ test "build with Symbol.Interned returns a symbol" {
     try std.testing.expectFmt("test-symbol", "{any}", .{vm.inspector().pretty(result)});
 }
 
-test "build with Cons creates cons val" {
+test "build with Pair creates cons val" {
     var vm = Vm.init(.{ .allocator = std.testing.allocator });
     defer vm.deinit();
 
-    const result = try vm.builder().build(Cons{
+    const result = try vm.builder().build(Pair{
         .car = try vm.builder().build(1),
         .cdr = try vm.builder().build(2),
     });

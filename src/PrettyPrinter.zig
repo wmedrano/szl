@@ -6,7 +6,7 @@
 
 const std = @import("std");
 
-const Cons = @import("Cons.zig");
+const Pair = @import("Pair.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
@@ -74,7 +74,7 @@ fn formatValue(self: PrettyPrinter, writer: anytype, val: Val) anyerror!void {
     }
 }
 
-/// Formats the cdr (tail) part of a cons cell, handling proper list notation.
+/// Formats the cdr (tail) part of a pair, handling proper list notation.
 ///
 /// Args:
 ///   self: The PrettyPrinter instance.
@@ -145,7 +145,7 @@ test "cons pair formats with dot" {
 
     const car = Val{ .repr = .{ .i64 = 1 } };
     const cdr = Val{ .repr = .{ .i64 = 2 } };
-    const cons = Cons{ .car = car, .cdr = cdr };
+    const cons = Pair{ .car = car, .cdr = cdr };
     const handle = try vm.cons.put(std.testing.allocator, cons);
     const val = Val{ .repr = .{ .cons = handle } };
 
@@ -164,11 +164,11 @@ test "proper list formats without dots" {
     const two = Val{ .repr = .{ .i64 = 2 } };
     const one = Val{ .repr = .{ .i64 = 1 } };
 
-    const cdr_cons = Cons{ .car = two, .cdr = nil };
+    const cdr_cons = Pair{ .car = two, .cdr = nil };
     const cdr_handle = try vm.cons.put(std.testing.allocator, cdr_cons);
     const cdr_val = Val{ .repr = .{ .cons = cdr_handle } };
 
-    const car_cons = Cons{ .car = one, .cdr = cdr_val };
+    const car_cons = Pair{ .car = one, .cdr = cdr_val };
     const car_handle = try vm.cons.put(std.testing.allocator, car_cons);
     const val = Val{ .repr = .{ .cons = car_handle } };
 
@@ -187,11 +187,11 @@ test "nested cons structures format correctly" {
     const two = Val{ .repr = .{ .i64 = 2 } };
     const one = Val{ .repr = .{ .i64 = 1 } };
 
-    const inner_cons = Cons{ .car = two, .cdr = three };
+    const inner_cons = Pair{ .car = two, .cdr = three };
     const inner_handle = try vm.cons.put(std.testing.allocator, inner_cons);
     const inner_val = Val{ .repr = .{ .cons = inner_handle } };
 
-    const outer_cons = Cons{ .car = one, .cdr = inner_val };
+    const outer_cons = Pair{ .car = one, .cdr = inner_val };
     const outer_handle = try vm.cons.put(std.testing.allocator, outer_cons);
     const val = Val{ .repr = .{ .cons = outer_handle } };
 
@@ -209,7 +209,7 @@ test "single element list formats correctly" {
     const nil = Val{ .repr = .{ .nil = {} } };
     const one = Val{ .repr = .{ .i64 = 42 } };
 
-    const cons = Cons{ .car = one, .cdr = nil };
+    const cons = Pair{ .car = one, .cdr = nil };
     const handle = try vm.cons.put(std.testing.allocator, cons);
     const val = Val{ .repr = .{ .cons = handle } };
 
@@ -229,11 +229,11 @@ test "mixed types in list format correctly" {
     const symbol_val = Val{ .repr = .{ .symbol = symbol } };
     const number_val = Val{ .repr = .{ .i64 = 42 } };
 
-    const cdr_cons = Cons{ .car = symbol_val, .cdr = nil };
+    const cdr_cons = Pair{ .car = symbol_val, .cdr = nil };
     const cdr_handle = try vm.cons.put(std.testing.allocator, cdr_cons);
     const cdr_val = Val{ .repr = .{ .cons = cdr_handle } };
 
-    const car_cons = Cons{ .car = number_val, .cdr = cdr_val };
+    const car_cons = Pair{ .car = number_val, .cdr = cdr_val };
     const car_handle = try vm.cons.put(std.testing.allocator, car_cons);
     const val = Val{ .repr = .{ .cons = car_handle } };
 
@@ -276,7 +276,7 @@ test "boolean in cons pair formats correctly" {
 
     const car = Val{ .repr = .{ .boolean = true } };
     const cdr = Val{ .repr = .{ .boolean = false } };
-    const cons = Cons{ .car = car, .cdr = cdr };
+    const cons = Pair{ .car = car, .cdr = cdr };
     const handle = try vm.cons.put(std.testing.allocator, cons);
     const val = Val{ .repr = .{ .cons = handle } };
 
@@ -295,11 +295,11 @@ test "boolean in mixed type list formats correctly" {
     const bool_val = Val{ .repr = .{ .boolean = true } };
     const number_val = Val{ .repr = .{ .i64 = 42 } };
 
-    const cdr_cons = Cons{ .car = bool_val, .cdr = nil };
+    const cdr_cons = Pair{ .car = bool_val, .cdr = nil };
     const cdr_handle = try vm.cons.put(std.testing.allocator, cdr_cons);
     const cdr_val = Val{ .repr = .{ .cons = cdr_handle } };
 
-    const car_cons = Cons{ .car = number_val, .cdr = cdr_val };
+    const car_cons = Pair{ .car = number_val, .cdr = cdr_val };
     const car_handle = try vm.cons.put(std.testing.allocator, car_cons);
     const val = Val{ .repr = .{ .cons = car_handle } };
 

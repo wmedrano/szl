@@ -6,9 +6,9 @@
 
 const std = @import("std");
 
-const Cons = @import("Cons.zig");
 const object_pool = @import("object_pool.zig");
 const Handle = object_pool.Handle;
+const Pair = @import("Pair.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
@@ -45,7 +45,7 @@ pub fn pretty(self: Inspector, val: Val) PrettyPrinter {
 ///   The converted value of type T, or an error if the conversion is not possible.
 ///
 /// Note:
-///   Currently supports void, bool, i64, Symbol.Interned, and Handle(Cons).
+///   Currently supports void, bool, i64, Symbol.Interned, and Handle(Pair).
 pub fn to(self: Inspector, T: type, val: Val) !T {
     switch (val.repr) {
         .nil => switch (T) {
@@ -66,8 +66,8 @@ pub fn to(self: Inspector, T: type, val: Val) !T {
             else => return error.TypeMismatch,
         },
         .cons => |c| switch (T) {
-            Handle(Cons) => return c,
-            Cons => return self.vm.cons.get(c) orelse error.ObjectNotFound,
+            Handle(Pair) => return c,
+            Pair => return self.vm.cons.get(c) orelse error.ObjectNotFound,
             else => return error.TypeMismatch,
         },
     }
@@ -117,15 +117,15 @@ test "to converts symbol to Symbol" {
     try std.testing.expect(symbol.eql(result));
 }
 
-test "to converts cons to Handle(Cons)" {
+test "to converts cons to Handle(Pair)" {
     var vm = Vm.init(.{ .allocator = std.testing.allocator });
     defer vm.deinit();
 
-    const val = try vm.builder().build(Cons{
+    const val = try vm.builder().build(Pair{
         .car = try vm.builder().build(1),
         .cdr = try vm.builder().build(2),
     });
-    const result = try vm.inspector().to(Handle(Cons), val);
+    const result = try vm.inspector().to(Handle(Pair), val);
 
     // Verify we can retrieve the original cons through the handle
     const retrieved_cons = vm.cons.get(result) orelse return error.TestUnexpectedResult;
@@ -133,15 +133,15 @@ test "to converts cons to Handle(Cons)" {
     try std.testing.expectEqual(try vm.builder().build(2), retrieved_cons.cdr);
 }
 
-test "to converts cons to Cons" {
+test "to converts cons to Pair" {
     var vm = Vm.init(.{ .allocator = std.testing.allocator });
     defer vm.deinit();
 
-    const val = try vm.builder().build(Cons{
+    const val = try vm.builder().build(Pair{
         .car = try vm.builder().build(42),
         .cdr = try vm.builder().build({}),
     });
-    const result = try vm.inspector().to(Cons, val);
+    const result = try vm.inspector().to(Pair, val);
 
     try std.testing.expectEqual(
         vm.builder().build(42),

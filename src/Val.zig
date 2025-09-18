@@ -6,9 +6,9 @@
 
 const std = @import("std");
 
-const Cons = @import("Cons.zig");
 const object_pool = @import("object_pool.zig");
 const Handle = object_pool.Handle;
+const Pair = @import("Pair.zig");
 const Symbol = @import("Symbol.zig");
 const Vm = @import("Vm.zig");
 
@@ -38,9 +38,10 @@ pub const Repr = union(enum) {
     /// or are used for variable/function names when unquoted.
     symbol: Symbol.Interned,
 
-    /// Represents a cons cell (pair) using a handle to an object pool.
-    /// Cons cells are the fundamental building blocks for lists and pairs in Scheme.
-    cons: Handle(Cons),
+    /// Represents a pair using a handle to an object pool.
+    ///
+    /// Pairs are the fundamental building blocks for lists and pairs in Scheme.
+    cons: Handle(Pair),
 };
 
 /// Determines if a value is truthy according to Scheme semantics.
@@ -94,11 +95,11 @@ test "isTruthy returns true for symbols" {
     try std.testing.expectEqual(true, val.isTruthy());
 }
 
-test "isTruthy returns true for cons cells" {
+test "isTruthy returns true for pair" {
     var vm = Vm.init(.{ .allocator = std.testing.allocator });
     defer vm.deinit();
 
-    const cons_val = try vm.builder().build(@import("Cons.zig"){
+    const cons_val = try vm.builder().build(@import("Pair.zig"){
         .car = Val{ .repr = .{ .i64 = 1 } },
         .cdr = Val{ .repr = .{ .nil = {} } },
     });
