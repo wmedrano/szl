@@ -5,6 +5,7 @@
 //! of freed slots for optimal memory usage.
 
 const std = @import("std");
+const testing = std.testing;
 
 /// Creates a handle type for objects stored in the pool.
 /// Handles are lightweight references that contain only an index.
@@ -182,31 +183,31 @@ pub fn ObjectPool(T: type) type {
 
 test "get on created object returns object" {
     var pool = ObjectPool(i32).init();
-    defer pool.deinit(std.testing.allocator);
+    defer pool.deinit(testing.allocator);
 
-    const handle = try pool.put(std.testing.allocator, 42);
-    try std.testing.expectEqual(42, pool.get(handle));
+    const handle = try pool.put(testing.allocator, 42);
+    try testing.expectEqual(42, pool.get(handle));
 }
 
 test "get on deleted object returns null" {
     var pool = ObjectPool(i32).init();
-    defer pool.deinit(std.testing.allocator);
+    defer pool.deinit(testing.allocator);
 
-    const handle = try pool.put(std.testing.allocator, 42);
+    const handle = try pool.put(testing.allocator, 42);
 
-    try pool.delete(std.testing.allocator, handle);
-    try std.testing.expectEqual(null, pool.get(handle));
+    try pool.delete(testing.allocator, handle);
+    try testing.expectEqual(null, pool.get(handle));
 }
 
 test "delete + put recycles handle id" {
     var pool = ObjectPool(i32).init();
-    defer pool.deinit(std.testing.allocator);
+    defer pool.deinit(testing.allocator);
 
-    const handle1 = try pool.put(std.testing.allocator, 42);
+    const handle1 = try pool.put(testing.allocator, 42);
 
-    try pool.delete(std.testing.allocator, handle1);
-    const handle2 = try pool.put(std.testing.allocator, 200);
+    try pool.delete(testing.allocator, handle1);
+    const handle2 = try pool.put(testing.allocator, 200);
 
-    try std.testing.expectEqual(handle1.idx, handle2.idx);
-    try std.testing.expectEqual(200, pool.get(handle2));
+    try testing.expectEqual(handle1.idx, handle2.idx);
+    try testing.expectEqual(200, pool.get(handle2));
 }

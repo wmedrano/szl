@@ -1,4 +1,5 @@
 const std = @import("std");
+const testing = std.testing;
 
 /// A simple tokenizer for parsing text into spans.
 /// Handles parentheses as individual tokens and groups other characters into symbols.
@@ -91,86 +92,86 @@ fn eatSymbol(self: *Tokenizer) Span {
 
 test "empty input then returns null" {
     var tokenizer = init("");
-    try std.testing.expectEqual(null, tokenizer.nextText());
+    try testing.expectEqual(null, tokenizer.nextText());
 }
 
 test "single symbol then returns symbol" {
     var tokenizer = init("hello");
-    try std.testing.expectEqualStrings("hello", tokenizer.nextText().?);
-    try std.testing.expectEqual(null, tokenizer.nextText());
+    try testing.expectEqualStrings("hello", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
 }
 
 test "single opening parenthesis then returns parenthesis" {
     var tokenizer = init("(");
-    try std.testing.expectEqualStrings("(", tokenizer.nextText().?);
-    try std.testing.expectEqual(null, tokenizer.nextText());
+    try testing.expectEqualStrings("(", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
 }
 
 test "single closing parenthesis then returns parenthesis" {
     var tokenizer = init(")");
-    try std.testing.expectEqualStrings(")", tokenizer.nextText().?);
-    try std.testing.expectEqual(null, tokenizer.nextText());
+    try testing.expectEqualStrings(")", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
 }
 
 test "multiple symbols separated by spaces then returns each symbol" {
     var tokenizer = init("hello world foo");
-    try std.testing.expectEqualStrings("hello", tokenizer.nextText().?);
-    try std.testing.expectEqualStrings("world", tokenizer.nextText().?);
-    try std.testing.expectEqualStrings("foo", tokenizer.nextText().?);
-    try std.testing.expectEqual(null, tokenizer.nextText());
+    try testing.expectEqualStrings("hello", tokenizer.nextText().?);
+    try testing.expectEqualStrings("world", tokenizer.nextText().?);
+    try testing.expectEqualStrings("foo", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
 }
 
 test "mixed symbols and parentheses then returns tokens in order" {
     var tokenizer = init("(hello world)");
-    try std.testing.expectEqualStrings("(", tokenizer.nextText().?);
-    try std.testing.expectEqualStrings("hello", tokenizer.nextText().?);
-    try std.testing.expectEqualStrings("world", tokenizer.nextText().?);
-    try std.testing.expectEqualStrings(")", tokenizer.nextText().?);
-    try std.testing.expectEqual(null, tokenizer.nextText());
+    try testing.expectEqualStrings("(", tokenizer.nextText().?);
+    try testing.expectEqualStrings("hello", tokenizer.nextText().?);
+    try testing.expectEqualStrings("world", tokenizer.nextText().?);
+    try testing.expectEqualStrings(")", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
 }
 
 test "leading and trailing whitespace then ignores whitespace" {
     var tokenizer = init("   hello   world   ");
-    try std.testing.expectEqualStrings("hello", tokenizer.nextText().?);
-    try std.testing.expectEqualStrings("world", tokenizer.nextText().?);
-    try std.testing.expectEqual(null, tokenizer.nextText());
+    try testing.expectEqualStrings("hello", tokenizer.nextText().?);
+    try testing.expectEqualStrings("world", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
 }
 
 test "multiple whitespace types then treats all as whitespace" {
     var tokenizer = init("hello\t\n\r world");
-    try std.testing.expectEqualStrings("hello", tokenizer.nextText().?);
-    try std.testing.expectEqualStrings("world", tokenizer.nextText().?);
-    try std.testing.expectEqual(null, tokenizer.nextText());
+    try testing.expectEqualStrings("hello", tokenizer.nextText().?);
+    try testing.expectEqualStrings("world", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
 }
 
 test "consecutive parentheses then returns each parenthesis separately" {
     var tokenizer = init("())(");
-    try std.testing.expectEqualStrings("(", tokenizer.nextText().?);
-    try std.testing.expectEqualStrings(")", tokenizer.nextText().?);
-    try std.testing.expectEqualStrings(")", tokenizer.nextText().?);
-    try std.testing.expectEqualStrings("(", tokenizer.nextText().?);
-    try std.testing.expectEqual(null, tokenizer.nextText());
+    try testing.expectEqualStrings("(", tokenizer.nextText().?);
+    try testing.expectEqualStrings(")", tokenizer.nextText().?);
+    try testing.expectEqualStrings(")", tokenizer.nextText().?);
+    try testing.expectEqualStrings("(", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
 }
 
 test "symbol immediately followed by parenthesis then returns separate tokens" {
     var tokenizer = init("hello(world)foo");
-    try std.testing.expectEqualStrings("hello", tokenizer.nextText().?);
-    try std.testing.expectEqualStrings("(", tokenizer.nextText().?);
-    try std.testing.expectEqualStrings("world", tokenizer.nextText().?);
-    try std.testing.expectEqualStrings(")", tokenizer.nextText().?);
-    try std.testing.expectEqualStrings("foo", tokenizer.nextText().?);
-    try std.testing.expectEqual(null, tokenizer.nextText());
+    try testing.expectEqualStrings("hello", tokenizer.nextText().?);
+    try testing.expectEqualStrings("(", tokenizer.nextText().?);
+    try testing.expectEqualStrings("world", tokenizer.nextText().?);
+    try testing.expectEqualStrings(")", tokenizer.nextText().?);
+    try testing.expectEqualStrings("foo", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
 }
 
 test "next returns correct span indexes then span matches expected positions" {
     var tokenizer = init("hello world");
     const span1 = tokenizer.next().?;
-    try std.testing.expectEqual(0, span1.start);
-    try std.testing.expectEqual(5, span1.end);
+    try testing.expectEqual(0, span1.start);
+    try testing.expectEqual(5, span1.end);
 
     const span2 = tokenizer.next().?;
-    try std.testing.expectEqual(6, span2.start);
-    try std.testing.expectEqual(11, span2.end);
+    try testing.expectEqual(6, span2.start);
+    try testing.expectEqual(11, span2.end);
 
-    try std.testing.expectEqual(null, tokenizer.next());
+    try testing.expectEqual(null, tokenizer.next());
 }

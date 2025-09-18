@@ -5,6 +5,7 @@
 //! pretty-printed representations of values for debugging and display purposes.
 
 const std = @import("std");
+const testing = std.testing;
 
 const object_pool = @import("object_pool.zig");
 const Handle = object_pool.Handle;
@@ -74,136 +75,136 @@ pub fn to(self: Inspector, T: type, val: Val) !T {
 }
 
 test "to converts nil to void" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const val = try vm.builder().build({});
+    const val = try vm.toVal({});
     const result = try vm.inspector().to(void, val);
 
-    try std.testing.expectEqual({}, result);
+    try testing.expectEqual({}, result);
 }
 
 test "to converts i64 to i64" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const val = try vm.builder().build(@as(i64, 42));
+    const val = try vm.toVal(@as(i64, 42));
 
-    try std.testing.expectEqual(
-        @as(i64, 42),
+    try testing.expectEqual(
+        42,
         try vm.inspector().to(i64, val),
     );
 }
 
 test "to converts symbol to Symbol.Interned" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const symbol = Symbol{ .data = "test-symbol" };
-    const val = try vm.builder().build(symbol);
+    const val = try vm.toVal(symbol);
     const result = try vm.inspector().to(Symbol.Interned, val);
 
-    try std.testing.expectEqualDeep(symbol, try vm.interner.get(result));
+    try testing.expectEqualDeep(symbol, try vm.interner.get(result));
 }
 
 test "to converts symbol to Symbol" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const symbol = Symbol{ .data = "another-symbol" };
-    const val = try vm.builder().build(symbol);
+    const val = try vm.toVal(symbol);
     const result = try vm.inspector().to(Symbol, val);
 
-    try std.testing.expect(symbol.eql(result));
+    try testing.expect(symbol.eql(result));
 }
 
 test "to converts cons to Handle(Pair)" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const val = try vm.builder().build(Pair{
-        .car = try vm.builder().build(1),
-        .cdr = try vm.builder().build(2),
+    const val = try vm.toVal(Pair{
+        .car = try vm.toVal(1),
+        .cdr = try vm.toVal(2),
     });
     const result = try vm.inspector().to(Handle(Pair), val);
 
     // Verify we can retrieve the original cons through the handle
     const retrieved_cons = vm.pairs.get(result) orelse return error.TestUnexpectedResult;
-    try std.testing.expectEqual(try vm.builder().build(1), retrieved_cons.car);
-    try std.testing.expectEqual(try vm.builder().build(2), retrieved_cons.cdr);
+    try testing.expectEqual(try vm.toVal(1), retrieved_cons.car);
+    try testing.expectEqual(try vm.toVal(2), retrieved_cons.cdr);
 }
 
 test "to converts cons to Pair" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const val = try vm.builder().build(Pair{
-        .car = try vm.builder().build(42),
-        .cdr = try vm.builder().build({}),
+    const val = try vm.toVal(Pair{
+        .car = try vm.toVal(42),
+        .cdr = try vm.toVal({}),
     });
     const result = try vm.inspector().to(Pair, val);
 
-    try std.testing.expectEqual(
-        vm.builder().build(42),
+    try testing.expectEqual(
+        vm.toVal(42),
         result.car,
     );
-    try std.testing.expectEqual(
-        vm.builder().build({}),
+    try testing.expectEqual(
+        vm.toVal({}),
         result.cdr,
     );
 }
 
 test "to returns TypeMismatch for incompatible types" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const val = try vm.builder().build(42);
+    const val = try vm.toVal(42);
 
-    try std.testing.expectError(
+    try testing.expectError(
         error.TypeMismatch,
         vm.inspector().to(Symbol, val),
     );
 }
 
 test "to returns TypeMismatch for nil to non-void" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const val = try vm.builder().build({});
+    const val = try vm.toVal({});
 
-    try std.testing.expectError(
+    try testing.expectError(
         error.TypeMismatch,
         vm.inspector().to(i64, val),
     );
 }
 
 test "to converts boolean true to bool" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const val = try vm.builder().build(true);
+    const val = try vm.toVal(true);
     const result = try vm.inspector().to(bool, val);
 
-    try std.testing.expectEqual(true, result);
+    try testing.expectEqual(true, result);
 }
 
 test "to converts boolean false to bool" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const val = try vm.builder().build(false);
+    const val = try vm.toVal(false);
     const result = try vm.inspector().to(bool, val);
 
-    try std.testing.expectEqual(false, result);
+    try testing.expectEqual(false, result);
 }
 
 test "to returns TypeMismatch for boolean to non-bool" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const val = try vm.builder().build(true);
+    const val = try vm.toVal(true);
 
-    try std.testing.expectError(
+    try testing.expectError(
         error.TypeMismatch,
         vm.inspector().to(i64, val),
     );

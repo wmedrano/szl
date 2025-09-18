@@ -5,6 +5,7 @@
 //! by reference rather than string comparison. This is a critical optimization
 //! for Lisp-family languages where symbol comparison is frequent.
 const std = @import("std");
+const testing = std.testing;
 
 const Symbol = @This();
 
@@ -148,47 +149,47 @@ pub const Interned = struct {
 };
 
 test "internStatic uses passed in symbol" {
-    var interner = Interner.init(std.testing.allocator);
+    var interner = Interner.init(testing.allocator);
     defer interner.deinit();
 
     const symbol = Symbol{ .data = "test-symbol" };
     const interned = try interner.internStatic(symbol);
     const retrieved = try interner.get(interned);
 
-    try std.testing.expectEqual(symbol, retrieved);
+    try testing.expectEqual(symbol, retrieved);
 }
 
 test "intern creates a new symbol" {
-    var interner = Interner.init(std.testing.allocator);
+    var interner = Interner.init(testing.allocator);
     defer interner.deinit();
 
     const symbol = Symbol{ .data = "test-symbol" };
     const interned = try interner.intern(symbol);
     const retrieved = try interner.get(interned);
 
-    try std.testing.expect(!std.meta.eql(symbol, retrieved));
+    try testing.expect(!std.meta.eql(symbol, retrieved));
 }
 
 test "intern creates a string that is equivalent" {
-    var interner = Interner.init(std.testing.allocator);
+    var interner = Interner.init(testing.allocator);
     defer interner.deinit();
 
     const symbol = Symbol{ .data = "test-symbol" };
     const interned = try interner.intern(symbol);
     const retrieved = try interner.get(interned);
 
-    try std.testing.expect(symbol.eql(retrieved));
+    try testing.expect(symbol.eql(retrieved));
 }
 
 test "two symbols with same content are equivalent but different instances" {
-    const data1 = try std.testing.allocator.dupe(u8, "test-symbol");
-    defer std.testing.allocator.free(data1);
-    const data2 = try std.testing.allocator.dupe(u8, "test-symbol");
-    defer std.testing.allocator.free(data2);
+    const data1 = try testing.allocator.dupe(u8, "test-symbol");
+    defer testing.allocator.free(data1);
+    const data2 = try testing.allocator.dupe(u8, "test-symbol");
+    defer testing.allocator.free(data2);
 
     const symbol1 = Symbol{ .data = data1 };
     const symbol2 = Symbol{ .data = data2 };
 
-    try std.testing.expect(symbol1.eql(symbol2));
-    try std.testing.expect(data1.ptr != data2.ptr);
+    try testing.expect(symbol1.eql(symbol2));
+    try testing.expect(data1.ptr != data2.ptr);
 }

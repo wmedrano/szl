@@ -5,6 +5,7 @@
 //! efficiently handle the dynamic typing inherent in Scheme.
 
 const std = @import("std");
+const testing = std.testing;
 
 const object_pool = @import("object_pool.zig");
 const Handle = object_pool.Handle;
@@ -80,17 +81,17 @@ pub fn isTruthy(self: Val) bool {
 
 test "isTruthy returns false for boolean false" {
     const val = Val{ .repr = .{ .boolean = false } };
-    try std.testing.expectEqual(false, val.isTruthy());
+    try testing.expectEqual(false, val.isTruthy());
 }
 
 test "isTruthy returns true for boolean true" {
     const val = Val{ .repr = .{ .boolean = true } };
-    try std.testing.expectEqual(true, val.isTruthy());
+    try testing.expectEqual(true, val.isTruthy());
 }
 
 test "isTruthy returns true for nil" {
     const val = Val{ .repr = .{ .nil = {} } };
-    try std.testing.expectEqual(true, val.isTruthy());
+    try testing.expectEqual(true, val.isTruthy());
 }
 
 test "isTruthy returns true for numbers" {
@@ -98,29 +99,29 @@ test "isTruthy returns true for numbers" {
     const val_positive = Val{ .repr = .{ .i64 = 42 } };
     const val_negative = Val{ .repr = .{ .i64 = -5 } };
 
-    try std.testing.expectEqual(true, val_zero.isTruthy());
-    try std.testing.expectEqual(true, val_positive.isTruthy());
-    try std.testing.expectEqual(true, val_negative.isTruthy());
+    try testing.expectEqual(true, val_zero.isTruthy());
+    try testing.expectEqual(true, val_positive.isTruthy());
+    try testing.expectEqual(true, val_negative.isTruthy());
 }
 
 test "isTruthy returns true for symbols" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const symbol = try vm.interner.internStatic(@import("Symbol.zig").init("test"));
     const val = Val{ .repr = .{ .symbol = symbol } };
 
-    try std.testing.expectEqual(true, val.isTruthy());
+    try testing.expectEqual(true, val.isTruthy());
 }
 
 test "isTruthy returns true for pair" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const cons_val = try vm.builder().build(@import("Pair.zig"){
+    const cons_val = try vm.toVal(@import("Pair.zig"){
         .car = Val{ .repr = .{ .i64 = 1 } },
         .cdr = Val{ .repr = .{ .nil = {} } },
     });
 
-    try std.testing.expectEqual(true, cons_val.isTruthy());
+    try testing.expectEqual(true, cons_val.isTruthy());
 }

@@ -4,10 +4,12 @@
 //! Zig types to the dynamic value system used by the Scheme interpreter.
 
 const std = @import("std");
+const testing = std.testing;
 
 const object_pool = @import("object_pool.zig");
 const Handle = object_pool.Handle;
 const Pair = @import("Pair.zig");
+const Reader = @import("Reader.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
@@ -45,79 +47,116 @@ pub fn build(self: Builder, v: anytype) !Val {
     }
 }
 
+/// Creates a new Reader for parsing Scheme source code.
+///
+/// This function initializes a Reader that can parse multiple values from
+/// the provided source text. The Reader uses this Builder's VM instance
+/// for value creation and symbol interning during parsing.
+///
+/// Args:
+///   self: The Builder instance.
+///   source: The Scheme source code to parse.
+///
+/// Returns:
+///   A Reader instance ready to parse the source text.
+pub fn read(self: Builder, source: []const u8) Reader {
+    return Reader.init(self.vm, source);
+}
+
+/// Parses exactly one value from Scheme source code.
+///
+/// This is a convenience function that creates a Reader and parses exactly
+/// one value from the source text. It validates that the source contains
+/// exactly one parseable value - no more, no less.
+///
+/// Args:
+///   self: The Builder instance.
+///   source: The Scheme source code to parse.
+///
+/// Returns:
+///   The parsed value if successful.
+///
+/// Errors:
+///   - NoValue: If the source contains no parseable values.
+///   - TooManyValues: If the source contains more than one value.
+///   - BadExpression: If the source contains malformed expressions.
+pub fn readOne(self: Builder, source: []const u8) !Val {
+    return Reader.readOne(self.vm, source);
+}
+
 test "build with void is end_of_list" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
-    try std.testing.expectEqual(
+    try testing.expectEqual(
         Val{ .repr = Val.Repr{ .nil = {} } },
         try vm.builder().build({}),
     );
 }
 
 test "build with Symbol creates symbol val" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const symbol = Symbol{ .data = "test-symbol" };
     const result = try vm.builder().build(symbol);
 
-    try std.testing.expect(result.repr == .symbol);
-    try std.testing.expect(@TypeOf(result.repr.symbol) == Symbol.Interned);
-    try std.testing.expect(
+    try testing.expect(result.repr == .symbol);
+    try testing.expect(@TypeOf(result.repr.symbol) == Symbol.Interned);
+    try testing.expect(
         symbol.eql(try vm.interner.get(result.repr.symbol)),
     );
 }
 
 test "build with Symbol.Interned creates symbol val" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const symbol = Symbol{ .data = "interned-symbol" };
     const interned = try vm.interner.intern(symbol);
     const result = try vm.builder().build(interned);
 
-    try std.testing.expect(result.repr == .symbol);
-    try std.testing.expect(@TypeOf(result.repr.symbol) == Symbol.Interned);
-    try std.testing.expectEqual(
+    try testing.expect(result.repr == .symbol);
+    try testing.expect(@TypeOf(result.repr.symbol) == Symbol.Interned);
+    try testing.expectEqual(
         interned,
         result.repr.symbol,
     );
 }
 
 test "build with i64 creates i64 val" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const value: i64 = 42;
     const result = try vm.builder().build(value);
 
-    try std.testing.expectEqual(
+    try testing.expectEqual(
         Val{ .repr = Val.Repr{ .i64 = 42 } },
         result,
     );
 }
 
 test "build with comptime_int creates i64 val" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try vm.builder().build(123);
 
-    try std.testing.expectEqual(
+    try testing.expectEqual(
         Val{ .repr = Val.Repr{ .i64 = 123 } },
         result,
     );
 }
 
 test "build with Symbol returns a symbol" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const symbol = Symbol{ .data = "hello-world" };
     const result = try vm.builder().build(symbol);
 
-    try std.testing.expect(result.repr == .symbol);
-    try std.testing.expectFmt(
+    try testing.expect(result.repr == .symbol);
+    try testing.expectFmt(
         "hello-world",
         "{f}",
         .{vm.inspector().pretty(result)},
@@ -125,15 +164,15 @@ test "build with Symbol returns a symbol" {
 }
 
 test "build with Symbol.Interned returns a symbol" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const symbol = Symbol{ .data = "test-symbol" };
     const interned = try vm.interner.intern(symbol);
     const result = try vm.builder().build(interned);
 
-    try std.testing.expect(result.repr == .symbol);
-    try std.testing.expectFmt(
+    try testing.expect(result.repr == .symbol);
+    try testing.expectFmt(
         "test-symbol",
         "{f}",
         .{vm.inspector().pretty(result)},
@@ -141,7 +180,7 @@ test "build with Symbol.Interned returns a symbol" {
 }
 
 test "build with Pair creates cons val" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try vm.builder().build(Pair{
@@ -149,8 +188,8 @@ test "build with Pair creates cons val" {
         .cdr = try vm.builder().build(2),
     });
 
-    try std.testing.expect(result.repr == .pair);
-    try std.testing.expectFmt(
+    try testing.expect(result.repr == .pair);
+    try testing.expectFmt(
         "(1 . 2)",
         "{f}",
         .{vm.inspector().pretty(result)},
@@ -158,76 +197,76 @@ test "build with Pair creates cons val" {
 }
 
 test "build with bool true creates boolean val" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try vm.builder().build(true);
 
-    try std.testing.expectEqual(
+    try testing.expectEqual(
         Val{ .repr = Val.Repr{ .boolean = true } },
         result,
     );
 }
 
 test "build with bool false creates boolean val" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try vm.builder().build(false);
 
-    try std.testing.expectEqual(
+    try testing.expectEqual(
         Val{ .repr = Val.Repr{ .boolean = false } },
         result,
     );
 }
 
 test "build with empty []Val creates nil" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const empty_array: []Val = &.{};
     const result = try vm.builder().build(empty_array);
 
-    try std.testing.expectEqual(
+    try testing.expectEqual(
         Val{ .repr = Val.Repr{ .nil = {} } },
         result,
     );
 }
 
 test "build with empty []const Val creates nil" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const empty_array: []const Val = &.{};
     const result = try vm.builder().build(empty_array);
 
-    try std.testing.expectEqual(
+    try testing.expectEqual(
         Val{ .repr = Val.Repr{ .nil = {} } },
         result,
     );
 }
 
 test "build with single element []Val creates proper list" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const array: []const Val = &.{try vm.builder().build(42)};
     const result = try vm.builder().build(array);
 
-    try std.testing.expect(result.repr == .pair);
+    try testing.expect(result.repr == .pair);
     const pair = try vm.inspector().to(Pair, result);
-    try std.testing.expectEqual(
+    try testing.expectEqual(
         try vm.builder().build(42),
         pair.car,
     );
-    try std.testing.expectEqual(
+    try testing.expectEqual(
         try vm.builder().build({}),
         pair.cdr,
     );
 }
 
 test "build with multiple element []Val creates proper list" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const array: []const Val = &.{
@@ -238,29 +277,29 @@ test "build with multiple element []Val creates proper list" {
     const result = try vm.builder().build(array);
 
     // Check that result is a proper list: (1 2 3)
-    try std.testing.expect(result.repr == .pair);
+    try testing.expect(result.repr == .pair);
 
     const first_pair = try vm.inspector().to(Pair, result);
-    try std.testing.expectEqual(
+    try testing.expectEqual(
         try vm.builder().build(1),
         first_pair.car,
     );
 
-    try std.testing.expect(first_pair.cdr.repr == .pair);
+    try testing.expect(first_pair.cdr.repr == .pair);
     const second_pair = try vm.inspector().to(Pair, first_pair.cdr);
-    try std.testing.expectEqual(
+    try testing.expectEqual(
         try vm.builder().build(2),
         second_pair.car,
     );
 
-    try std.testing.expect(second_pair.cdr.repr == .pair);
+    try testing.expect(second_pair.cdr.repr == .pair);
     const third_pair = try vm.inspector().to(Pair, second_pair.cdr);
-    try std.testing.expectEqual(
+    try testing.expectEqual(
         try vm.builder().build(3),
         third_pair.car,
     );
 
-    try std.testing.expectEqual(
+    try testing.expectEqual(
         try vm.builder().build({}),
         third_pair.cdr,
     );

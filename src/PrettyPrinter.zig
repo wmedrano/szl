@@ -5,6 +5,7 @@
 //! system and handles all value types including lists, symbols, and numbers.
 
 const std = @import("std");
+const testing = std.testing;
 
 const Pair = @import("Pair.zig");
 const Symbol = @import("Symbol.zig");
@@ -96,12 +97,12 @@ fn formatCdr(self: PrettyPrinter, writer: anytype, cdr: Val) !void {
 }
 
 test "int formats as int" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const val = Val{ .repr = Val.Repr{ .i64 = 42 } };
 
-    try std.testing.expectFmt(
+    try testing.expectFmt(
         "42",
         "{f}",
         .{PrettyPrinter{ .vm = &vm, .val = val }},
@@ -109,12 +110,12 @@ test "int formats as int" {
 }
 
 test "nil formats as empty list" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const val = Val{ .repr = Val.Repr{ .nil = {} } };
 
-    try std.testing.expectFmt(
+    try testing.expectFmt(
         "()",
         "{f}",
         .{PrettyPrinter{ .vm = &vm, .val = val }},
@@ -122,12 +123,12 @@ test "nil formats as empty list" {
 }
 
 test "symbol formats as text" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const symbol = try vm.interner.internStatic(Symbol.init("test-symbol"));
     const val = Val{ .repr = .{ .symbol = symbol } };
-    try std.testing.expectFmt(
+    try testing.expectFmt(
         "test-symbol",
         "{f}",
         .{PrettyPrinter{ .vm = &vm, .val = val }},
@@ -135,16 +136,16 @@ test "symbol formats as text" {
 }
 
 test "cons pair formats with dot" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const car = Val{ .repr = .{ .i64 = 1 } };
     const cdr = Val{ .repr = .{ .i64 = 2 } };
     const cons = Pair{ .car = car, .cdr = cdr };
-    const handle = try vm.pairs.put(std.testing.allocator, cons);
+    const handle = try vm.pairs.put(testing.allocator, cons);
     const val = Val{ .repr = .{ .pair = handle } };
 
-    try std.testing.expectFmt(
+    try testing.expectFmt(
         "(1 . 2)",
         "{f}",
         .{PrettyPrinter{ .vm = &vm, .val = val }},
@@ -152,7 +153,7 @@ test "cons pair formats with dot" {
 }
 
 test "proper list formats without dots" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const nil = Val{ .repr = .{ .nil = {} } };
@@ -160,14 +161,14 @@ test "proper list formats without dots" {
     const one = Val{ .repr = .{ .i64 = 1 } };
 
     const cdr_cons = Pair{ .car = two, .cdr = nil };
-    const cdr_handle = try vm.pairs.put(std.testing.allocator, cdr_cons);
+    const cdr_handle = try vm.pairs.put(testing.allocator, cdr_cons);
     const cdr_val = Val{ .repr = .{ .pair = cdr_handle } };
 
     const car_cons = Pair{ .car = one, .cdr = cdr_val };
-    const car_handle = try vm.pairs.put(std.testing.allocator, car_cons);
+    const car_handle = try vm.pairs.put(testing.allocator, car_cons);
     const val = Val{ .repr = .{ .pair = car_handle } };
 
-    try std.testing.expectFmt(
+    try testing.expectFmt(
         "(1 2)",
         "{f}",
         .{PrettyPrinter{ .vm = &vm, .val = val }},
@@ -175,7 +176,7 @@ test "proper list formats without dots" {
 }
 
 test "nested cons structures format correctly" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const three = Val{ .repr = .{ .i64 = 3 } };
@@ -183,14 +184,14 @@ test "nested cons structures format correctly" {
     const one = Val{ .repr = .{ .i64 = 1 } };
 
     const inner_cons = Pair{ .car = two, .cdr = three };
-    const inner_handle = try vm.pairs.put(std.testing.allocator, inner_cons);
+    const inner_handle = try vm.pairs.put(testing.allocator, inner_cons);
     const inner_val = Val{ .repr = .{ .pair = inner_handle } };
 
     const outer_cons = Pair{ .car = one, .cdr = inner_val };
-    const outer_handle = try vm.pairs.put(std.testing.allocator, outer_cons);
+    const outer_handle = try vm.pairs.put(testing.allocator, outer_cons);
     const val = Val{ .repr = .{ .pair = outer_handle } };
 
-    try std.testing.expectFmt(
+    try testing.expectFmt(
         "(1 2 . 3)",
         "{f}",
         .{PrettyPrinter{ .vm = &vm, .val = val }},
@@ -198,17 +199,17 @@ test "nested cons structures format correctly" {
 }
 
 test "single element list formats correctly" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const nil = Val{ .repr = .{ .nil = {} } };
     const one = Val{ .repr = .{ .i64 = 42 } };
 
     const cons = Pair{ .car = one, .cdr = nil };
-    const handle = try vm.pairs.put(std.testing.allocator, cons);
+    const handle = try vm.pairs.put(testing.allocator, cons);
     const val = Val{ .repr = .{ .pair = handle } };
 
-    try std.testing.expectFmt(
+    try testing.expectFmt(
         "(42)",
         "{f}",
         .{PrettyPrinter{ .vm = &vm, .val = val }},
@@ -216,7 +217,7 @@ test "single element list formats correctly" {
 }
 
 test "mixed types in list format correctly" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const nil = Val{ .repr = .{ .nil = {} } };
@@ -225,14 +226,14 @@ test "mixed types in list format correctly" {
     const number_val = Val{ .repr = .{ .i64 = 42 } };
 
     const cdr_cons = Pair{ .car = symbol_val, .cdr = nil };
-    const cdr_handle = try vm.pairs.put(std.testing.allocator, cdr_cons);
+    const cdr_handle = try vm.pairs.put(testing.allocator, cdr_cons);
     const cdr_val = Val{ .repr = .{ .pair = cdr_handle } };
 
     const car_cons = Pair{ .car = number_val, .cdr = cdr_val };
-    const car_handle = try vm.pairs.put(std.testing.allocator, car_cons);
+    const car_handle = try vm.pairs.put(testing.allocator, car_cons);
     const val = Val{ .repr = .{ .pair = car_handle } };
 
-    try std.testing.expectFmt(
+    try testing.expectFmt(
         "(42 foo)",
         "{f}",
         .{PrettyPrinter{ .vm = &vm, .val = val }},
@@ -240,12 +241,12 @@ test "mixed types in list format correctly" {
 }
 
 test "boolean true formats as #t" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const val = Val{ .repr = Val.Repr{ .boolean = true } };
 
-    try std.testing.expectFmt(
+    try testing.expectFmt(
         "#t",
         "{f}",
         .{PrettyPrinter{ .vm = &vm, .val = val }},
@@ -253,12 +254,12 @@ test "boolean true formats as #t" {
 }
 
 test "boolean false formats as #f" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const val = Val{ .repr = Val.Repr{ .boolean = false } };
 
-    try std.testing.expectFmt(
+    try testing.expectFmt(
         "#f",
         "{f}",
         .{PrettyPrinter{ .vm = &vm, .val = val }},
@@ -266,16 +267,16 @@ test "boolean false formats as #f" {
 }
 
 test "boolean in cons pair formats correctly" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const car = Val{ .repr = .{ .boolean = true } };
     const cdr = Val{ .repr = .{ .boolean = false } };
     const cons = Pair{ .car = car, .cdr = cdr };
-    const handle = try vm.pairs.put(std.testing.allocator, cons);
+    const handle = try vm.pairs.put(testing.allocator, cons);
     const val = Val{ .repr = .{ .pair = handle } };
 
-    try std.testing.expectFmt(
+    try testing.expectFmt(
         "(#t . #f)",
         "{f}",
         .{PrettyPrinter{ .vm = &vm, .val = val }},
@@ -283,7 +284,7 @@ test "boolean in cons pair formats correctly" {
 }
 
 test "boolean in mixed type list formats correctly" {
-    var vm = Vm.init(.{ .allocator = std.testing.allocator });
+    var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const nil = Val{ .repr = .{ .nil = {} } };
@@ -291,14 +292,14 @@ test "boolean in mixed type list formats correctly" {
     const number_val = Val{ .repr = .{ .i64 = 42 } };
 
     const cdr_cons = Pair{ .car = bool_val, .cdr = nil };
-    const cdr_handle = try vm.pairs.put(std.testing.allocator, cdr_cons);
+    const cdr_handle = try vm.pairs.put(testing.allocator, cdr_cons);
     const cdr_val = Val{ .repr = .{ .pair = cdr_handle } };
 
     const car_cons = Pair{ .car = number_val, .cdr = cdr_val };
-    const car_handle = try vm.pairs.put(std.testing.allocator, car_cons);
+    const car_handle = try vm.pairs.put(testing.allocator, car_cons);
     const val = Val{ .repr = .{ .pair = car_handle } };
 
-    try std.testing.expectFmt(
+    try testing.expectFmt(
         "(42 #t)",
         "{f}",
         .{PrettyPrinter{ .vm = &vm, .val = val }},
