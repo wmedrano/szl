@@ -159,6 +159,20 @@ pub const Interned = struct {
     /// Unique identifier for this interned symbol.
     /// Symbols with the same ID are guaranteed to have identical string content.
     id: u32,
+
+    /// Compares two interned symbols for equality based on their ID.
+    /// Since interned symbols with the same ID are guaranteed to have identical content,
+    /// this comparison is much faster than string comparison.
+    ///
+    /// Args:
+    ///   self: The first interned symbol to compare.
+    ///   other: The second interned symbol to compare.
+    ///
+    /// Returns:
+    ///   true if the symbols have the same ID, false otherwise.
+    pub fn eql(self: Interned, other: Interned) bool {
+        return self.id == other.id;
+    }
 };
 
 test "internStatic uses passed in symbol" {

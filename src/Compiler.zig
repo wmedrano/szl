@@ -16,8 +16,21 @@ const Compiler = @This();
 
 /// The virtual machine instance to compile for.
 vm: *Vm,
+/// Cached interned symbols used during compilation for efficient lookups.
+symbols: SymbolTable,
 /// Accumulated instructions during compilation.
 instructions: std.ArrayList(Instruction) = .{},
+
+/// Table of commonly used symbols that are pre-interned for efficient compilation.
+///
+/// This struct contains interned versions of symbols that the compiler needs
+/// to recognize and handle specially during compilation. By pre-interning these
+/// symbols, the compiler can perform fast symbol comparisons without needing
+/// to intern symbols repeatedly during compilation.
+const SymbolTable = struct {
+    define: Symbol.Interned,
+    @"szl-define": Symbol.Interned,
+};
 
 /// Errors that can occur during compilation.
 pub const Error = error{
@@ -36,7 +49,10 @@ pub const Error = error{
 /// Returns:
 ///   A procedure value containing the compiled bytecode, or an error if compilation fails.
 pub fn compile(vm: *Vm, expr: Val) Error!Val {
-    var compiler = Compiler{ .vm = vm };
+    var compiler = Compiler{
+        .vm = vm,
+        .symbols = try vm.builder().symbolTable(SymbolTable),
+    };
     defer compiler.deinit();
     try compiler.compileOne(expr);
     const instructions = try compiler.instructions.toOwnedSlice(vm.allocator);
@@ -109,6 +125,9 @@ fn compileSymbol(self: *Compiler, symbol: Symbol.Interned) Error!void {
 /// Returns:
 ///   An error if any part of the expression cannot be compiled.
 fn compileExpression(self: *Compiler, leading: Val, args: Val) Error!void {
+    if (self.vm.fromVal(Symbol.Interned, leading) catch null) |sym| {
+        if (self.symbols.define.eql(sym)) return self.compileDefine(args);
+    }
     try self.compileOne(leading);
     var next_args = args;
     var arg_count: usize = 0;
@@ -120,6 +139,26 @@ fn compileExpression(self: *Compiler, leading: Val, args: Val) Error!void {
         arg_count += 1;
     }
     try self.addInstruction(Instruction.initEvalProcedure(arg_count));
+}
+
+/// Compiles a define expression into bytecode instructions.
+///
+/// Args:
+///   self: The compiler instance.
+///   args: The arguments to the define expression (symbol and value).
+///
+/// Returns:
+///   An error if the arguments are invalid or compilation fails.
+fn compileDefine(self: *Compiler, args: Val) Error!void {
+    var pair = self.vm.fromVal(Pair, args) catch return Error.InvalidExpression;
+    const define_sym = self.vm.fromVal(Symbol.Interned, pair.car) catch return Error.InvalidExpression;
+    pair = self.vm.fromVal(Pair, pair.cdr) catch return Error.InvalidExpression;
+    const define_expr = pair.car;
+    if (!pair.cdr.isNil()) return Error.InvalidExpression;
+    try self.addInstruction(Instruction.initGetGlobal(self.symbols.@"szl-define"));
+    try self.addInstruction(Instruction.initLoad(Val.init(define_sym)));
+    try self.compileOne(define_expr);
+    try self.addInstruction(Instruction.initEvalProcedure(2));
 }
 
 test "compile with expression is function call" {
@@ -155,6 +194,23 @@ test "compile with nested expression is multiple function calls" {
             Instruction.initLoad(Val.init(4)),
             Instruction.initEvalProcedure(2),
             Instruction.initEvalProcedure(3),
+        },
+        proc.implementation.bytecode.instructions,
+    );
+}
+
+test "compile define expression" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+    const expr = try vm.builder().readOne("(define x 42)");
+    const proc = try vm.fromVal(Procedure, try compile(&vm, expr));
+
+    try testing.expectEqualDeep(
+        &[_]Instruction{
+            Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("szl-define"))),
+            Instruction.initLoad(Val.init(try vm.builder().internStatic(Symbol.init("x")))),
+            Instruction.initLoad(Val.init(42)),
+            Instruction.initEvalProcedure(2),
         },
         proc.implementation.bytecode.instructions,
     );

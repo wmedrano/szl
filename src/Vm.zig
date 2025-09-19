@@ -205,6 +205,20 @@ pub fn evalStr(self: *Vm, source: []const u8) !Val {
     return ret;
 }
 
+test evalStr {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        try vm.evalStr("(define x 40)"),
+        Val.init({}),
+    );
+    try testing.expectEqual(
+        try vm.evalStr("(+ x 2)"),
+        Val.init(42),
+    );
+}
+
 /// Evaluates a compiled procedure (thunk) by executing its bytecode instructions.
 ///
 /// Loads the procedure into the VM's execution environment and runs it to completion,

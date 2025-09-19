@@ -138,6 +138,56 @@ pub fn internStatic(self: Builder, symbol: Symbol) !Symbol.Interned {
     return self.vm.interner.internStatic(symbol);
 }
 
+/// Creates a symbol table struct with all fields automatically interned.
+///
+/// This function takes a struct type with Symbol.Interned fields and returns
+/// an instance where each field is populated with the interned version of
+/// a symbol created from the field's name. This is useful for creating
+/// collections of commonly used symbols that can be efficiently accessed
+/// throughout the program.
+///
+/// The struct type T must have all fields of type Symbol.Interned. Each field
+/// name will be converted to a Symbol and then interned using internStatic(),
+/// which assumes the field names have static lifetime (no copying required).
+///
+/// Example:
+///   const Operators = struct {
+///       add: Symbol.Interned,
+///       subtract: Symbol.Interned,
+///   };
+///   const ops = try builder.symbolTable(Operators);
+///   // ops.add contains the interned symbol for "add"
+///   // ops.subtract contains the interned symbol for "subtract"
+///
+/// Args:
+///   self: The Builder instance.
+///   T: A struct type where all fields are of type Symbol.Interned.
+///
+/// Returns:
+///   An instance of T with all fields populated with interned symbols.
+///
+/// Errors:
+///   Returns an error if symbol interning fails.
+pub fn symbolTable(self: Builder, T: anytype) !T {
+    var symbol_table: T = undefined;
+    const type_info = @typeInfo(T);
+    if (type_info != .@"struct") {
+        @compileError("symbolTable expects a struct type but found" ++
+            @typeName(type_info));
+    }
+
+    inline for (type_info.@"struct".fields) |field| {
+        if (field.type != Symbol.Interned) {
+            @compileError("All fields in symbolTable struct must be Symbol.Interned, found " ++
+                @typeName(field.type) ++ " for field " ++ field.name);
+        }
+        const symbol = Symbol.init(field.name);
+        @field(symbol_table, field.name) = try self.internStatic(symbol);
+    }
+
+    return symbol_table;
+}
+
 /// Defines a global variable by associating a symbol with a value.
 ///
 /// This function interns the given symbol and stores the value in the VM's
@@ -432,4 +482,26 @@ test "define can overwrite existing variables" {
     // Overwrite with new value
     try vm.builder().define(symbol, Val.init(200));
     try testing.expectEqual(Val.init(200), vm.inspector().get(symbol).?);
+}
+
+test "symbolTable creates struct with interned symbols" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const TestSymbols = struct {
+        add: Symbol.Interned,
+        subtract: Symbol.Interned,
+        multiply: Symbol.Interned,
+    };
+
+    const symbols = try vm.builder().symbolTable(TestSymbols);
+
+    // Verify each field is properly interned
+    const add_symbol = try vm.interner.get(symbols.add);
+    const subtract_symbol = try vm.interner.get(symbols.subtract);
+    const multiply_symbol = try vm.interner.get(symbols.multiply);
+
+    try testing.expectEqualStrings("add", add_symbol.data);
+    try testing.expectEqualStrings("subtract", subtract_symbol.data);
+    try testing.expectEqualStrings("multiply", multiply_symbol.data);
 }
