@@ -64,3 +64,13 @@ pub const Bytecode = struct {
     /// Array of instructions that implement the procedure logic.
     instructions: []const Instruction,
 };
+
+/// Creates a new procedure with a native implementation.
+pub fn initNative(func: *const fn (Context) Val) Impl {
+    return .{ .native = .{ .func = func } };
+}
+
+/// Creates a new procedure with a bytecode implementation.
+pub fn initBytecode(instructions: []const Instruction) Impl {
+    return .{ .bytecode = .{ .instructions = instructions } };
+}

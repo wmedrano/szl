@@ -48,6 +48,22 @@ pub fn prettySlice(self: Inspector, vals: []const Val) PrettyPrinter.Slice {
     return PrettyPrinter.Slice{ .vm = self.vm, .vals = vals };
 }
 
+/// Gets a global value by symbol name.
+///
+/// This function looks up a global variable by its symbol name and returns
+/// the associated value if it exists.
+///
+/// Args:
+///   self: The Inspector instance.
+///   symbol: The Symbol to look up in global values.
+///
+/// Returns:
+///   The value associated with the symbol, or null if not found.
+pub fn get(self: Inspector, symbol: Symbol) ?Val {
+    const interned = self.vm.interner.lookup(symbol) orelse return null;
+    return self.vm.global_values.get(interned);
+}
+
 /// Converts a Scheme value to a Zig type.
 /// This function provides type-safe conversion from the dynamic value system
 /// back to compile-time known Zig types.
@@ -99,7 +115,7 @@ pub fn to(self: Inspector, T: type, val: Val) !T {
 }
 
 test "to converts nil to void" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const val = try vm.toVal({});
@@ -109,7 +125,7 @@ test "to converts nil to void" {
 }
 
 test "to converts i64 to i64" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const val = try vm.toVal(@as(i64, 42));
@@ -121,7 +137,7 @@ test "to converts i64 to i64" {
 }
 
 test "to converts symbol to Symbol.Interned" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const symbol = Symbol{ .data = "test-symbol" };
@@ -132,7 +148,7 @@ test "to converts symbol to Symbol.Interned" {
 }
 
 test "to converts symbol to Symbol" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const symbol = Symbol{ .data = "another-symbol" };
@@ -143,7 +159,7 @@ test "to converts symbol to Symbol" {
 }
 
 test "to converts cons to Handle(Pair)" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const val = try vm.toVal(Pair{
@@ -159,7 +175,7 @@ test "to converts cons to Handle(Pair)" {
 }
 
 test "to converts cons to Pair" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const val = try vm.toVal(Pair{
@@ -179,7 +195,7 @@ test "to converts cons to Pair" {
 }
 
 test "to returns TypeMismatch for incompatible types" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const val = try vm.toVal(42);
@@ -191,7 +207,7 @@ test "to returns TypeMismatch for incompatible types" {
 }
 
 test "to returns TypeMismatch for nil to non-void" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const val = try vm.toVal({});
@@ -203,7 +219,7 @@ test "to returns TypeMismatch for nil to non-void" {
 }
 
 test "to converts boolean true to bool" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const val = try vm.toVal(true);
@@ -213,7 +229,7 @@ test "to converts boolean true to bool" {
 }
 
 test "to converts boolean false to bool" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const val = try vm.toVal(false);
@@ -223,7 +239,7 @@ test "to converts boolean false to bool" {
 }
 
 test "to returns TypeMismatch for boolean to non-bool" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const val = try vm.toVal(true);
@@ -231,5 +247,46 @@ test "to returns TypeMismatch for boolean to non-bool" {
     try testing.expectError(
         error.TypeMismatch,
         vm.inspector().to(i64, val),
+    );
+}
+
+test "get returns null for non-existent symbol" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        null,
+        vm.inspector().get(Symbol.init("non-existent")),
+    );
+}
+
+test "get returns value for existing global variable" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.builder().define(Symbol.init("test-var"), Val.init(42));
+
+    try testing.expectEqual(
+        Val.init(42),
+        vm.inspector().get(Symbol.init("test-var")),
+    );
+}
+
+test "get returns updated value after redefinition" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Define initial value
+    try vm.builder().define(Symbol.init("update-var"), Val.init(100));
+    try testing.expectEqual(
+        Val.init(100),
+        vm.inspector().get(Symbol.init("update-var")),
+    );
+
+    // Redefine with new value
+    try vm.builder().define(Symbol.init("update-var"), Val.init(200));
+    try testing.expectEqual(
+        Val.init(200),
+        vm.inspector().get(Symbol.init("update-var")),
     );
 }

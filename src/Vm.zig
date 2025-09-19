@@ -9,6 +9,7 @@ const std = @import("std");
 const testing = std.testing;
 
 const Builder = @import("Builder.zig");
+const builtins = @import("builtins.zig");
 const Handle = @import("object_pool.zig").Handle;
 const Inspector = @import("Inspector.zig");
 const Instruction = @import("Instruction.zig");
@@ -25,6 +26,7 @@ allocator: std.mem.Allocator,
 stack: std.ArrayList(Val) = .{},
 stack_frames: std.ArrayList(StackFrame) = .{},
 current_stack_frame: StackFrame = .{},
+global_values: std.AutoHashMapUnmanaged(Symbol.Interned, Val) = .{},
 interner: Symbol.Interner,
 pairs: ObjectPool(Pair),
 procedures: ObjectPool(Procedure),
@@ -56,14 +58,16 @@ pub const StackFrame = struct {
 ///
 /// Returns:
 ///   A new Vm instance ready for use with stack frame support.
-pub fn init(options: Options) Vm {
+pub fn init(options: Options) !Vm {
     const interner = Symbol.Interner.init(options.allocator);
-    return Vm{
+    var vm = Vm{
         .allocator = options.allocator,
         .interner = interner,
         .pairs = ObjectPool(Pair).init(),
         .procedures = ObjectPool(Procedure).init(),
     };
+    try builtins.register(&vm);
+    return vm;
 }
 
 /// Releases all memory associated with the virtual machine.  This includes all
@@ -72,9 +76,10 @@ pub fn init(options: Options) Vm {
 /// Args:
 ///   self: Pointer to the VM to deinitialize.
 pub fn deinit(self: *Vm) void {
-    self.interner.deinit();
     self.stack.deinit(self.allocator);
     self.stack_frames.deinit(self.allocator);
+    self.global_values.deinit(self.allocator);
+    self.interner.deinit();
     self.pairs.deinit(self.allocator);
     self.procedures.deinit(self.allocator);
 }
@@ -176,7 +181,7 @@ pub fn evalStr(self: *Vm, source: []const u8) !Val {
 }
 
 test "evalStr with single symbol returns symbol value" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try vm.evalStr("hello");
@@ -187,7 +192,7 @@ test "evalStr with single symbol returns symbol value" {
 }
 
 test "evalStr with multiple expressions returns last expression value" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try vm.evalStr("#t #f hello");
@@ -198,7 +203,7 @@ test "evalStr with multiple expressions returns last expression value" {
 }
 
 test "evalStr with empty string returns unit value" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try vm.evalStr("");
@@ -206,7 +211,7 @@ test "evalStr with empty string returns unit value" {
 }
 
 test "evalStr with list expression returns list value" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try vm.evalStr("(hello world)");

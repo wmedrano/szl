@@ -120,7 +120,7 @@ test "isTruthy returns true for numbers" {
 }
 
 test "isTruthy returns true for symbols" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const symbol = try vm.interner.internStatic(Symbol.init("test"));
@@ -130,7 +130,7 @@ test "isTruthy returns true for symbols" {
 }
 
 test "isTruthy returns true for pair" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const cons_val = try vm.toVal(Pair{
@@ -142,18 +142,18 @@ test "isTruthy returns true for pair" {
 }
 
 test "isTruthy returns true for procedure" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const test_procedure = Procedure{
+    const proc = Procedure{
         .name = try vm.interner.internStatic(Symbol.init("test-proc")),
-        .implementation = .{ .native = .{ .func = struct {
-            fn testFunc(_: Procedure.Context) Val {
+        .implementation = Procedure.initNative(struct {
+            fn func(_: Procedure.Context) Val {
                 return Val.init({});
             }
-        }.testFunc } },
+        }.func),
     };
-    const procedure_handle = try vm.toVal(test_procedure);
+    const proc_val = try vm.toVal(proc);
 
-    try testing.expectEqual(true, procedure_handle.isTruthy());
+    try testing.expectEqual(true, proc_val.isTruthy());
 }

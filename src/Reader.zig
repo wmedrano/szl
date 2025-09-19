@@ -132,7 +132,7 @@ fn parseToken(self: *Reader, token: []const u8) !Val {
 }
 
 test "readOne with empty input returns NoValue error" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     try testing.expectError(
@@ -142,7 +142,7 @@ test "readOne with empty input returns NoValue error" {
 }
 
 test "readOne with single boolean true returns boolean value" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try readOne(&vm, "#t");
@@ -153,7 +153,7 @@ test "readOne with single boolean true returns boolean value" {
 }
 
 test "readOne with single boolean false returns boolean value" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try readOne(&vm, "#f");
@@ -164,7 +164,7 @@ test "readOne with single boolean false returns boolean value" {
 }
 
 test "readOne with single symbol returns symbol value" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try readOne(&vm, "hello");
@@ -175,7 +175,7 @@ test "readOne with single symbol returns symbol value" {
 }
 
 test "readOne with multiple values returns TooManyValues error" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     try testing.expectError(
@@ -185,7 +185,7 @@ test "readOne with multiple values returns TooManyValues error" {
 }
 
 test "readOne with whitespace around single value succeeds" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try readOne(&vm, "   #t   ");
@@ -196,7 +196,7 @@ test "readOne with whitespace around single value succeeds" {
 }
 
 test "readOne with empty list returns empty list" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try readOne(&vm, "()");
@@ -208,7 +208,7 @@ test "readOne with empty list returns empty list" {
 }
 
 test "readOne with single element list returns proper list" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try readOne(&vm, "(hello)");
@@ -220,7 +220,7 @@ test "readOne with single element list returns proper list" {
 }
 
 test "readOne with multiple element list returns proper list" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try readOne(&vm, "(a b c)");
@@ -232,7 +232,7 @@ test "readOne with multiple element list returns proper list" {
 }
 
 test "readOne with boolean elements in list returns proper list" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try readOne(&vm, "(#t #f)");
@@ -244,7 +244,7 @@ test "readOne with boolean elements in list returns proper list" {
 }
 
 test "readOne with simple nested list returns proper nested structure" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try readOne(&vm, "((a))");
@@ -256,7 +256,7 @@ test "readOne with simple nested list returns proper nested structure" {
 }
 
 test "readOne with multi-level nested list returns proper structure" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try readOne(&vm, "(((hello)))");
@@ -268,7 +268,7 @@ test "readOne with multi-level nested list returns proper structure" {
 }
 
 test "readOne with mixed nested content returns proper structure" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try readOne(&vm, "(a (b c) d)");
@@ -280,7 +280,7 @@ test "readOne with mixed nested content returns proper structure" {
 }
 
 test "readOne with nested empty lists returns proper structure" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try readOne(&vm, "(())");
@@ -292,7 +292,7 @@ test "readOne with nested empty lists returns proper structure" {
 }
 
 test "readOne with mixed symbols and booleans returns proper list" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try readOne(&vm, "(hello #t world #f)");
@@ -304,7 +304,7 @@ test "readOne with mixed symbols and booleans returns proper list" {
 }
 
 test "readOne with complex nested mixed content returns proper structure" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try readOne(&vm, "(func (arg1 #t) (arg2 #f))");
@@ -316,7 +316,7 @@ test "readOne with complex nested mixed content returns proper structure" {
 }
 
 test "readOne with nested booleans and symbols returns proper structure" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try readOne(&vm, "((#t hello) (#f world))");
@@ -328,7 +328,7 @@ test "readOne with nested booleans and symbols returns proper structure" {
 }
 
 test "readOne with unclosed expression returns BadExpression error" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     try testing.expectError(
@@ -338,7 +338,7 @@ test "readOne with unclosed expression returns BadExpression error" {
 }
 
 test "readOne with extra closing parenthesis returns BadExpression error" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     try testing.expectError(
@@ -348,7 +348,7 @@ test "readOne with extra closing parenthesis returns BadExpression error" {
 }
 
 test "readOne with nested unclosed expression returns BadExpression error" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     try testing.expectError(
@@ -358,7 +358,7 @@ test "readOne with nested unclosed expression returns BadExpression error" {
 }
 
 test "readOne with mismatched parentheses returns BadExpression error" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     try testing.expectError(
@@ -368,7 +368,7 @@ test "readOne with mismatched parentheses returns BadExpression error" {
 }
 
 test "readOne with whitespace in expressions returns proper structure" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try readOne(&vm, "(  hello   world  )");
@@ -380,7 +380,7 @@ test "readOne with whitespace in expressions returns proper structure" {
 }
 
 test "readOne with nested expressions and whitespace returns proper structure" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try readOne(&vm, "( a  ( b   c ) d )");
@@ -392,7 +392,7 @@ test "readOne with nested expressions and whitespace returns proper structure" {
 }
 
 test "readOne with multiple expressions returns TooManyValues error" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     try testing.expectError(
@@ -402,7 +402,7 @@ test "readOne with multiple expressions returns TooManyValues error" {
 }
 
 test "readOne with empty nested lists with whitespace returns proper structure" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try readOne(&vm, "( ( ) )");

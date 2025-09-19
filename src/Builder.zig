@@ -107,8 +107,40 @@ pub fn readOne(self: Builder, source: []const u8) !Val {
     return Reader.readOne(self.vm, source);
 }
 
+/// Creates an interned symbol from a Symbol.
+///
+/// This function takes a Symbol and returns its interned representation,
+/// which can be efficiently stored and compared.
+///
+/// Args:
+///   self: The Builder instance.
+///   symbol: The Symbol to intern.
+///
+/// Returns:
+///   The interned symbol.
+pub fn intern(self: Builder, symbol: Symbol) !Symbol.Interned {
+    return self.vm.interner.intern(symbol);
+}
+
+/// Defines a global variable by associating a symbol with a value.
+///
+/// This function interns the given symbol and stores the value in the VM's
+/// global value table, making it accessible throughout the program.
+///
+/// Args:
+///   self: The Builder instance.
+///   symbol: The Symbol to use as the variable name.
+///   value: The Val to associate with the symbol.
+///
+/// Returns:
+///   An error if the symbol cannot be interned or the value cannot be stored.
+pub fn define(self: Builder, symbol: Symbol, value: Val) !void {
+    const interned_symbol = try self.vm.interner.intern(symbol);
+    try self.vm.global_values.put(self.vm.allocator, interned_symbol, value);
+}
+
 test "build with void is end_of_list" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
     try testing.expectEqual(
         Val{ .repr = Val.Repr{ .nil = {} } },
@@ -117,7 +149,7 @@ test "build with void is end_of_list" {
 }
 
 test "build with Symbol creates symbol val" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const symbol = Symbol{ .data = "test-symbol" };
@@ -131,7 +163,7 @@ test "build with Symbol creates symbol val" {
 }
 
 test "build with Symbol.Interned creates symbol val" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const symbol = Symbol{ .data = "interned-symbol" };
@@ -147,7 +179,7 @@ test "build with Symbol.Interned creates symbol val" {
 }
 
 test "build with i64 creates i64 val" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const value: i64 = 42;
@@ -160,7 +192,7 @@ test "build with i64 creates i64 val" {
 }
 
 test "build with comptime_int creates i64 val" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try vm.builder().build(123);
@@ -172,7 +204,7 @@ test "build with comptime_int creates i64 val" {
 }
 
 test "build with Symbol returns a symbol" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const symbol = Symbol{ .data = "hello-world" };
@@ -187,7 +219,7 @@ test "build with Symbol returns a symbol" {
 }
 
 test "build with Symbol.Interned returns a symbol" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const symbol = Symbol{ .data = "test-symbol" };
@@ -203,7 +235,7 @@ test "build with Symbol.Interned returns a symbol" {
 }
 
 test "build with Pair creates cons val" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try vm.builder().build(Pair{
@@ -220,7 +252,7 @@ test "build with Pair creates cons val" {
 }
 
 test "build with bool true creates boolean val" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try vm.builder().build(true);
@@ -232,7 +264,7 @@ test "build with bool true creates boolean val" {
 }
 
 test "build with bool false creates boolean val" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try vm.builder().build(false);
@@ -244,7 +276,7 @@ test "build with bool false creates boolean val" {
 }
 
 test "build with empty []Val creates nil" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const empty_array: []Val = &.{};
@@ -257,7 +289,7 @@ test "build with empty []Val creates nil" {
 }
 
 test "build with empty []const Val creates nil" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const empty_array: []const Val = &.{};
@@ -270,7 +302,7 @@ test "build with empty []const Val creates nil" {
 }
 
 test "build with single element []Val creates proper list" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const array: []const Val = &.{try vm.builder().build(42)};
@@ -289,7 +321,7 @@ test "build with single element []Val creates proper list" {
 }
 
 test "build with multiple element []Val creates proper list" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const array: []const Val = &.{
@@ -329,16 +361,16 @@ test "build with multiple element []Val creates proper list" {
 }
 
 test "build with Procedure creates procedure val" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const test_procedure = Procedure{
         .name = try vm.interner.internStatic(Symbol.init("test-proc")),
-        .implementation = .{ .native = .{ .func = struct {
+        .implementation = Procedure.initNative(struct {
             fn testFunc(_: Procedure.Context) Val {
                 return Val.init(42);
             }
-        }.testFunc } },
+        }.testFunc),
     };
 
     const result = try vm.builder().build(test_procedure);
@@ -349,4 +381,32 @@ test "build with Procedure creates procedure val" {
         "{f}",
         .{vm.inspector().pretty(result)},
     );
+}
+
+test "define stores value in global variables" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const symbol = Symbol.init("test-var");
+    const value = Val.init(42);
+
+    try vm.builder().define(symbol, value);
+
+    const retrieved = vm.inspector().get(symbol);
+    try testing.expectEqual(Val.init(42), retrieved);
+}
+
+test "define can overwrite existing variables" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const symbol = Symbol.init("overwrite-var");
+
+    // Define initial value
+    try vm.builder().define(symbol, Val.init(100));
+    try testing.expectEqual(Val.init(100), vm.inspector().get(symbol).?);
+
+    // Overwrite with new value
+    try vm.builder().define(symbol, Val.init(200));
+    try testing.expectEqual(Val.init(200), vm.inspector().get(symbol).?);
 }

@@ -154,7 +154,7 @@ fn formatCdr(self: PrettyPrinter, writer: *std.Io.Writer, cdr: Val) !void {
 }
 
 test "int formats as int" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const val = Val{ .repr = Val.Repr{ .i64 = 42 } };
@@ -167,7 +167,7 @@ test "int formats as int" {
 }
 
 test "nil formats as empty list" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const val = Val{ .repr = Val.Repr{ .nil = {} } };
@@ -180,7 +180,7 @@ test "nil formats as empty list" {
 }
 
 test "symbol formats as text" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const symbol = try vm.interner.internStatic(Symbol.init("test-symbol"));
@@ -193,7 +193,7 @@ test "symbol formats as text" {
 }
 
 test "cons pair formats with dot" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const car = Val{ .repr = .{ .i64 = 1 } };
@@ -210,7 +210,7 @@ test "cons pair formats with dot" {
 }
 
 test "proper list formats without dots" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const nil = Val{ .repr = .{ .nil = {} } };
@@ -233,7 +233,7 @@ test "proper list formats without dots" {
 }
 
 test "nested cons structures format correctly" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const three = Val{ .repr = .{ .i64 = 3 } };
@@ -256,7 +256,7 @@ test "nested cons structures format correctly" {
 }
 
 test "single element list formats correctly" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const nil = Val{ .repr = .{ .nil = {} } };
@@ -274,7 +274,7 @@ test "single element list formats correctly" {
 }
 
 test "mixed types in list format correctly" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const nil = Val{ .repr = .{ .nil = {} } };
@@ -298,7 +298,7 @@ test "mixed types in list format correctly" {
 }
 
 test "boolean true formats as #t" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const val = Val{ .repr = Val.Repr{ .boolean = true } };
@@ -311,7 +311,7 @@ test "boolean true formats as #t" {
 }
 
 test "boolean false formats as #f" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const val = Val{ .repr = Val.Repr{ .boolean = false } };
@@ -324,7 +324,7 @@ test "boolean false formats as #f" {
 }
 
 test "boolean in cons pair formats correctly" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const car = Val{ .repr = .{ .boolean = true } };
@@ -341,7 +341,7 @@ test "boolean in cons pair formats correctly" {
 }
 
 test "boolean in mixed type list formats correctly" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const nil = Val{ .repr = .{ .nil = {} } };
@@ -364,7 +364,7 @@ test "boolean in mixed type list formats correctly" {
 }
 
 test "slice formats as list" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const vals = [_]Val{

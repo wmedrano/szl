@@ -121,6 +121,19 @@ pub const Interner = struct {
         return interned;
     }
 
+    /// Looks up an existing interned symbol without creating a new one.
+    /// Returns the interned symbol if it already exists, or null if it hasn't been interned yet.
+    ///
+    /// Args:
+    ///   self: Pointer to the interner.
+    ///   symbol: The symbol to look up.
+    ///
+    /// Returns:
+    ///   The existing interned symbol, or null if not found.
+    pub fn lookup(self: Interner, symbol: Symbol) ?Interned {
+        return self.symbol_to_interned.get(symbol.data);
+    }
+
     /// Retrieves the string data for an interned symbol.
     /// Uses the symbol's ID to look up the corresponding string data.
     ///
@@ -133,7 +146,7 @@ pub const Interner = struct {
     ///
     /// Errors:
     ///   InvalidId: If the provided ID is out of bounds.
-    pub fn get(self: *const Interner, interned: Interned) error{InvalidId}!Symbol {
+    pub fn get(self: Interner, interned: Interned) error{InvalidId}!Symbol {
         if (interned.id >= self.symbols.items.len) return error.InvalidId;
         return self.symbols.items[interned.id];
     }
