@@ -5,7 +5,9 @@
 //! core standard library of operations available in the interpreter.
 
 const std = @import("std");
+const testing = std.testing;
 
+const Instruction = @import("Instruction.zig");
 const Procedure = @import("Procedure.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
@@ -23,17 +25,17 @@ const Vm = @import("Vm.zig");
 ///   May return allocation errors if registering built-ins fails.
 pub fn register(vm: *Vm) !void {
     try vm.builder().define(
-        Symbol.init("+"),
-        try vm.builder().build(Procedure{
-            .name = try vm.interner.internStatic(Symbol.init("+")),
-            .implementation = Procedure.initNative(addFunc),
-        }),
-    );
-    try vm.builder().define(
         Symbol.init("szl-define"),
         try vm.builder().build(Procedure{
             .name = try vm.interner.internStatic(Symbol.init("szl-define")),
             .implementation = Procedure.initNative(szlDefineFunc),
+        }),
+    );
+    try vm.builder().define(
+        Symbol.init("+"),
+        try vm.builder().build(Procedure{
+            .name = try vm.interner.internStatic(Symbol.init("+")),
+            .implementation = Procedure.initNative(addFunc),
         }),
     );
 }
@@ -47,14 +49,15 @@ pub fn register(vm: *Vm) !void {
 ///
 /// Returns:
 ///   A Val containing the sum of all numeric arguments as an i64.
-///
-/// Panics:
-///   Currently panics if any argument cannot be converted to i64 (error handling not yet implemented).
+///   If any argument is not numeric, raises an error instead of returning.
 fn addFunc(ctx: Procedure.Context) Val {
     const args = ctx.localStack();
     var sum: i64 = 0;
     for (args) |arg| {
-        const num = ctx.vm.fromVal(i64, arg) catch @panic("+ called with invalid type, errors not yet supported");
+        const num = ctx.vm.fromVal(i64, arg) catch {
+            Instruction.raiseWithError(ctx.vm, Val.init({}));
+            return Val.init({});
+        };
         sum += num;
     }
     return Val.init(sum);
@@ -67,16 +70,82 @@ fn addFunc(ctx: Procedure.Context) Val {
 ///   ctx: The procedure execution context containing the VM and local stack arguments.
 ///
 /// Returns:
-///   Returns an unspecified value (currently no explicit return).
-///
-/// Panics:
-///   Currently panics if called with wrong number of arguments, invalid symbol type,
-///   or if definition fails (error handling not yet implemented).
+///   Returns an unspecified value if successful.
+///   If arguments are invalid or definition fails, raises an error instead of returning.
 fn szlDefineFunc(ctx: Procedure.Context) Val {
     const args = ctx.localStack();
-    if (args.len != 2) @panic("szl-define called with wrong number of args, errors not yet supported");
-    const symbol = ctx.vm.fromVal(Symbol.Interned, args[0]) catch @panic("szl-define expected symbol, errors not yet supported");
+    if (args.len != 2) {
+        Instruction.raiseWithError(ctx.vm, Val.init({}));
+        return Val.init({});
+    }
+    const symbol = ctx.vm.fromVal(Symbol.Interned, args[0]) catch {
+        Instruction.raiseWithError(ctx.vm, Val.init({}));
+        return Val.init({});
+    };
     const val = args[1];
-    ctx.vm.builder().define(symbol, val) catch @panic("szl-define failed, errors not yet supported");
+    ctx.vm.builder().define(symbol, val) catch {
+        Instruction.raiseWithError(ctx.vm, Val.init({}));
+        return Val.init({});
+    };
     return Val.init({});
+}
+
+test "+ with no arguments returns 0" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        Val.init(0),
+        try vm.evalStr("(+)"),
+    );
+}
+
+test "+ with single argument returns argument" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        Val.init(42),
+        try vm.evalStr("(+ 42)"),
+    );
+}
+
+test "+ with two arguments returns sum" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        Val.init(7),
+        try vm.evalStr("(+ 3 4)"),
+    );
+}
+
+test "+ with multiple arguments sums all" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        Val.init(15),
+        try vm.evalStr("(+ 1 2 3 4 5)"),
+    );
+}
+
+test "+ with negative numbers" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        Val.init(-2),
+        try vm.evalStr("(+ -5 3)"),
+    );
+}
+
+test "+ with non-number is error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectError(
+        error.SzlError,
+        vm.evalStr("(+ #t)"),
+    );
 }

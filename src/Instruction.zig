@@ -54,6 +54,9 @@ pub const Repr = union(enum) {
     /// Instruction to return from the current procedure.
     /// Restores the previous stack frame and places the return value at the correct position.
     return_value,
+    /// Instruction to raise an error by popping the top value from the stack.
+    /// Sets the popped value as the VM's error state to signal a runtime error.
+    raise_error,
 };
 
 /// Executes this instruction on the given virtual machine.
@@ -64,6 +67,7 @@ pub const Repr = union(enum) {
 ///   - get_global: Retrieves a global variable and pushes its value onto the stack
 ///   - eval_procedure: Calls a procedure with specified number of arguments
 ///   - return_value: Returns from the current procedure, restoring the previous stack frame
+///   - raise_error: Pops a value from the stack and sets it as the VM's error state
 ///
 /// Args:
 ///   self: The instruction to execute.
@@ -78,6 +82,7 @@ pub fn execute(self: Instruction, vm: *Vm) !void {
         .get_global => |symbol| return getGlobal(vm, symbol),
         .eval_procedure => |arg_count| return evalProcedure(vm, arg_count),
         .return_value => return returnValue(vm),
+        .raise_error => return raiseError(vm),
     }
 }
 
@@ -155,6 +160,9 @@ pub fn getGlobal(vm: *Vm, symbol: Symbol.Interned) !void {
 ///   - May return memory allocation errors if stack resizing fails.
 ///   - May return StackUnderflow if there are no stack frames to restore.
 pub fn returnValue(vm: *Vm) !void {
+    if (vm.err) |_| {
+        return error.SzlError;
+    }
     const new_stack_len = vm.current_stack_frame.stack_start;
     const dst_idx = new_stack_len - 1;
     const src_idx = vm.stack.items.len - 1;
@@ -194,6 +202,29 @@ pub fn evalProcedure(vm: *Vm, arg_count: usize) !void {
             vm.current_stack_frame.instructions = bytecode.instructions;
         },
     }
+}
+
+/// Raises an error by setting the given value as the VM's error state.  This is
+/// a convenience function for directly raising an error with a specific value.
+///
+/// Args:
+///   vm: Pointer to the virtual machine whose error state will be set.
+///   err: The error value to set as the VM's error state.
+pub fn raiseWithError(vm: *Vm, err: Val) void {
+    vm.err = err;
+}
+
+/// Raises an error by popping the top value from the stack and setting it as the VM's error state.
+/// This instruction is used to signal runtime errors during program execution.
+///
+/// Args:
+///   vm: Pointer to the virtual machine whose error state will be set.
+///
+/// Errors:
+///   - May return StackUnderflow if the stack is empty when trying to pop the error value.
+pub fn raiseError(vm: *Vm) !void {
+    const err = vm.stack.pop() orelse return error.StackUnderflow;
+    vm.err = err;
 }
 
 test "execute load instruction pushes value onto stack" {

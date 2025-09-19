@@ -309,6 +309,18 @@ test "readOne with boolean elements in list returns proper list" {
     );
 }
 
+test "readOne with mixed boolean formats in list returns proper list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "(#t #false #true #f)");
+    try testing.expectFmt(
+        "(#t #f #t #f)",
+        "{f}",
+        .{vm.pretty(result)},
+    );
+}
+
 test "readOne with simple nested list returns proper nested structure" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();

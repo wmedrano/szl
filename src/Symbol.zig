@@ -7,6 +7,8 @@
 const std = @import("std");
 const testing = std.testing;
 
+const Val = @import("Val.zig");
+
 const Symbol = @This();
 
 /// The string data representing this symbol.
@@ -172,6 +174,10 @@ pub const Interned = struct {
     ///   true if the symbols have the same ID, false otherwise.
     pub fn eql(self: Interned, other: Interned) bool {
         return self.id == other.id;
+    }
+
+    pub fn toVal(self: Interned) Val {
+        Val.init(self);
     }
 };
 

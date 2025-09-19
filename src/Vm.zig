@@ -54,6 +54,8 @@ pairs: ObjectPool(Pair),
 /// Stores both native and bytecode procedures for efficient reuse.
 procedures: ObjectPool(Procedure),
 
+err: ?Val = null,
+
 /// Configuration options for initializing the virtual machine.
 pub const Options = struct {
     /// The allocator to use for memory management within the VM.
@@ -235,6 +237,7 @@ test evalStr {
 ///   - StackUnderflow if the execution stack becomes empty unexpectedly.
 ///   - Any errors that may occur during instruction execution.
 fn evalThunk(self: *Vm, proc: Val) !Val {
+    if (self.err) |_| return error.UnhandledError;
     try Instruction.load(self, proc);
     const initial_call_stack_size = self.stack_frames.items.len;
     try Instruction.evalProcedure(self, 0);
@@ -252,6 +255,10 @@ test "evalStr with multiple expressions compiles last expression to procedure" {
     try testing.expectEqual(
         try vm.evalStr("#t #f 42"),
         Val.init(42),
+    );
+    try testing.expectEqual(
+        try vm.evalStr("42 #f #t"),
+        Val.init(true),
     );
 }
 
