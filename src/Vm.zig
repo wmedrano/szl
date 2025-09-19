@@ -111,19 +111,32 @@ pub fn deinit(self: *Vm) void {
     self.procedures.deinit(self.allocator);
 }
 
-/// Creates a PrettyPrinter for formatting a Scheme value.
+fn PrettyReturnType(comptime T: type) type {
+    return switch (T) {
+        Val => PrettyPrinter,
+        []const Val, []Val => PrettyPrinter.Slice,
+        else => @compileError("pretty() only accepts Val, []const Val, or []Val, got " ++ @typeName(T)),
+    };
+}
+
+/// Creates a PrettyPrinter for formatting a Scheme value or slice of values.
 ///
 /// Provides a formatted representation of values for debugging and display
 /// purposes.
 ///
 /// Args:
 ///   self: Pointer to the VM that owns the value's data.
-///   val: The Scheme value to format.
+///   val: The Scheme value to format, or a slice of values ([]const Val or []Val).
 ///
 /// Returns:
-///   A PrettyPrinter instance ready for use with Zig's standard formatting.
-pub fn pretty(self: *Vm, val: Val) PrettyPrinter {
-    return self.inspector().pretty(val);
+///   A PrettyPrinter or PrettyPrinter.Slice instance ready for use with Zig's standard formatting.
+pub fn pretty(self: *Vm, val: anytype) PrettyReturnType(@TypeOf(val)) {
+    const T = @TypeOf(val);
+    return switch (T) {
+        Val => self.inspector().pretty(val),
+        []const Val, []Val => self.inspector().prettySlice(val),
+        else => unreachable,
+    };
 }
 
 /// Converts a Zig value to a Scheme value representation.

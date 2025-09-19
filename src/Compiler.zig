@@ -208,7 +208,7 @@ test "compile define expression" {
     try testing.expectEqualDeep(
         &[_]Instruction{
             Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("szl-define"))),
-            Instruction.initLoad(Val.init(try vm.builder().internStatic(Symbol.init("x")))),
+            Instruction.initLoad(try vm.builder().internStaticVal(Symbol.init("x"))),
             Instruction.initLoad(Val.init(42)),
             Instruction.initEvalProcedure(2),
         },

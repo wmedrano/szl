@@ -238,7 +238,7 @@ test "execute load instruction pushes value onto stack" {
     try testing.expectFmt(
         "(10 20 30)",
         "{f}",
-        .{vm.inspector().prettySlice(vm.stack.items)},
+        .{vm.pretty(vm.stack.items)},
     );
 }
 
@@ -266,7 +266,7 @@ test "execute eval_procedure instruction calls procedure with arguments" {
     try testing.expectFmt(
         "(30)",
         "{f}",
-        .{vm.inspector().prettySlice(vm.stack.items)},
+        .{vm.pretty(vm.stack.items)},
     );
 }
 
@@ -354,7 +354,7 @@ test "return_value restores previous stack frame and places return value on top"
     try testing.expectFmt(
         "(100 200 999)",
         "{f}",
-        .{vm.inspector().prettySlice(vm.stack.items)},
+        .{vm.pretty(vm.stack.items)},
     );
 }
 
@@ -372,7 +372,7 @@ test "executeNext executes instruction and advances pointer" {
     try testing.expectFmt(
         "(42)",
         "{f}",
-        .{vm.inspector().prettySlice(vm.stack.items)},
+        .{vm.pretty(vm.stack.items)},
     );
 }
 
@@ -396,7 +396,7 @@ test "executeNext automatically returns when no more instructions" {
     try testing.expectFmt(
         "(123)",
         "{f}",
-        .{vm.inspector().prettySlice(vm.stack.items)},
+        .{vm.pretty(vm.stack.items)},
     );
 }
 
@@ -416,7 +416,7 @@ test "executeNext executes multiple instructions in sequence" {
 
     try testing.expectEqual(3, vm.current_stack_frame.instruction_idx);
     try testing.expectEqual(3, vm.stack.items.len);
-    try testing.expectFmt("(1 2 3)", "{f}", .{vm.inspector().prettySlice(vm.stack.items)});
+    try testing.expectFmt("(1 2 3)", "{f}", .{vm.pretty(vm.stack.items)});
 }
 
 test "executeNext handles instruction pointer at boundary correctly" {
@@ -444,7 +444,7 @@ test "executeNext handles instruction pointer at boundary correctly" {
     try testing.expectFmt(
         "(100)",
         "{f}",
-        .{vm.inspector().prettySlice(vm.stack.items)},
+        .{vm.pretty(vm.stack.items)},
     );
 }
 
@@ -467,7 +467,7 @@ test "execute get_global instruction loads global value onto stack" {
     try testing.expectFmt(
         "(42)",
         "{f}",
-        .{vm.inspector().prettySlice(vm.stack.items)},
+        .{vm.pretty(vm.stack.items)},
     );
 }
 
@@ -494,7 +494,7 @@ test "execute get_global instruction with multiple values" {
     try testing.expectFmt(
         "(10 20 30)",
         "{f}",
-        .{vm.inspector().prettySlice(vm.stack.items)},
+        .{vm.pretty(vm.stack.items)},
     );
 }
 
@@ -504,7 +504,7 @@ test "get_global instruction works with different value types" {
 
     // Define global variables of different types using Builder
     try vm.builder().define(Symbol.init("bool-var"), Val.init(true));
-    try vm.builder().define(Symbol.init("symbol-var"), try vm.builder().build(Symbol.init("test-symbol")));
+    try vm.builder().define(Symbol.init("symbol-var"), try vm.builder().internVal(Symbol.init("test-symbol")));
 
     const bool_symbol = try vm.interner.intern(Symbol.init("bool-var"));
     const symbol_symbol = try vm.interner.intern(Symbol.init("symbol-var"));
@@ -517,6 +517,6 @@ test "get_global instruction works with different value types" {
     try testing.expectFmt(
         "(#t test-symbol)",
         "{f}",
-        .{vm.inspector().prettySlice(vm.stack.items)},
+        .{vm.pretty(vm.stack.items)},
     );
 }

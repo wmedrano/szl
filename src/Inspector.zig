@@ -113,14 +113,31 @@ pub fn to(self: Inspector, T: type, val: Val) !T {
         },
         .pair => |c| switch (T) {
             Handle(Pair) => return c,
-            Pair => return self.vm.pairs.get(c) orelse error.ObjectNotFound,
+            Pair => return try self.getHandle(Pair, c),
             else => return error.TypeMismatch,
         },
         .procedure => |p| switch (T) {
-            Procedure => return self.vm.procedures.get(p) orelse error.ObjectNotFound,
+            Procedure => return try self.getHandle(Procedure, p),
             else => return error.TypeMismatch,
         },
     }
+}
+
+/// Gets the value from a Handle(T).
+///
+/// Args:
+///   self: The Inspector instance.
+///   T: The type stored in the handle.
+///   handle: The handle to dereference.
+///
+/// Returns:
+///   The value of type T, or an error if the handle is invalid.
+pub fn getHandle(self: Inspector, T: type, handle: Handle(T)) !T {
+    return switch (T) {
+        Pair => self.vm.pairs.get(handle) orelse error.ObjectNotFound,
+        Procedure => self.vm.procedures.get(handle) orelse error.ObjectNotFound,
+        else => @compileError("getHandle() only supports Pair and Procedure, got " ++ @typeName(T)),
+    };
 }
 
 test "to converts nil to void" {
@@ -178,7 +195,7 @@ test "to converts cons to Handle(Pair)" {
     const result = try vm.inspector().to(Handle(Pair), val);
 
     // Verify we can retrieve the original cons through the handle
-    const retrieved_cons = vm.pairs.get(result) orelse return error.TestUnexpectedResult;
+    const retrieved_cons = try vm.inspector().getHandle(Pair, result);
     try testing.expectEqual(try vm.toVal(1), retrieved_cons.car);
     try testing.expectEqual(try vm.toVal(2), retrieved_cons.cdr);
 }

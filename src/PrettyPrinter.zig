@@ -91,7 +91,7 @@ fn formatValue(self: PrettyPrinter, writer: *std.Io.Writer, val: Val) error{Writ
             try writer.writeAll(symbol.data);
         },
         .pair => |handle| {
-            const cons = self.vm.pairs.get(handle) orelse {
+            const cons = self.vm.inspector().getHandle(Pair, handle) catch {
                 try writer.writeAll("#<invalid-cons>");
                 return;
             };
@@ -111,7 +111,7 @@ fn formatValue(self: PrettyPrinter, writer: *std.Io.Writer, val: Val) error{Writ
 ///   writer: The writer to output to.
 ///   proc_handle: The procedure handle to format.
 fn formatProcedure(self: PrettyPrinter, writer: *std.Io.Writer, proc_handle: Handle(Procedure)) error{WriteFailed}!void {
-    const proc = self.vm.procedures.get(proc_handle) orelse {
+    const proc = self.vm.inspector().getHandle(Procedure, proc_handle) catch {
         try writer.print("#<invalid-procedure:{d}>", .{proc_handle.idx});
         return;
     };
@@ -138,7 +138,7 @@ fn formatCdr(self: PrettyPrinter, writer: *std.Io.Writer, cdr: Val) !void {
     switch (cdr.repr) {
         .nil => {}, // Proper list termination, no output needed
         .pair => |handle| {
-            const cons = self.vm.pairs.get(handle) orelse {
+            const cons = self.vm.inspector().getHandle(Pair, handle) catch {
                 try writer.writeAll(" . #<invalid-cons>");
                 return;
             };

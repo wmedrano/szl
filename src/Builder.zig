@@ -54,7 +54,7 @@ pub fn build(self: Builder, v: anytype) !Val {
         Handle(Pair),
         Handle(Procedure),
         => return Val.init(v),
-        Symbol => return Val.init(try self.vm.interner.intern(v)),
+        Symbol => return self.internVal(v),
         Pair => return Val.init(try self.vm.pairs.put(self.vm.allocator, v)),
         Procedure => return Val.init(try self.vm.procedures.put(self.vm.allocator, v)),
         []const Val, []Val => {
@@ -136,6 +136,37 @@ pub fn intern(self: Builder, symbol: Symbol) !Symbol.Interned {
 ///   The interned symbol.
 pub fn internStatic(self: Builder, symbol: Symbol) !Symbol.Interned {
     return self.vm.interner.internStatic(symbol);
+}
+
+/// Creates an interned symbol from a Symbol and returns it as a Val.
+///
+/// This function takes a Symbol, interns it, and returns the interned
+/// symbol wrapped in a Val for direct use in the Scheme value system.
+///
+/// Args:
+///   self: The Builder instance.
+///   symbol: The Symbol to intern.
+///
+/// Returns:
+///   A Val containing the interned symbol.
+pub fn internVal(self: Builder, symbol: Symbol) !Val {
+    return Val.init(try self.vm.interner.intern(symbol));
+}
+
+/// Creates an interned symbol from a Symbol with static lifetime data and returns it as a Val.
+///
+/// This function takes a Symbol with static lifetime data, interns it without
+/// copying the data, and returns the interned symbol wrapped in a Val.
+/// This is more efficient than internVal() when the symbol data has static lifetime.
+///
+/// Args:
+///   self: The Builder instance.
+///   symbol: The Symbol to intern (data will NOT be copied).
+///
+/// Returns:
+///   A Val containing the interned symbol.
+pub fn internStaticVal(self: Builder, symbol: Symbol) !Val {
+    return Val.init(try self.vm.interner.internStatic(symbol));
 }
 
 /// Creates a symbol table struct with all fields automatically interned.
@@ -504,4 +535,34 @@ test "symbolTable creates struct with interned symbols" {
     try testing.expectEqualStrings("add", add_symbol.data);
     try testing.expectEqualStrings("subtract", subtract_symbol.data);
     try testing.expectEqualStrings("multiply", multiply_symbol.data);
+}
+
+test "internVal creates symbol val from Symbol" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const symbol = Symbol.init("test-symbol");
+    const result = try vm.builder().internVal(symbol);
+
+    try testing.expect(result.repr == .symbol);
+    try testing.expectFmt(
+        "test-symbol",
+        "{f}",
+        .{vm.inspector().pretty(result)},
+    );
+}
+
+test "internStaticVal creates symbol val from Symbol" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const symbol = Symbol.init("static-symbol");
+    const result = try vm.builder().internStaticVal(symbol);
+
+    try testing.expect(result.repr == .symbol);
+    try testing.expectFmt(
+        "static-symbol",
+        "{f}",
+        .{vm.inspector().pretty(result)},
+    );
 }
