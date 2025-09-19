@@ -23,13 +23,35 @@ const Val = @import("Val.zig");
 
 const Vm = @This();
 
+/// Memory allocator used for all dynamic allocations within the VM.
 allocator: std.mem.Allocator,
+
+/// Execution stack that holds values during computation and procedure calls.
+/// Values are pushed and popped as expressions are evaluated.
 stack: std.ArrayList(Val) = .{},
+
+/// Stack of procedure call frames, enabling nested procedure calls and proper scoping.
+/// Each frame tracks the stack position and execution state for a procedure call.
 stack_frames: std.ArrayList(StackFrame) = .{},
+
+/// The currently executing stack frame containing execution state.
+/// Tracks the current instruction pointer and stack frame boundaries.
 current_stack_frame: StackFrame = .{},
+
+/// Global variable storage mapping interned symbols to their values.
+/// Used for storing and retrieving globally defined variables and functions.
 global_values: std.AutoHashMapUnmanaged(Symbol.Interned, Val) = .{},
+
+/// Symbol interner for efficient string deduplication and comparison.
+/// All symbols used in the VM are interned through this interner.
 interner: Symbol.Interner,
+
+/// Object pool for managing Pair objects with automatic memory recycling.
+/// Provides efficient allocation and deallocation of cons cells for lists.
 pairs: ObjectPool(Pair),
+
+/// Object pool for managing Procedure objects with automatic memory recycling.
+/// Stores both native and bytecode procedures for efficient reuse.
 procedures: ObjectPool(Procedure),
 
 /// Configuration options for initializing the virtual machine.
@@ -178,26 +200,45 @@ pub fn evalStr(self: *Vm, source: []const u8) !Val {
     var ret = Val.init({});
     while (try reader.next()) |expr| {
         const proc = try Compiler.compile(self, expr);
-        // TODO: Evaluate proc.
-        ret = proc;
+        ret = try self.evalThunk(proc);
     }
     return ret;
 }
 
-test "evalStr with single symbol compiles to procedure" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    const result = try vm.evalStr("hello");
-    try testing.expect(result.isProcedure());
+/// Evaluates a compiled procedure (thunk) by executing its bytecode instructions.
+///
+/// Loads the procedure into the VM's execution environment and runs it to completion,
+/// managing the call stack and returning the final result value.
+///
+/// Args:
+///   self: Pointer to the VM instance.
+///   proc: The compiled procedure value containing bytecode to execute.
+///
+/// Returns:
+///   The final result value after executing all instructions in the procedure.
+///
+/// Errors:
+///   - StackUnderflow if the execution stack becomes empty unexpectedly.
+///   - Any errors that may occur during instruction execution.
+fn evalThunk(self: *Vm, proc: Val) !Val {
+    try Instruction.load(self, proc);
+    const initial_call_stack_size = self.stack_frames.items.len;
+    try Instruction.evalProcedure(self, 0);
+    while (self.stack_frames.items.len > initial_call_stack_size) {
+        try Instruction.executeNext(self);
+    }
+    const return_value = self.stack.pop() orelse return error.StackUnderflow;
+    return return_value;
 }
 
 test "evalStr with multiple expressions compiles last expression to procedure" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const result = try vm.evalStr("#t #f hello");
-    try testing.expect(result.isProcedure());
+    try testing.expectEqual(
+        try vm.evalStr("#t #f 42"),
+        Val.init(42),
+    );
 }
 
 test "evalStr with empty string returns unit value" {
@@ -210,10 +251,12 @@ test "evalStr with empty string returns unit value" {
     );
 }
 
-test "evalStr with list expression compiles to procedure" {
+test "evalStr with expression evalutes it" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const result = try vm.evalStr("(hello world)");
-    try testing.expect(result.isProcedure());
+    try testing.expectEqual(
+        Val.init(42),
+        try vm.evalStr("(+ 40 2)"),
+    );
 }

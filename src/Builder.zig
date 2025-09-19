@@ -145,13 +145,20 @@ pub fn internStatic(self: Builder, symbol: Symbol) !Symbol.Interned {
 ///
 /// Args:
 ///   self: The Builder instance.
-///   symbol: The Symbol to use as the variable name.
-///   value: The Val to associate with the symbol.
+///   symbol: The `Symbol` or `Symbol.Interned` to use as the variable name.
+///   value: The `Val` to associate with the symbol.
 ///
 /// Returns:
 ///   An error if the symbol cannot be interned or the value cannot be stored.
-pub fn define(self: Builder, symbol: Symbol, value: Val) !void {
-    const interned_symbol = try self.vm.interner.intern(symbol);
+pub fn define(self: Builder, symbol: anytype, value: Val) !void {
+    const T = @TypeOf(symbol);
+    const interned_symbol = switch (T) {
+        Symbol => try self.vm.interner.intern(symbol),
+        Symbol.Interned => symbol,
+        else => @compileError(
+            "symbol must be Symbol or Symbol.Interned but found type " ++ @typeName(T),
+        ),
+    };
     try self.vm.global_values.put(self.vm.allocator, interned_symbol, value);
 }
 

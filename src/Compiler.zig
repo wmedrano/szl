@@ -55,6 +55,18 @@ fn deinit(self: *Compiler) void {
     self.instructions.deinit(self.vm.allocator);
 }
 
+/// Adds an instruction to the compiler's instruction list.
+///
+/// Args:
+///   self: The compiler instance.
+///   instruction: The instruction to add.
+///
+/// Returns:
+///   An error if memory allocation fails.
+fn addInstruction(self: *Compiler, instruction: Instruction) Error!void {
+    try self.instructions.append(self.vm.allocator, instruction);
+}
+
 /// Compiles a single expression into bytecode instructions.
 ///
 /// Args:
@@ -65,10 +77,7 @@ fn deinit(self: *Compiler) void {
 ///   An error if the expression cannot be compiled.
 fn compileOne(self: *Compiler, expr: Val) Error!void {
     switch (expr.repr) {
-        .boolean, .i64, .procedure => try self.instructions.append(
-            self.vm.allocator,
-            Instruction.initLoad(expr),
-        ),
+        .boolean, .i64, .procedure => try self.addInstruction(Instruction.initLoad(expr)),
         .nil => return error.InvalidExpression,
         .symbol => |s| return self.compileSymbol(s),
         .pair => {
@@ -87,7 +96,7 @@ fn compileOne(self: *Compiler, expr: Val) Error!void {
 /// Returns:
 ///   An error if memory allocation fails.
 fn compileSymbol(self: *Compiler, symbol: Symbol.Interned) Error!void {
-    try self.instructions.append(self.vm.allocator, Instruction.initGetGlobal(symbol));
+    try self.addInstruction(Instruction.initGetGlobal(symbol));
 }
 
 /// Compiles a function call expression with arguments.
@@ -110,7 +119,7 @@ fn compileExpression(self: *Compiler, leading: Val, args: Val) Error!void {
         try self.compileOne(next);
         arg_count += 1;
     }
-    try self.instructions.append(self.vm.allocator, Instruction.initEvalProcedure(arg_count));
+    try self.addInstruction(Instruction.initEvalProcedure(arg_count));
 }
 
 test "compile with expression is function call" {
