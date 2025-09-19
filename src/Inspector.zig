@@ -73,6 +73,64 @@ pub fn get(self: Inspector, symbol: anytype) ?Val {
     }
 }
 
+/// Iterator for traversing Scheme lists.
+///
+/// Provides safe iteration over linked list structures built from Pair objects.
+/// The iterator automatically handles list termination and validates list structure.
+pub const ListIterator = struct {
+    vm: *const Vm,
+    current: Val,
+
+    /// Returns the next value in the list and advances the iterator.
+    ///
+    /// Args:
+    ///   self: Pointer to the iterator instance.
+    ///
+    /// Returns:
+    ///   The next value in the list, or null if iteration is complete.
+    ///
+    /// Errors:
+    ///   - TypeMismatch if the list structure is improper (cdr is not nil or pair).
+    pub fn next(self: *ListIterator) !?Val {
+        switch (self.current.repr) {
+            .nil => {
+                return null;
+            },
+            .pair => |handle| {
+                const pair = try self.vm.inspector().resolve(Pair, handle);
+                self.current = pair.cdr;
+                return pair.car;
+            },
+            else => return error.TypeMismatch,
+        }
+    }
+};
+
+/// Creates an iterator for traversing a Scheme list.
+///
+/// Lists in Scheme are represented as linked lists using Pair objects,
+/// terminated by nil. This function validates that the input is a valid
+/// list structure and returns an iterator for traversing its elements.
+///
+/// Args:
+///   self: The Inspector instance.
+///   val: The Scheme value to iterate over (must be nil or start with a pair).
+///
+/// Returns:
+///   A ListIterator positioned at the beginning of the list.
+///
+/// Errors:
+///   - TypeMismatch if the value is not nil or a pair.
+pub fn iterList(self: Inspector, val: Val) !ListIterator {
+    switch (val.repr) {
+        .nil, .pair => return ListIterator{
+            .vm = self.vm,
+            .current = val,
+        },
+        else => return error.TypeMismatch,
+    }
+}
+
 /// Converts a Scheme value to a Zig type.
 /// This function provides type-safe conversion from the dynamic value system
 /// back to compile-time known Zig types.
@@ -113,11 +171,12 @@ pub fn to(self: Inspector, T: type, val: Val) !T {
         },
         .pair => |c| switch (T) {
             Handle(Pair) => return c,
-            Pair => return try self.getHandle(Pair, c),
+            Pair => return try self.resolve(Pair, c),
             else => return error.TypeMismatch,
         },
         .procedure => |p| switch (T) {
-            Procedure => return try self.getHandle(Procedure, p),
+            Handle(Procedure) => return p,
+            Procedure => return try self.resolve(Procedure, p),
             else => return error.TypeMismatch,
         },
     }
@@ -132,11 +191,11 @@ pub fn to(self: Inspector, T: type, val: Val) !T {
 ///
 /// Returns:
 ///   The value of type T, or an error if the handle is invalid.
-pub fn getHandle(self: Inspector, T: type, handle: Handle(T)) !T {
+pub fn resolve(self: Inspector, T: type, handle: Handle(T)) !T {
     return switch (T) {
         Pair => self.vm.pairs.get(handle) orelse error.ObjectNotFound,
         Procedure => self.vm.procedures.get(handle) orelse error.ObjectNotFound,
-        else => @compileError("getHandle() only supports Pair and Procedure, got " ++ @typeName(T)),
+        else => @compileError("resolve() only supports Pair and Procedure, got " ++ @typeName(T)),
     };
 }
 
@@ -154,7 +213,7 @@ test "to converts i64 to i64" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const val = try vm.toVal(@as(i64, 42));
+    const val = try vm.toVal(42);
 
     try testing.expectEqual(
         42,
@@ -195,7 +254,7 @@ test "to converts cons to Handle(Pair)" {
     const result = try vm.inspector().to(Handle(Pair), val);
 
     // Verify we can retrieve the original cons through the handle
-    const retrieved_cons = try vm.inspector().getHandle(Pair, result);
+    const retrieved_cons = try vm.inspector().resolve(Pair, result);
     try testing.expectEqual(try vm.toVal(1), retrieved_cons.car);
     try testing.expectEqual(try vm.toVal(2), retrieved_cons.cdr);
 }
@@ -315,4 +374,128 @@ test "get returns updated value after redefinition" {
         Val.init(200),
         vm.inspector().get(Symbol.init("update-var")),
     );
+}
+
+test "iterList creates iterator for empty list (nil)" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var iter = try vm.inspector().iterList(Val.init({}));
+
+    try testing.expectEqual(null, try iter.next());
+}
+
+test "iterList creates iterator for single-element list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Create (42)
+    const list = try vm.toVal(Pair{
+        .car = try vm.toVal(42),
+        .cdr = try vm.toVal({}),
+    });
+
+    var iter = try vm.inspector().iterList(list);
+
+    // Should get 42, then null
+    try testing.expectEqual(
+        try vm.toVal(42),
+        (try iter.next()).?,
+    );
+    try testing.expectEqual(null, try iter.next());
+}
+
+test "iterList creates iterator for multi-element list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Create (1 2 3)
+    const list = try vm.toVal(Pair{
+        .car = try vm.toVal(1),
+        .cdr = try vm.toVal(Pair{
+            .car = try vm.toVal(2),
+            .cdr = try vm.toVal(Pair{
+                .car = try vm.toVal(3),
+                .cdr = try vm.toVal({}),
+            }),
+        }),
+    });
+
+    var iter = try vm.inspector().iterList(list);
+
+    // Should get 1, 2, 3, then null
+    try testing.expectEqual(
+        try vm.toVal(1),
+        try iter.next(),
+    );
+    try testing.expectEqual(
+        try vm.toVal(2),
+        try iter.next(),
+    );
+    try testing.expectEqual(
+        try vm.toVal(3),
+        try iter.next(),
+    );
+    try testing.expectEqual(null, try iter.next());
+}
+
+test "iterList returns TypeMismatch for non-list values" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Test with integer
+    try testing.expectError(
+        error.TypeMismatch,
+        vm.inspector().iterList(Val.init(42)),
+    );
+
+    // Test with boolean
+    try testing.expectError(
+        error.TypeMismatch,
+        vm.inspector().iterList(Val.init(true)),
+    );
+
+    // Test with symbol
+    try testing.expectError(
+        error.TypeMismatch,
+        vm.inspector().iterList(try vm.toVal(Symbol.init("test"))),
+    );
+}
+
+test "iterList handles improper lists" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Create (1 . 2) - improper list where cdr is not nil or pair
+    const improper_list = try vm.toVal(Pair{
+        .car = try vm.toVal(1),
+        .cdr = try vm.toVal(2),
+    });
+
+    var iter = try vm.inspector().iterList(improper_list);
+    try testing.expectEqual(try vm.toVal(1), try iter.next());
+
+    // Next call should return TypeMismatch error because cdr (2) is not nil or pair
+    try testing.expectError(
+        error.TypeMismatch,
+        iter.next(),
+    );
+}
+
+test "iterList iterator always returns null after completion" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const list = try vm.toVal(Pair{
+        .car = try vm.toVal(42),
+        .cdr = try vm.toVal({}),
+    });
+
+    var iter = try vm.inspector().iterList(list);
+    try testing.expectEqual(Val.init(42), try iter.next());
+    try testing.expectEqual(null, try iter.next()); // End of list
+
+    // Further calls should continue to return null
+    try testing.expectEqual(null, try iter.next());
+    try testing.expectEqual(null, try iter.next());
 }

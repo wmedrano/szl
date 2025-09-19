@@ -5,6 +5,7 @@
 const std = @import("std");
 const testing = std.testing;
 
+const Inspector = @import("Inspector.zig");
 const Instruction = @import("Instruction.zig");
 const Pair = @import("Pair.zig");
 const Procedure = @import("Procedure.zig");
@@ -96,9 +97,10 @@ fn compileOne(self: *Compiler, expr: Val) Error!void {
         .boolean, .i64, .procedure => try self.addInstruction(Instruction.initLoad(expr)),
         .nil => return error.InvalidExpression,
         .symbol => |s| return self.compileSymbol(s),
-        .pair => {
-            const pair = self.vm.inspector().to(Pair, expr) catch return Error.InvalidExpression;
-            try self.compileExpression(pair.car, pair.cdr);
+        .pair => |p| {
+            const pair = self.vm.inspector().resolve(Pair, p) catch return Error.InvalidExpression;
+            var args_iter = self.vm.inspector().iterList(pair.cdr) catch return Error.InvalidExpression;
+            try self.compileExpression(pair.car, &args_iter);
         },
     }
 }
@@ -120,22 +122,18 @@ fn compileSymbol(self: *Compiler, symbol: Symbol.Interned) Error!void {
 /// Args:
 ///   self: The compiler instance.
 ///   leading: The function or operator to call.
-///   args: The arguments as a linked list of pairs.
+///   args_iter: Iterator over the arguments.
 ///
 /// Returns:
 ///   An error if any part of the expression cannot be compiled.
-fn compileExpression(self: *Compiler, leading: Val, args: Val) Error!void {
+fn compileExpression(self: *Compiler, leading: Val, args_iter: *Inspector.ListIterator) Error!void {
     if (self.vm.fromVal(Symbol.Interned, leading) catch null) |sym| {
-        if (self.symbols.define.eql(sym)) return self.compileDefine(args);
+        if (self.symbols.define.eql(sym)) return self.compileDefine(args_iter);
     }
     try self.compileOne(leading);
-    var next_args = args;
     var arg_count: usize = 0;
-    while (!next_args.isNil()) {
-        const next_pair = self.vm.inspector().to(Pair, next_args) catch return Error.InvalidExpression;
-        const next = next_pair.car;
-        next_args = next_pair.cdr;
-        try self.compileOne(next);
+    while (args_iter.next() catch return Error.InvalidExpression) |arg| {
+        try self.compileOne(arg);
         arg_count += 1;
     }
     try self.addInstruction(Instruction.initEvalProcedure(arg_count));
@@ -145,16 +143,25 @@ fn compileExpression(self: *Compiler, leading: Val, args: Val) Error!void {
 ///
 /// Args:
 ///   self: The compiler instance.
-///   args: The arguments to the define expression (symbol and value).
+///   iter: Iterator over the arguments to the define expression (symbol and value).
 ///
 /// Returns:
 ///   An error if the arguments are invalid or compilation fails.
-fn compileDefine(self: *Compiler, args: Val) Error!void {
-    var pair = self.vm.fromVal(Pair, args) catch return Error.InvalidExpression;
-    const define_sym = self.vm.fromVal(Symbol.Interned, pair.car) catch return Error.InvalidExpression;
-    pair = self.vm.fromVal(Pair, pair.cdr) catch return Error.InvalidExpression;
-    const define_expr = pair.car;
-    if (!pair.cdr.isNil()) return Error.InvalidExpression;
+fn compileDefine(self: *Compiler, iter: *Inspector.ListIterator) Error!void {
+    const define_sym_val = iter.next() catch {
+        return Error.InvalidExpression;
+    } orelse {
+        return Error.InvalidExpression;
+    };
+    const define_sym = self.vm.inspector().to(Symbol.Interned, define_sym_val) catch
+        return Error.InvalidExpression;
+    const define_expr = iter.next() catch {
+        return Error.InvalidExpression;
+    } orelse {
+        return Error.InvalidExpression;
+    };
+    if ((iter.next() catch return Error.InvalidExpression) != null)
+        return Error.InvalidExpression;
     try self.addInstruction(Instruction.initGetGlobal(self.symbols.@"szl-define"));
     try self.addInstruction(Instruction.initLoad(Val.init(define_sym)));
     try self.compileOne(define_expr);

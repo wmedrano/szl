@@ -92,6 +92,20 @@ pub fn isNil(self: Val) bool {
     };
 }
 
+/// Determines if a value is a pair.
+///
+/// Args:
+///   self: The value to test for pair type.
+///
+/// Returns:
+///   true if the value is a pair, false otherwise.
+pub fn isPair(self: Val) bool {
+    return switch (self.repr) {
+        .pair => true,
+        else => false,
+    };
+}
+
 /// Determines if a value is a procedure.
 ///
 /// Args:
@@ -123,24 +137,24 @@ pub fn isTruthy(self: Val) bool {
 }
 
 test "isTruthy returns false for boolean false" {
-    const val = Val{ .repr = .{ .boolean = false } };
+    const val = Val.init(false);
     try testing.expectEqual(false, val.isTruthy());
 }
 
 test "isTruthy returns true for boolean true" {
-    const val = Val{ .repr = .{ .boolean = true } };
+    const val = Val.init(true);
     try testing.expectEqual(true, val.isTruthy());
 }
 
 test "isTruthy returns true for nil" {
-    const val = Val{ .repr = .{ .nil = {} } };
+    const val = Val.init({});
     try testing.expectEqual(true, val.isTruthy());
 }
 
 test "isTruthy returns true for numbers" {
-    const val_zero = Val{ .repr = .{ .i64 = 0 } };
-    const val_positive = Val{ .repr = .{ .i64 = 42 } };
-    const val_negative = Val{ .repr = .{ .i64 = -5 } };
+    const val_zero = Val.init(0);
+    const val_positive = Val.init(42);
+    const val_negative = Val.init(-5);
 
     try testing.expectEqual(true, val_zero.isTruthy());
     try testing.expectEqual(true, val_positive.isTruthy());
@@ -152,7 +166,7 @@ test "isTruthy returns true for symbols" {
     defer vm.deinit();
 
     const symbol = try vm.interner.internStatic(Symbol.init("test"));
-    const val = Val{ .repr = .{ .symbol = symbol } };
+    const val = Val.init(symbol);
 
     try testing.expectEqual(true, val.isTruthy());
 }
@@ -162,8 +176,8 @@ test "isTruthy returns true for pair" {
     defer vm.deinit();
 
     const cons_val = try vm.toVal(Pair{
-        .car = Val{ .repr = .{ .i64 = 1 } },
-        .cdr = Val{ .repr = .{ .nil = {} } },
+        .car = Val.init(1),
+        .cdr = Val.init({}),
     });
 
     try testing.expectEqual(true, cons_val.isTruthy());
@@ -187,13 +201,13 @@ test "isTruthy returns true for procedure" {
 }
 
 test "isNil returns true for nil value" {
-    const val = Val{ .repr = .{ .nil = {} } };
+    const val = Val.init({});
     try testing.expectEqual(true, val.isNil());
 }
 
 test "isNil returns false for non-nil values" {
-    const bool_val = Val{ .repr = .{ .boolean = true } };
-    const int_val = Val{ .repr = .{ .i64 = 42 } };
+    const bool_val = Val.init(true);
+    const int_val = Val.init(42);
 
     try testing.expectEqual(false, bool_val.isNil());
     try testing.expectEqual(false, int_val.isNil());
@@ -217,11 +231,33 @@ test "isProcedure returns true for procedure value" {
 }
 
 test "isProcedure returns false for non-procedure values" {
-    const bool_val = Val{ .repr = .{ .boolean = true } };
-    const int_val = Val{ .repr = .{ .i64 = 42 } };
-    const nil_val = Val{ .repr = .{ .nil = {} } };
+    const bool_val = Val.init(true);
+    const int_val = Val.init(42);
+    const nil_val = Val.init({});
 
     try testing.expectEqual(false, bool_val.isProcedure());
     try testing.expectEqual(false, int_val.isProcedure());
     try testing.expectEqual(false, nil_val.isProcedure());
+}
+
+test "isPair returns true for pair value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const pair_val = try vm.toVal(Pair{
+        .car = Val.init(1),
+        .cdr = Val.init({}),
+    });
+
+    try testing.expectEqual(true, pair_val.isPair());
+}
+
+test "isPair returns false for non-pair values" {
+    const bool_val = Val.init(true);
+    const int_val = Val.init(42);
+    const nil_val = Val.init({});
+
+    try testing.expectEqual(false, bool_val.isPair());
+    try testing.expectEqual(false, int_val.isPair());
+    try testing.expectEqual(false, nil_val.isPair());
 }
