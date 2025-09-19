@@ -123,7 +123,7 @@ test "isTruthy returns true for symbols" {
     var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const symbol = try vm.interner.internStatic(@import("Symbol.zig").init("test"));
+    const symbol = try vm.interner.internStatic(Symbol.init("test"));
     const val = Val{ .repr = .{ .symbol = symbol } };
 
     try testing.expectEqual(true, val.isTruthy());
@@ -133,7 +133,7 @@ test "isTruthy returns true for pair" {
     var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const cons_val = try vm.toVal(@import("Pair.zig"){
+    const cons_val = try vm.toVal(Pair{
         .car = Val{ .repr = .{ .i64 = 1 } },
         .cdr = Val{ .repr = .{ .nil = {} } },
     });
@@ -148,9 +148,8 @@ test "isTruthy returns true for procedure" {
     const test_procedure = Procedure{
         .name = try vm.interner.internStatic(Symbol.init("test-proc")),
         .implementation = .{ .native = .{ .func = struct {
-            fn testFunc(vm_ptr: *Vm) Val {
-                _ = vm_ptr;
-                return Val{ .repr = .{ .nil = {} } };
+            fn testFunc(_: Procedure.Context) Val {
+                return Val.init({});
             }
         }.testFunc } },
     };

@@ -33,12 +33,29 @@ pub const Impl = union(enum) {
     bytecode: Bytecode,
 };
 
+/// Execution context for procedure calls.
+/// Provides access to the VM state during procedure execution.
+pub const Context = struct {
+    vm: *Vm,
+
+    /// Gets the local stack slice for the current procedure call.
+    /// Returns the portion of the VM's stack that contains the arguments
+    /// for the currently executing procedure.
+    ///
+    /// Returns:
+    ///   A slice of Val containing the arguments for the current procedure.
+    pub fn localStack(self: Context) []const Val {
+        const frame = self.vm.current_stack_frame;
+        return self.vm.stack.items[frame.stack_start..];
+    }
+};
+
 /// Native Zig function wrapper for procedures.
-/// Contains a function pointer that takes a VM and returns a value.
+/// Contains a function pointer that takes a Context and returns a value.
 pub const Native = struct {
     /// Function pointer that implements the procedure logic.
-    /// Takes a pointer to the VM and returns a value.
-    func: *const fn (*Vm) Val,
+    /// Takes a Context providing access to VM state and returns a value.
+    func: *const fn (Context) Val,
 };
 
 /// Bytecode implementation for procedures.
@@ -47,17 +64,3 @@ pub const Bytecode = struct {
     /// Array of instructions that implement the procedure logic.
     instructions: []const Instruction,
 };
-
-/// Gets the local stack slice for the current procedure call.
-/// Returns the portion of the VM's stack that contains the arguments
-/// for the currently executing procedure.
-///
-/// Args:
-///   vm: Pointer to the VM whose local stack will be returned.
-///
-/// Returns:
-///   A slice of Val containing the arguments for the current procedure.
-pub fn localStack(vm: *const Vm) []const Val {
-    const frame = vm.current_stack_frame;
-    return vm.stack.items[frame.stack_start..];
-}

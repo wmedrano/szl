@@ -335,8 +335,7 @@ test "build with Procedure creates procedure val" {
     const test_procedure = Procedure{
         .name = try vm.interner.internStatic(Symbol.init("test-proc")),
         .implementation = .{ .native = .{ .func = struct {
-            fn testFunc(vm_ptr: *Vm) Val {
-                _ = vm_ptr;
+            fn testFunc(_: Procedure.Context) Val {
                 return Val.init(42);
             }
         }.testFunc } },

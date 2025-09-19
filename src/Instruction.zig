@@ -102,7 +102,7 @@ pub fn eval_procedure(vm: *Vm, arg_count: usize) !void {
     const procedure = try vm.fromVal(Procedure, vm.stack.items[procedure_idx]);
     switch (procedure.implementation) {
         .native => |native| {
-            const return_val = native.func(vm);
+            const return_val = native.func(Procedure.Context{ .vm = vm });
             try vm.stack.resize(vm.allocator, procedure_idx + 1);
             vm.stack.items[procedure_idx] = return_val;
             vm.current_stack_frame = vm.stack_frames.pop() orelse return error.StackUnderflow;
@@ -135,10 +135,10 @@ test "execute eval_procedure instruction calls procedure with arguments" {
     const test_procedure = Procedure{
         .name = null,
         .implementation = .{ .native = .{ .func = struct {
-            fn addTwo(vm_ptr: *Vm) Val {
-                const args = Procedure.localStack(vm_ptr);
-                const val1 = vm_ptr.fromVal(i64, args[0]) catch unreachable;
-                const val2 = vm_ptr.fromVal(i64, args[1]) catch unreachable;
+            fn addTwo(ctx: Procedure.Context) Val {
+                const args = ctx.localStack();
+                const val1 = ctx.vm.fromVal(i64, args[0]) catch unreachable;
+                const val2 = ctx.vm.fromVal(i64, args[1]) catch unreachable;
                 return Val.init(val1 + val2);
             }
         }.addTwo } },
