@@ -42,25 +42,41 @@ pub fn register(vm: *Vm) !void {
 
 /// Native implementation of the '+' arithmetic operator.
 /// Adds all numeric arguments together, returning 0 for no arguments.
-/// Expects all arguments to be numeric values that can be converted to i64.
+/// Expects all arguments to be numeric values (either i64 or f64).
+/// Returns f64 if any operand is f64, otherwise returns i64.
 ///
 /// Args:
 ///   ctx: The procedure execution context containing the VM and local stack arguments.
 ///
 /// Returns:
-///   A Val containing the sum of all numeric arguments as an i64.
+///   A Val containing the sum of all numeric arguments.
 ///   If any argument is not numeric, raises an error instead of returning.
 fn addFunc(ctx: Procedure.Context) Val {
     const args = ctx.localStack();
-    var sum: i64 = 0;
+    var sum_i64: i64 = 0;
+    var sum_f64: f64 = 0.0;
+    var has_float = false;
+
     for (args) |arg| {
-        const num = ctx.vm.fromVal(i64, arg) catch {
-            Instruction.raiseWithError(ctx.vm, Val.init({}));
-            return Val.init({});
-        };
-        sum += num;
+        switch (arg.repr) {
+            .i64 => |val| sum_i64 += val,
+            .f64 => |val| {
+                has_float = true;
+                sum_f64 += val;
+            },
+            else => {
+                Instruction.raiseWithError(ctx.vm, Val.init({}));
+                return Val.init({});
+            },
+        }
     }
-    return Val.init(sum);
+
+    if (has_float) {
+        sum_f64 += @as(f64, @floatFromInt(sum_i64));
+        return Val.init(sum_f64);
+    } else {
+        return Val.init(sum_i64);
+    }
 }
 /// Native implementation of the 'szl-define' procedure for defining global variables.
 /// Defines a global variable with the given symbol name and value.
@@ -147,5 +163,35 @@ test "+ with non-number is error" {
     try testing.expectError(
         error.SzlError,
         vm.evalStr("(+ #t)"),
+    );
+}
+
+test "+ with floating point numbers" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        Val.init(3.14),
+        try vm.evalStr("(+ 3.14)"),
+    );
+}
+
+test "+ with mixed integer and float returns float" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try vm.evalStr("(+ 4 3.14)");
+    const expected = 7.14;
+    const actual = vm.fromVal(f64, result) catch unreachable;
+    try testing.expectApproxEqRel(expected, actual, 1e-10);
+}
+
+test "+ with multiple floats" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        Val.init(6.28),
+        try vm.evalStr("(+ 3.14 3.14)"),
     );
 }

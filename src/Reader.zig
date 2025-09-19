@@ -109,7 +109,8 @@ fn nextExpression(self: *Reader) !?Val {
 /// Parses a single token into its corresponding value.
 ///
 /// Converts textual token representations into their appropriate value types.
-/// Recognizes boolean literals (#t and #f) and treats all other tokens as symbols.
+/// Recognizes boolean literals (#t and #f), integers, floating point numbers,
+/// and treats all other tokens as symbols.
 /// This function handles the core atomic value parsing for the Scheme reader.
 ///
 /// Args:
@@ -127,6 +128,8 @@ fn parseToken(self: *Reader, token: []const u8) !Val {
     if (std.mem.eql(u8, token, "#f") or std.mem.eql(u8, token, "#false"))
         return Val.init(false);
     if (std.fmt.parseInt(i64, token, 10) catch null) |x|
+        return Val.init(x);
+    if (std.fmt.parseFloat(f64, token) catch null) |x|
         return Val.init(x);
     return self.vm.toVal(Symbol.init(token));
 }
@@ -494,6 +497,70 @@ test "readOne with nested expressions and whitespace returns proper structure" {
     const result = try readOne(&vm, "( a  ( b   c ) d )");
     try testing.expectFmt(
         "(a (b c) d)",
+        "{f}",
+        .{vm.pretty(result)},
+    );
+}
+
+test "readOne with positive float returns float value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        Val.init(3.14),
+        try readOne(&vm, "3.14"),
+    );
+}
+
+test "readOne with negative float returns float value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        Val.init(-2.718),
+        try readOne(&vm, "-2.718"),
+    );
+}
+
+test "readOne with zero float returns float value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        Val.init(0.0),
+        try readOne(&vm, "0.0"),
+    );
+}
+
+test "readOne with scientific notation returns float value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        Val.init(1.23e-4),
+        try readOne(&vm, "1.23e-4"),
+    );
+}
+
+test "readOne with floats in list returns proper list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "(3.14 -2.718 0.0)");
+    try testing.expectFmt(
+        "(3.14 -2.718 0)",
+        "{f}",
+        .{vm.pretty(result)},
+    );
+}
+
+test "readOne with mixed integers and floats in list returns proper list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "(42 3.14 -17 -2.718)");
+    try testing.expectFmt(
+        "(42 3.14 -17 -2.718)",
         "{f}",
         .{vm.pretty(result)},
     );

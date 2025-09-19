@@ -67,7 +67,7 @@ pub fn format(
 }
 
 /// Internal recursive helper to format different value types.
-/// Handles nil, boolean, integer, symbol, pair, and procedure values.
+/// Handles nil, boolean, integer, floating point, symbol, pair, and procedure values.
 ///
 /// Args:
 ///   self: The PrettyPrinter instance.
@@ -81,6 +81,7 @@ fn formatValue(self: PrettyPrinter, writer: *std.Io.Writer, val: Val) error{Writ
             try writer.print("{s}", .{s});
         },
         .i64 => |n| try writer.print("{d}", .{n}),
+        .f64 => |n| try writer.print("{d}", .{n}),
         .symbol => |sym| {
             const symbol = self.vm.interner.get(sym) catch |err| switch (err) {
                 error.InvalidId => {

@@ -36,6 +36,10 @@ pub const Repr = union(enum) {
     /// Used for numeric computations and integer literals in Scheme.
     i64: i64,
 
+    /// Represents a 64-bit floating point value.
+    /// Used for floating point numeric computations in Scheme.
+    f64: f64,
+
     /// Represents a symbol value using an interned symbol for efficient comparison.
     /// Symbols in Scheme are identifiers that evaluate to themselves when quoted
     /// or are used for variable/function names when unquoted.
@@ -58,6 +62,7 @@ pub const Repr = union(enum) {
 ///   - void: Converted to nil
 ///   - bool: Converted to boolean values
 ///   - i64, comptime_int: Converted to integer values
+///   - f64, comptime_float: Converted to floating point values
 ///   - Symbol.Interned: Converted to symbol values
 ///   - Handle(Pair): Converted to pair values
 ///   - Handle(Procedure): Converted to procedure values
@@ -71,6 +76,7 @@ pub fn init(v: anytype) Val {
         void => return init(Val.Repr{ .nil = {} }),
         bool => return init(Val.Repr{ .boolean = v }),
         i64, comptime_int => return init(Val.Repr{ .i64 = v }),
+        f64, comptime_float => return init(Val.Repr{ .f64 = v }),
         Symbol.Interned => return init(Val.Repr{ .symbol = v }),
         Handle(Pair) => return init(Val.Repr{ .pair = v }),
         Handle(Procedure) => return init(Val.Repr{ .procedure = v }),
@@ -116,6 +122,21 @@ pub fn isPair(self: Val) bool {
 pub fn isProcedure(self: Val) bool {
     return switch (self.repr) {
         .procedure => true,
+        else => false,
+    };
+}
+
+/// Determines if a value is a number (either integer or floating point).
+/// Returns true for both i64 and f64 value types.
+///
+/// Args:
+///   self: The value to test for numeric type.
+///
+/// Returns:
+///   true if the value is an i64 or f64, false otherwise.
+pub fn isNumber(self: Val) bool {
+    return switch (self.repr) {
+        .i64, .f64 => true,
         else => false,
     };
 }
@@ -260,4 +281,32 @@ test "isPair returns false for non-pair values" {
     try testing.expectEqual(false, bool_val.isPair());
     try testing.expectEqual(false, int_val.isPair());
     try testing.expectEqual(false, nil_val.isPair());
+}
+
+test "f64 values can be created and are truthy" {
+    const val_zero = Val.init(0.0);
+    const val_positive = Val.init(3.14);
+    const val_negative = Val.init(-2.718);
+
+    try testing.expectEqual(true, val_zero.isTruthy());
+    try testing.expectEqual(true, val_positive.isTruthy());
+    try testing.expectEqual(true, val_negative.isTruthy());
+}
+
+test "isNumber returns true for f64 values" {
+    const val_float = Val.init(3.14);
+    const val_int = Val.init(42);
+    const val_bool = Val.init(true);
+
+    try testing.expectEqual(true, val_float.isNumber());
+    try testing.expectEqual(true, val_int.isNumber());
+    try testing.expectEqual(false, val_bool.isNumber());
+}
+
+test "isNumber returns false for non-numeric values" {
+    const bool_val = Val.init(true);
+    const nil_val = Val.init({});
+
+    try testing.expectEqual(false, bool_val.isNumber());
+    try testing.expectEqual(false, nil_val.isNumber());
 }

@@ -140,7 +140,7 @@ fn findBinding(self: *Compiler, symbol: Symbol.Interned) ?usize {
 ///   An error if the expression cannot be compiled.
 fn compileOne(self: *Compiler, expr: Val) Error!void {
     switch (expr.repr) {
-        .boolean, .i64, .procedure => try self.addInstruction(Instruction.initLoad(expr)),
+        .boolean, .i64, .f64, .procedure => try self.addInstruction(Instruction.initLoad(expr)),
         .nil => return error.InvalidExpression,
         .symbol => |s| return self.compileSymbol(s),
         .pair => |p| {

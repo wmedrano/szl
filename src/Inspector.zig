@@ -158,6 +158,7 @@ pub fn iterList(self: Inspector, val: Val) error{TypeMismatch}!ListIterator {
 ///   - nil → void
 ///   - boolean → bool
 ///   - i64 → i64
+///   - f64 → f64
 ///   - symbol → Symbol.Interned, Symbol
 ///   - pair → Handle(Pair), Pair
 ///   - procedure → Handle(Procedure), Procedure
@@ -173,6 +174,10 @@ pub fn to(self: Inspector, T: type, val: Val) !T {
         },
         .i64 => |i| switch (T) {
             i64 => return i,
+            else => return error.TypeMismatch,
+        },
+        .f64 => |f| switch (T) {
+            f64 => return f,
             else => return error.TypeMismatch,
         },
         .symbol => |s| switch (T) {
