@@ -78,6 +78,34 @@ pub fn init(v: anytype) Val {
     }
 }
 
+/// Determines if a value is nil.
+///
+/// Args:
+///   self: The value to test for nil.
+///
+/// Returns:
+///   true if the value is nil, false otherwise.
+pub fn isNil(self: Val) bool {
+    return switch (self.repr) {
+        .nil => true,
+        else => false,
+    };
+}
+
+/// Determines if a value is a procedure.
+///
+/// Args:
+///   self: The value to test for procedure type.
+///
+/// Returns:
+///   true if the value is a procedure, false otherwise.
+pub fn isProcedure(self: Val) bool {
+    return switch (self.repr) {
+        .procedure => true,
+        else => false,
+    };
+}
+
 /// Determines if a value is truthy according to Scheme semantics.
 /// In Scheme, only the boolean value false (#f) is considered falsy.
 /// All other values, including nil/empty list, numbers, symbols, and cons cells are truthy.
@@ -156,4 +184,44 @@ test "isTruthy returns true for procedure" {
     const proc_val = try vm.toVal(proc);
 
     try testing.expectEqual(true, proc_val.isTruthy());
+}
+
+test "isNil returns true for nil value" {
+    const val = Val{ .repr = .{ .nil = {} } };
+    try testing.expectEqual(true, val.isNil());
+}
+
+test "isNil returns false for non-nil values" {
+    const bool_val = Val{ .repr = .{ .boolean = true } };
+    const int_val = Val{ .repr = .{ .i64 = 42 } };
+
+    try testing.expectEqual(false, bool_val.isNil());
+    try testing.expectEqual(false, int_val.isNil());
+}
+
+test "isProcedure returns true for procedure value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const proc = Procedure{
+        .name = try vm.interner.internStatic(Symbol.init("test-proc")),
+        .implementation = Procedure.initNative(struct {
+            fn func(_: Procedure.Context) Val {
+                return Val.init({});
+            }
+        }.func),
+    };
+    const proc_val = try vm.toVal(proc);
+
+    try testing.expectEqual(true, proc_val.isProcedure());
+}
+
+test "isProcedure returns false for non-procedure values" {
+    const bool_val = Val{ .repr = .{ .boolean = true } };
+    const int_val = Val{ .repr = .{ .i64 = 42 } };
+    const nil_val = Val{ .repr = .{ .nil = {} } };
+
+    try testing.expectEqual(false, bool_val.isProcedure());
+    try testing.expectEqual(false, int_val.isProcedure());
+    try testing.expectEqual(false, nil_val.isProcedure());
 }

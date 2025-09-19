@@ -245,7 +245,7 @@ test "execute bytecode procedure loads instructions into stack frame" {
 
     const proc = try vm.toVal(Procedure{
         .name = try vm.interner.internStatic(Symbol.init("test-bytecode")),
-        .implementation = Procedure.initBytecode(&[_]Instruction{
+        .implementation = Procedure.initStaticBytecode(&[_]Instruction{
             Instruction.initLoad(Val.init(5)),
             Instruction.initLoad(Val.init(7)),
         }),
@@ -268,7 +268,7 @@ test "execute bytecode procedure loads instructions into stack frame" {
 
 test "execute bytecode procedure with arguments sets correct stack start" {
     const proc = Procedure{
-        .implementation = Procedure.initBytecode(&[_]Instruction{
+        .implementation = Procedure.initStaticBytecode(&[_]Instruction{
             Instruction.initLoad(Val.init(42)),
         }),
     };
@@ -293,7 +293,7 @@ test "execute bytecode procedure with arguments sets correct stack start" {
 
 test "return_value restores previous stack frame and places return value on top" {
     const proc = Procedure{
-        .implementation = Procedure.initBytecode(&[_]Instruction{
+        .implementation = Procedure.initStaticBytecode(&[_]Instruction{
             Instruction.initLoad(Val.init(42)),
         }),
     };

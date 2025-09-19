@@ -10,6 +10,7 @@ const testing = std.testing;
 
 const Builder = @import("Builder.zig");
 const builtins = @import("builtins.zig");
+const Compiler = @import("Compiler.zig");
 const Handle = @import("object_pool.zig").Handle;
 const Inspector = @import("Inspector.zig");
 const Instruction = @import("Instruction.zig");
@@ -81,6 +82,8 @@ pub fn deinit(self: *Vm) void {
     self.global_values.deinit(self.allocator);
     self.interner.deinit();
     self.pairs.deinit(self.allocator);
+    var proc_iter = self.procedures.iterator();
+    while (proc_iter.next()) |proc| proc.deinit(self.allocator);
     self.procedures.deinit(self.allocator);
 }
 
@@ -156,68 +159,61 @@ pub fn inspector(self: *const Vm) Inspector {
     return Inspector{ .vm = self };
 }
 
-/// Evaluates a string of Scheme source code and returns the result.
-/// Parses the source string into expressions using the Reader and evaluates
-/// each expression in sequence, returning the value of the last expression.
+/// Compiles a string of Scheme source code and returns the result.
+/// Parses the source string into expressions using the Reader and compiles
+/// each expression to bytecode, returning a procedure for the last expression.
 ///
 /// Args:
 ///   self: Pointer to the VM instance.
-///   source: The Scheme source code string to evaluate.
+///   source: The Scheme source code string to compile.
 ///
 /// Returns:
-///   The value of the last expression evaluated, or unit value if no expressions.
+///   A procedure containing compiled bytecode for the last expression, or unit value if no expressions.
 ///
 /// Errors:
 ///   - May return parsing errors from the Reader if the source is malformed.
-///   - May return evaluation errors (when evaluation is implemented).
+///   - May return compilation errors if expressions cannot be compiled to bytecode.
 pub fn evalStr(self: *Vm, source: []const u8) !Val {
     var reader = self.builder().read(source);
     var ret = Val.init({});
     while (try reader.next()) |expr| {
-        // TODO: Evaluate the expression. We return it for now.
-        ret = expr;
+        const proc = try Compiler.compile(self, expr);
+        // TODO: Evaluate proc.
+        ret = proc;
     }
     return ret;
 }
 
-test "evalStr with single symbol returns symbol value" {
+test "evalStr with single symbol compiles to procedure" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try vm.evalStr("hello");
-    try testing.expectEqual(
-        try vm.toVal(Symbol.init("hello")),
-        result,
-    );
+    try testing.expect(result.isProcedure());
 }
 
-test "evalStr with multiple expressions returns last expression value" {
+test "evalStr with multiple expressions compiles last expression to procedure" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try vm.evalStr("#t #f hello");
-    try testing.expectEqual(
-        try vm.toVal(Symbol.init("hello")),
-        result,
-    );
+    try testing.expect(result.isProcedure());
 }
 
 test "evalStr with empty string returns unit value" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const result = try vm.evalStr("");
-    try testing.expectEqual(Val.init({}), result);
+    try testing.expectEqual(
+        Val.init({}),
+        try vm.evalStr(""),
+    );
 }
 
-test "evalStr with list expression returns list value" {
+test "evalStr with list expression compiles to procedure" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const result = try vm.evalStr("(hello world)");
-    try testing.expectFmt(
-        "(hello world)",
-        "{f}",
-        .{vm.pretty(result)},
-    );
+    try testing.expect(result.isProcedure());
 }

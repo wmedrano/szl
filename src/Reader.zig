@@ -200,10 +200,9 @@ test "readOne with positive integer returns integer value" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const result = try readOne(&vm, "42");
     try testing.expectEqual(
         Val.init(42),
-        result,
+        try readOne(&vm, "42"),
     );
 }
 
@@ -211,10 +210,9 @@ test "readOne with negative integer returns integer value" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const result = try readOne(&vm, "-123");
     try testing.expectEqual(
         Val.init(-123),
-        result,
+        try readOne(&vm, "-123"),
     );
 }
 
@@ -222,10 +220,9 @@ test "readOne with zero returns integer value" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const result = try readOne(&vm, "0");
     try testing.expectEqual(
         Val.init(0),
-        result,
+        try readOne(&vm, "0"),
     );
 }
 
@@ -233,10 +230,9 @@ test "readOne with large integer returns integer value" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const result = try readOne(&vm, "9223372036854775807");
     try testing.expectEqual(
         Val.init(9223372036854775807),
-        result,
+        try readOne(&vm, "9223372036854775807"),
     );
 }
 
@@ -376,10 +372,9 @@ test "readOne with invalid integer falls back to symbol" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const result = try readOne(&vm, "123abc");
     try testing.expectEqual(
         try vm.toVal(Symbol.init("123abc")),
-        result,
+        try readOne(&vm, "123abc"),
     );
 }
 

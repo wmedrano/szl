@@ -122,6 +122,22 @@ pub fn intern(self: Builder, symbol: Symbol) !Symbol.Interned {
     return self.vm.interner.intern(symbol);
 }
 
+/// Creates an interned symbol from a Symbol with static lifetime data.
+///
+/// This function takes a Symbol with static lifetime data and returns its
+/// interned representation without copying the data. This is more efficient
+/// than intern() when the symbol data has static lifetime.
+///
+/// Args:
+///   self: The Builder instance.
+///   symbol: The Symbol to intern (data will NOT be copied).
+///
+/// Returns:
+///   The interned symbol.
+pub fn internStatic(self: Builder, symbol: Symbol) !Symbol.Interned {
+    return self.vm.interner.internStatic(symbol);
+}
+
 /// Defines a global variable by associating a symbol with a value.
 ///
 /// This function interns the given symbol and stores the value in the VM's

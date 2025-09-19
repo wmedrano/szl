@@ -63,6 +63,9 @@ pub const Context = struct {
 pub const Bytecode = struct {
     /// Array of instructions that implement the procedure logic.
     instructions: []const Instruction,
+    /// Whether the instructions array is statically allocated and should not be freed.
+    /// Set to true for embedded or compile-time allocated instructions.
+    static: bool,
 };
 
 /// Creates a new procedure with a native implementation.
@@ -70,7 +73,31 @@ pub fn initNative(func: *const fn (Context) Val) Impl {
     return .{ .native = .{ .func = func } };
 }
 
-/// Creates a new procedure with a bytecode implementation.
+/// Creates a new procedure with a dynamically allocated bytecode implementation.
+/// The instructions array will be freed when deinit() is called.
 pub fn initBytecode(instructions: []const Instruction) Impl {
-    return .{ .bytecode = .{ .instructions = instructions } };
+    return .{ .bytecode = .{
+        .instructions = instructions,
+        .static = false,
+    } };
+}
+
+/// Creates a new procedure with a statically allocated bytecode implementation.
+/// The instructions array will not be freed when deinit() is called.
+/// Use this for compile-time or embedded instruction arrays.
+pub fn initStaticBytecode(instructions: []const Instruction) Impl {
+    return .{ .bytecode = .{
+        .instructions = instructions,
+        .static = true,
+    } };
+}
+
+/// Deallocates resources associated with this procedure.
+/// For dynamic bytecode procedures, frees the instructions array.
+/// For static bytecode and native procedures, this is a no-op.
+pub fn deinit(self: Procedure, allocator: std.mem.Allocator) void {
+    switch (self.implementation) {
+        .native => {},
+        .bytecode => |bytecode| if (!bytecode.static) allocator.free(bytecode.instructions),
+    }
 }
