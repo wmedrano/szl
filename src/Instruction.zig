@@ -18,6 +18,21 @@ const Instruction = @This();
 /// Contains the instruction type and any associated data.
 repr: Repr,
 
+/// Creates a new load instruction with the given value.
+pub fn initLoad(val: Val) Instruction {
+    return Instruction{ .repr = .{ .load = val } };
+}
+
+/// Creates a new eval_procedure instruction with the given argument count.
+pub fn initEvalProcedure(arg_count: usize) Instruction {
+    return Instruction{ .repr = .{ .eval_procedure = arg_count } };
+}
+
+/// Creates a new return_value instruction.
+pub fn initReturnValue() Instruction {
+    return Instruction{ .repr = .return_value };
+}
+
 /// Tagged union representing all possible instruction types in the virtual machine.
 /// Each variant corresponds to a different operation that can be performed
 /// during program execution.
@@ -27,7 +42,7 @@ pub const Repr = union(enum) {
     load: Val,
     /// Instruction to evaluate a procedure with arguments from the stack.
     /// The arg_count specifies how many arguments to pass to the procedure.
-    eval_procedure: struct { arg_count: usize },
+    eval_procedure: usize,
     /// Instruction to return from the current procedure.
     /// Restores the previous stack frame and places the return value at the correct position.
     return_value,
@@ -51,9 +66,28 @@ pub const Repr = union(enum) {
 pub fn execute(self: Instruction, vm: *Vm) !void {
     switch (self.repr) {
         .load => |val| return load(vm, val),
-        .eval_procedure => |args| return evalProcedure(vm, args.arg_count),
+        .eval_procedure => |arg_count| return evalProcedure(vm, arg_count),
         .return_value => return returnValue(vm),
     }
+}
+
+/// Executes the next instruction in the current stack frame.
+///
+/// Advances the instruction pointer and executes the instruction. If no more
+/// instructions are available, automatically returns from the current frame.
+///
+/// Args:
+///   - vm: Pointer to the virtual machine instance.
+///
+/// Returns:
+///   - May return execution errors from the underlying instruction.
+pub fn executeNext(vm: *Vm) !void {
+    const instruction_idx = vm.current_stack_frame.instruction_idx;
+    const instruction = if (instruction_idx < vm.current_stack_frame.instructions.len) blk: {
+        vm.current_stack_frame.instruction_idx += 1;
+        break :blk vm.current_stack_frame.instructions[instruction_idx];
+    } else Instruction.initReturnValue();
+    try instruction.execute(vm);
 }
 
 /// Loads a value onto the virtual machine's stack.
@@ -140,9 +174,9 @@ test "execute load instruction pushes value onto stack" {
     var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try execute(Instruction{ .repr = .{ .load = Val.init(10) } }, &vm);
-    try execute(Instruction{ .repr = .{ .load = Val.init(20) } }, &vm);
-    try execute(Instruction{ .repr = .{ .load = Val.init(30) } }, &vm);
+    try execute(Instruction.initLoad(Val.init(10)), &vm);
+    try execute(Instruction.initLoad(Val.init(20)), &vm);
+    try execute(Instruction.initLoad(Val.init(30)), &vm);
 
     try testing.expectFmt(
         "(10 20 30)",
@@ -171,7 +205,7 @@ test "execute eval_procedure instruction calls procedure with arguments" {
         Val.init(20),
     });
 
-    try execute(Instruction{ .repr = .{ .eval_procedure = .{ .arg_count = 2 } } }, &vm);
+    try execute(Instruction.initEvalProcedure(2), &vm);
     try testing.expectFmt(
         "(30)",
         "{f}",
@@ -188,21 +222,21 @@ test "execute bytecode procedure loads instructions into stack frame" {
         .implementation = .{
             .bytecode = .{
                 .instructions = &[_]Instruction{
-                    Instruction{ .repr = .{ .load = Val.init(5) } },
-                    Instruction{ .repr = .{ .load = Val.init(7) } },
+                    Instruction.initLoad(Val.init(5)),
+                    Instruction.initLoad(Val.init(7)),
                 },
             },
         },
     });
     try load(&vm, proc);
 
-    try execute(Instruction{ .repr = .{ .eval_procedure = .{ .arg_count = 0 } } }, &vm);
+    try execute(Instruction.initEvalProcedure(0), &vm);
     try testing.expectEqualDeep(
         Vm.StackFrame{
             .stack_start = 1,
             .instructions = &[_]Instruction{
-                Instruction{ .repr = .{ .load = Val.init(5) } },
-                Instruction{ .repr = .{ .load = Val.init(7) } },
+                Instruction.initLoad(Val.init(5)),
+                Instruction.initLoad(Val.init(7)),
             },
         },
         vm.current_stack_frame,
@@ -214,7 +248,7 @@ test "execute bytecode procedure with arguments sets correct stack start" {
         .implementation = .{
             .bytecode = .{
                 .instructions = &[_]Instruction{
-                    Instruction{ .repr = .{ .load = Val.init(42) } },
+                    Instruction.initLoad(Val.init(42)),
                 },
             },
         },
@@ -228,7 +262,7 @@ test "execute bytecode procedure with arguments sets correct stack start" {
         Val.init(30),
     });
 
-    try execute(Instruction{ .repr = .{ .eval_procedure = .{ .arg_count = 3 } } }, &vm);
+    try execute(Instruction.initEvalProcedure(3), &vm);
     try testing.expectEqualDeep(
         Vm.StackFrame{
             .stack_start = 1,
@@ -243,7 +277,7 @@ test "return_value restores previous stack frame and places return value on top"
         .implementation = .{
             .bytecode = .{
                 .instructions = &[_]Instruction{
-                    Instruction{ .repr = .{ .load = Val.init(42) } },
+                    Instruction.initLoad(Val.init(42)),
                 },
             },
         },
@@ -266,7 +300,7 @@ test "return_value restores previous stack frame and places return value on top"
         vm.current_stack_frame,
     );
 
-    try execute(Instruction{ .repr = .return_value }, &vm);
+    try execute(Instruction.initReturnValue(), &vm);
     try testing.expectEqual(0, vm.stack_frames.items.len);
     try testing.expectEqualDeep(Vm.StackFrame{}, vm.current_stack_frame);
     try testing.expectFmt(
@@ -274,4 +308,80 @@ test "return_value restores previous stack frame and places return value on top"
         "{f}",
         .{vm.inspector().prettySlice(vm.stack.items)},
     );
+}
+
+test "executeNext executes instruction and advances pointer" {
+    var vm = Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    vm.current_stack_frame.instructions = &[_]Instruction{
+        Instruction.initLoad(Val.init(42)),
+        Instruction.initLoad(Val.init(99)),
+    };
+
+    try executeNext(&vm);
+    try testing.expectEqual(1, vm.current_stack_frame.instruction_idx);
+    try testing.expectEqual(1, vm.stack.items.len);
+    try testing.expectEqual(42, try vm.fromVal(i64, vm.stack.items[0]));
+}
+
+test "executeNext automatically returns when no more instructions" {
+    var vm = Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Set up a stack frame that we can return from
+    try vm.stack_frames.append(vm.allocator, Vm.StackFrame{});
+    vm.current_stack_frame = Vm.StackFrame{
+        .stack_start = 1,
+        .instructions = &[_]Instruction{},
+        .instruction_idx = 0,
+    };
+    try vm.stack.append(vm.allocator, Val.init(123)); // Return value
+
+    try executeNext(&vm);
+    // Should have returned and popped the stack frame
+    try testing.expectEqual(0, vm.stack_frames.items.len);
+}
+
+test "executeNext executes multiple instructions in sequence" {
+    var vm = Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    vm.current_stack_frame.instructions = &[_]Instruction{
+        Instruction.initLoad(Val.init(1)),
+        Instruction.initLoad(Val.init(2)),
+        Instruction.initLoad(Val.init(3)),
+    };
+
+    try executeNext(&vm);
+    try executeNext(&vm);
+    try executeNext(&vm);
+
+    try testing.expectEqual(3, vm.current_stack_frame.instruction_idx);
+    try testing.expectEqual(3, vm.stack.items.len);
+    try testing.expectFmt("(1 2 3)", "{f}", .{vm.inspector().prettySlice(vm.stack.items)});
+}
+
+test "executeNext handles instruction pointer at boundary correctly" {
+    var vm = Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Set up initial frame to return to
+    try vm.stack_frames.append(vm.allocator, Vm.StackFrame{});
+    vm.current_stack_frame = Vm.StackFrame{
+        .stack_start = 1,
+        .instructions = &[_]Instruction{
+            Instruction.initLoad(Val.init(100)),
+        },
+        .instruction_idx = 0,
+    };
+    try vm.stack.append(vm.allocator, Val.init(999)); // Return value
+
+    // Execute the one instruction
+    try executeNext(&vm);
+    try testing.expectEqual(1, vm.current_stack_frame.instruction_idx);
+
+    // Next call should trigger return
+    try executeNext(&vm);
+    try testing.expectEqual(0, vm.stack_frames.items.len);
 }
