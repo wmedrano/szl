@@ -126,9 +126,12 @@ fn nextExpression(self: *Reader) !?Val {
 /// Errors:
 ///   - May return errors from the VM's builder when creating symbol values.
 fn parseToken(self: *Reader, token: []const u8) !Val {
-    if (std.mem.eql(u8, token, "#t")) return Val.init(true);
-    if (std.mem.eql(u8, token, "#f")) return Val.init(false);
-    if (std.fmt.parseInt(i64, token, 10) catch null) |x| return Val.init(x);
+    if (std.mem.eql(u8, token, "#t") or std.mem.eql(u8, token, "#true"))
+        return Val.init(true);
+    if (std.mem.eql(u8, token, "#f") or std.mem.eql(u8, token, "#false"))
+        return Val.init(false);
+    if (std.fmt.parseInt(i64, token, 10) catch null) |x|
+        return Val.init(x);
     return self.vm.toVal(Symbol.init(token));
 }
 
@@ -158,6 +161,28 @@ test "readOne with single boolean false returns boolean value" {
     defer vm.deinit();
 
     const result = try readOne(&vm, "#f");
+    try testing.expectEqual(
+        Val.init(false),
+        result,
+    );
+}
+
+test "readOne with long form boolean true returns boolean value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "#true");
+    try testing.expectEqual(
+        Val.init(true),
+        result,
+    );
+}
+
+test "readOne with long form boolean false returns boolean value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "#false");
     try testing.expectEqual(
         Val.init(false),
         result,
