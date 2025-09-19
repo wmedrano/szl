@@ -104,6 +104,17 @@ pub const ListIterator = struct {
             else => return error.TypeMismatch,
         }
     }
+
+    /// Checks if the iterator has reached the end of the list.
+    ///
+    /// Args:
+    ///   self: The iterator instance.
+    ///
+    /// Returns:
+    ///   true if there are no more elements to iterate over, false otherwise.
+    pub fn isEmpty(self: ListIterator) bool {
+        return self.current.repr == .nil;
+    }
 };
 
 /// Creates an iterator for traversing a Scheme list.
@@ -121,7 +132,7 @@ pub const ListIterator = struct {
 ///
 /// Errors:
 ///   - TypeMismatch if the value is not nil or a pair.
-pub fn iterList(self: Inspector, val: Val) !ListIterator {
+pub fn iterList(self: Inspector, val: Val) error{TypeMismatch}!ListIterator {
     switch (val.repr) {
         .nil, .pair => return ListIterator{
             .vm = self.vm,
@@ -498,4 +509,41 @@ test "iterList iterator always returns null after completion" {
     // Further calls should continue to return null
     try testing.expectEqual(null, try iter.next());
     try testing.expectEqual(null, try iter.next());
+}
+
+test "isEmpty returns true for empty list iterator" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const iter = try vm.inspector().iterList(Val.init({}));
+    try testing.expectEqual(true, iter.isEmpty());
+}
+
+test "isEmpty returns false for non-empty list iterator" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const list = try vm.toVal(Pair{
+        .car = try vm.toVal(42),
+        .cdr = try vm.toVal({}),
+    });
+
+    const iter = try vm.inspector().iterList(list);
+    try testing.expectEqual(false, iter.isEmpty());
+}
+
+test "isEmpty returns true after consuming all elements" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const list = try vm.toVal(Pair{
+        .car = try vm.toVal(42),
+        .cdr = try vm.toVal({}),
+    });
+
+    var iter = try vm.inspector().iterList(list);
+    try testing.expectEqual(false, iter.isEmpty());
+
+    _ = try iter.next(); // consume the element
+    try testing.expectEqual(true, iter.isEmpty());
 }

@@ -148,23 +148,59 @@ fn compileExpression(self: *Compiler, leading: Val, args_iter: *Inspector.ListIt
 /// Returns:
 ///   An error if the arguments are invalid or compilation fails.
 fn compileDefine(self: *Compiler, iter: *Inspector.ListIterator) Error!void {
-    const define_sym_val = iter.next() catch {
+    const signature_val = iter.next() catch {
         return Error.InvalidExpression;
-    } orelse {
+    } orelse return Error.InvalidExpression;
+    switch (signature_val.repr) {
+        .symbol => |sym| return self.compileDefineVal(sym, iter),
+        .pair => {
+            var signature = self.vm.inspector().iterList(signature_val) catch
+                return Error.InvalidExpression;
+            return self.compileDefineProc(&signature, iter);
+        },
+        else => return Error.InvalidExpression,
+    }
+}
+
+fn compileDefineVal(self: *Compiler, symbol: Symbol.Interned, body: *Inspector.ListIterator) Error!void {
+    const expr = body.next() catch {
         return Error.InvalidExpression;
-    };
-    const define_sym = self.vm.inspector().to(Symbol.Interned, define_sym_val) catch
-        return Error.InvalidExpression;
-    const define_expr = iter.next() catch {
-        return Error.InvalidExpression;
-    } orelse {
-        return Error.InvalidExpression;
-    };
-    if ((iter.next() catch return Error.InvalidExpression) != null)
-        return Error.InvalidExpression;
+    } orelse return Error.InvalidExpression;
+    if (!body.isEmpty()) return Error.InvalidExpression;
+
     try self.addInstruction(Instruction.initGetGlobal(self.symbols.@"szl-define"));
-    try self.addInstruction(Instruction.initLoad(Val.init(define_sym)));
-    try self.compileOne(define_expr);
+    try self.addInstruction(Instruction.initLoad(Val.init(symbol)));
+    try self.compileOne(expr);
+    try self.addInstruction(Instruction.initEvalProcedure(2));
+}
+
+fn compileDefineProc(self: *Compiler, signature: *Inspector.ListIterator, body: *Inspector.ListIterator) Error!void {
+    const name = signature.next() catch {
+        return Error.InvalidExpression;
+    } orelse return Error.InvalidExpression;
+    const name_sym = self.vm.fromVal(Symbol.Interned, name) catch
+        return Error.InvalidExpression;
+    // TODO: Support arguments.
+    if (!signature.isEmpty()) return Error.InvalidExpression;
+
+    var sub_compiler = Compiler{
+        .vm = self.vm,
+        .symbols = self.symbols,
+    };
+    defer sub_compiler.deinit();
+    while (body.next() catch return Error.InvalidExpression) |expr| {
+        try sub_compiler.compileOne(expr);
+    }
+    const instructions = try sub_compiler.instructions.toOwnedSlice(self.vm.allocator);
+    const proc = Procedure{
+        .name = name_sym,
+        .implementation = Procedure.initBytecode(instructions),
+    };
+    const proc_val = self.vm.builder().build(proc) catch return Error.InvalidExpression;
+
+    try self.addInstruction(Instruction.initGetGlobal(self.symbols.@"szl-define"));
+    try self.addInstruction(Instruction.initLoad(name));
+    try self.addInstruction(Instruction.initLoad(proc_val));
     try self.addInstruction(Instruction.initEvalProcedure(2));
 }
 
@@ -220,5 +256,32 @@ test "compile define expression" {
             Instruction.initEvalProcedure(2),
         },
         proc.implementation.bytecode.instructions,
+    );
+}
+
+test "compile define procedure expression" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+    const expr = try vm.builder().readOne("(define (foo) 42)");
+    const proc = try vm.fromVal(Procedure, try compile(&vm, expr));
+
+    const instructions = proc.implementation.bytecode.instructions;
+
+    try testing.expectEqual(4, instructions.len);
+    try testing.expectEqual(
+        Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("szl-define"))),
+        instructions[0],
+    );
+    try testing.expectEqual(
+        Instruction.initLoad(try vm.builder().internStaticVal(Symbol.init("foo"))),
+        instructions[1],
+    );
+    try testing.expectEqual(
+        .procedure,
+        std.meta.activeTag(instructions[2].repr.load.repr),
+    );
+    try testing.expectEqual(
+        Instruction.initEvalProcedure(2),
+        instructions[3],
     );
 }

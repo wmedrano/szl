@@ -225,11 +225,15 @@ test evalStr {
     defer vm.deinit();
 
     try testing.expectEqual(
-        try vm.evalStr("(define x 40)"),
+        try vm.evalStr("(define foo 40)"),
         Val.init({}),
     );
     try testing.expectEqual(
-        try vm.evalStr("(+ x 2)"),
+        try vm.evalStr("(define (bar) 2)"),
+        Val.init({}),
+    );
+    try testing.expectEqual(
+        try vm.evalStr("(+ foo (bar))"),
         Val.init(42),
     );
 }
