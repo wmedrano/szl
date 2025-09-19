@@ -28,6 +28,11 @@ pub fn initEvalProcedure(arg_count: usize) Instruction {
     return Instruction{ .repr = .{ .eval_procedure = arg_count } };
 }
 
+/// Creates a new get_global instruction with the given symbol.
+pub fn initGetGlobal(symbol: Symbol.Interned) Instruction {
+    return Instruction{ .repr = .{ .get_global = symbol } };
+}
+
 /// Creates a new return_value instruction.
 pub fn initReturnValue() Instruction {
     return Instruction{ .repr = .return_value };
@@ -40,6 +45,9 @@ pub const Repr = union(enum) {
     /// Instruction to load a value onto the stack.
     /// The associated value will be pushed to the top of the VM's stack.
     load: Val,
+    /// Instruction to retrieve a global variable value and load it onto the stack.
+    /// The associated interned symbol identifies which global variable to retrieve.
+    get_global: Symbol.Interned,
     /// Instruction to evaluate a procedure with arguments from the stack.
     /// The arg_count specifies how many arguments to pass to the procedure.
     eval_procedure: usize,
@@ -53,6 +61,7 @@ pub const Repr = union(enum) {
 ///
 /// Supported instructions:
 ///   - load: Pushes a value onto the stack
+///   - get_global: Retrieves a global variable and pushes its value onto the stack
 ///   - eval_procedure: Calls a procedure with specified number of arguments
 ///   - return_value: Returns from the current procedure, restoring the previous stack frame
 ///
@@ -66,6 +75,7 @@ pub const Repr = union(enum) {
 pub fn execute(self: Instruction, vm: *Vm) !void {
     switch (self.repr) {
         .load => |val| return load(vm, val),
+        .get_global => |symbol| return getGlobal(vm, symbol),
         .eval_procedure => |arg_count| return evalProcedure(vm, arg_count),
         .return_value => return returnValue(vm),
     }
@@ -116,6 +126,22 @@ pub fn loadMany(vm: *Vm, vals: []const Val) !void {
     for (vals) |val| {
         try vm.stack.append(vm.allocator, val);
     }
+}
+
+/// Retrieves a global variable value and loads it onto the stack.
+/// Looks up the global variable associated with the given interned symbol
+/// and pushes its value onto the VM's execution stack.
+///
+/// Args:
+///   vm: Pointer to the virtual machine whose stack will be modified.
+///   symbol: The interned symbol identifying the global variable to retrieve.
+///
+/// Errors:
+///   - May return memory allocation errors if the stack cannot be expanded.
+///   - Currently panics if the global variable is not found (error handling not yet implemented).
+pub fn getGlobal(vm: *Vm, symbol: Symbol.Interned) !void {
+    const val = vm.inspector().get(symbol) orelse @panic("value not found, errors not supported");
+    try load(vm, val);
 }
 
 /// Returns from the current procedure call.
@@ -312,8 +338,11 @@ test "executeNext executes instruction and advances pointer" {
 
     try executeNext(&vm);
     try testing.expectEqual(1, vm.current_stack_frame.instruction_idx);
-    try testing.expectEqual(1, vm.stack.items.len);
-    try testing.expectEqual(42, try vm.fromVal(i64, vm.stack.items[0]));
+    try testing.expectFmt(
+        "(42)",
+        "{f}",
+        .{vm.inspector().prettySlice(vm.stack.items)},
+    );
 }
 
 test "executeNext automatically returns when no more instructions" {
@@ -333,6 +362,11 @@ test "executeNext automatically returns when no more instructions" {
     // instructions left.
     try executeNext(&vm);
     try testing.expectEqual(0, vm.stack_frames.items.len);
+    try testing.expectFmt(
+        "(123)",
+        "{f}",
+        .{vm.inspector().prettySlice(vm.stack.items)},
+    );
 }
 
 test "executeNext executes multiple instructions in sequence" {
@@ -376,4 +410,82 @@ test "executeNext handles instruction pointer at boundary correctly" {
     // Next call should trigger automatic return since instruction_idx == instructions.len.
     try executeNext(&vm);
     try testing.expectEqual(0, vm.stack_frames.items.len);
+    try testing.expectFmt(
+        "(100)",
+        "{f}",
+        .{vm.inspector().prettySlice(vm.stack.items)},
+    );
+}
+
+test "execute get_global instruction loads global value onto stack" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Define a global variable using Builder
+    const symbol = Symbol.init("test-global");
+    const value = Val.init(42);
+    try vm.builder().define(symbol, value);
+
+    // Get the interned symbol for the instruction
+    const interned_symbol = try vm.interner.intern(symbol);
+
+    // Execute get_global instruction
+    try execute(Instruction.initGetGlobal(interned_symbol), &vm);
+
+    // Verify the value was loaded onto the stack
+    try testing.expectFmt(
+        "(42)",
+        "{f}",
+        .{vm.inspector().prettySlice(vm.stack.items)},
+    );
+}
+
+test "execute get_global instruction with multiple values" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Define multiple global variables using Builder
+    try vm.builder().define(Symbol.init("var1"), Val.init(10));
+    try vm.builder().define(Symbol.init("var2"), Val.init(20));
+    try vm.builder().define(Symbol.init("var3"), Val.init(30));
+
+    // Get interned symbols
+    const symbol1 = try vm.interner.intern(Symbol.init("var1"));
+    const symbol2 = try vm.interner.intern(Symbol.init("var2"));
+    const symbol3 = try vm.interner.intern(Symbol.init("var3"));
+
+    // Execute get_global instructions
+    try execute(Instruction.initGetGlobal(symbol1), &vm);
+    try execute(Instruction.initGetGlobal(symbol2), &vm);
+    try execute(Instruction.initGetGlobal(symbol3), &vm);
+
+    // Verify all values were loaded onto the stack in order
+    try testing.expectFmt(
+        "(10 20 30)",
+        "{f}",
+        .{vm.inspector().prettySlice(vm.stack.items)},
+    );
+}
+
+test "get_global instruction works with different value types" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Define global variables of different types using Builder
+    try vm.builder().define(Symbol.init("bool-var"), Val.init(true));
+    try vm.builder().define(Symbol.init("symbol-var"), try vm.builder().build(Symbol.init("test-symbol")));
+
+    const bool_symbol = try vm.interner.intern(Symbol.init("bool-var"));
+    const symbol_symbol = try vm.interner.intern(Symbol.init("symbol-var"));
+
+    // Execute get_global instructions
+    try execute(Instruction.initGetGlobal(bool_symbol), &vm);
+    try execute(Instruction.initGetGlobal(symbol_symbol), &vm);
+
+    // Verify the values were loaded correctly
+    try testing.expectFmt(
+        "(#t test-symbol)",
+        "{f}",
+        .{vm.inspector().prettySlice(vm.stack.items)},
+    );
 }

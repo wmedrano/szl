@@ -55,13 +55,22 @@ pub fn prettySlice(self: Inspector, vals: []const Val) PrettyPrinter.Slice {
 ///
 /// Args:
 ///   self: The Inspector instance.
-///   symbol: The Symbol to look up in global values.
+///   symbol: The Symbol or Symbol.Interned to look up in global values.
 ///
 /// Returns:
 ///   The value associated with the symbol, or null if not found.
-pub fn get(self: Inspector, symbol: Symbol) ?Val {
-    const interned = self.vm.interner.lookup(symbol) orelse return null;
-    return self.vm.global_values.get(interned);
+pub fn get(self: Inspector, symbol: anytype) ?Val {
+    const T = @TypeOf(symbol);
+    switch (T) {
+        Symbol => {
+            const interned = self.vm.interner.lookup(symbol) orelse return null;
+            return self.vm.global_values.get(interned);
+        },
+        Symbol.Interned => {
+            return self.vm.global_values.get(symbol);
+        },
+        else => @compileError("get() only accepts Symbol or Symbol.Interned, got " ++ @typeName(T)),
+    }
 }
 
 /// Converts a Scheme value to a Zig type.
