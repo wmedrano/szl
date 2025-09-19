@@ -128,6 +128,7 @@ fn nextExpression(self: *Reader) !?Val {
 fn parseToken(self: *Reader, token: []const u8) !Val {
     if (std.mem.eql(u8, token, "#t")) return Val.init(true);
     if (std.mem.eql(u8, token, "#f")) return Val.init(false);
+    if (std.fmt.parseInt(i64, token, 10) catch null) |x| return Val.init(x);
     return self.vm.toVal(Symbol.init(token));
 }
 
@@ -191,6 +192,50 @@ test "readOne with whitespace around single value succeeds" {
     const result = try readOne(&vm, "   #t   ");
     try testing.expectEqual(
         Val.init(true),
+        result,
+    );
+}
+
+test "readOne with positive integer returns integer value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "42");
+    try testing.expectEqual(
+        Val.init(42),
+        result,
+    );
+}
+
+test "readOne with negative integer returns integer value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "-123");
+    try testing.expectEqual(
+        Val.init(-123),
+        result,
+    );
+}
+
+test "readOne with zero returns integer value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "0");
+    try testing.expectEqual(
+        Val.init(0),
+        result,
+    );
+}
+
+test "readOne with large integer returns integer value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "9223372036854775807");
+    try testing.expectEqual(
+        Val.init(9223372036854775807),
         result,
     );
 }
@@ -300,6 +345,41 @@ test "readOne with mixed symbols and booleans returns proper list" {
         "(hello #t world #f)",
         "{f}",
         .{vm.pretty(result)},
+    );
+}
+
+test "readOne with integers in list returns proper list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "(1 2 3)");
+    try testing.expectFmt(
+        "(1 2 3)",
+        "{f}",
+        .{vm.pretty(result)},
+    );
+}
+
+test "readOne with mixed integers symbols and booleans returns proper list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "(hello 42 #t -17 world #f 0)");
+    try testing.expectFmt(
+        "(hello 42 #t -17 world #f 0)",
+        "{f}",
+        .{vm.pretty(result)},
+    );
+}
+
+test "readOne with invalid integer falls back to symbol" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "123abc");
+    try testing.expectEqual(
+        try vm.toVal(Symbol.init("123abc")),
+        result,
     );
 }
 
