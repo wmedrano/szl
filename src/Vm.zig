@@ -22,9 +22,9 @@ const Val = @import("Val.zig");
 const Vm = @This();
 
 allocator: std.mem.Allocator,
-stack: std.ArrayList(Val),
-stack_frames: std.ArrayList(StackFrame),
-current_stack_frame: StackFrame,
+stack: std.ArrayList(Val) = .{},
+stack_frames: std.ArrayList(StackFrame) = .{},
+current_stack_frame: StackFrame = .{},
 interner: Symbol.Interner,
 pairs: ObjectPool(Pair),
 procedures: ObjectPool(Procedure),
@@ -41,9 +41,9 @@ pub const Options = struct {
 /// proper scoping and parameter access during procedure execution.
 pub const StackFrame = struct {
     /// Index into the stack where this frame's arguments begin.
-    stack_start: usize,
-    instructions: []const Instruction,
-    instruction_idx: usize,
+    stack_start: usize = 0,
+    instructions: []const Instruction = &.{},
+    instruction_idx: usize = 0,
 };
 
 /// Initializes a new virtual machine with the given options.
@@ -60,13 +60,6 @@ pub fn init(options: Options) Vm {
     const interner = Symbol.Interner.init(options.allocator);
     return Vm{
         .allocator = options.allocator,
-        .stack = .{},
-        .stack_frames = .{},
-        .current_stack_frame = StackFrame{
-            .stack_start = 0,
-            .instructions = &.{},
-            .instruction_idx = 0,
-        },
         .interner = interner,
         .pairs = ObjectPool(Pair).init(),
         .procedures = ObjectPool(Procedure).init(),

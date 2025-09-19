@@ -28,6 +28,9 @@ pub const Repr = union(enum) {
     /// Instruction to evaluate a procedure with arguments from the stack.
     /// The arg_count specifies how many arguments to pass to the procedure.
     eval_procedure: struct { arg_count: usize },
+    /// Instruction to return from the current procedure.
+    /// Restores the previous stack frame and places the return value at the correct position.
+    return_value,
 };
 
 /// Executes this instruction on the given virtual machine.
@@ -36,6 +39,7 @@ pub const Repr = union(enum) {
 /// Supported instructions:
 ///   - load: Pushes a value onto the stack
 ///   - eval_procedure: Calls a procedure with specified number of arguments
+///   - return_value: Returns from the current procedure, restoring the previous stack frame
 ///
 /// Args:
 ///   self: The instruction to execute.
@@ -47,7 +51,8 @@ pub const Repr = union(enum) {
 pub fn execute(self: Instruction, vm: *Vm) !void {
     switch (self.repr) {
         .load => |val| return load(vm, val),
-        .eval_procedure => |args| return eval_procedure(vm, args.arg_count),
+        .eval_procedure => |args| return evalProcedure(vm, args.arg_count),
+        .return_value => return returnValue(vm),
     }
 }
 
@@ -79,8 +84,29 @@ pub fn loadMany(vm: *Vm, vals: []const Val) !void {
     }
 }
 
+/// Returns from the current procedure call.
+/// Copies the return value from the top of the stack to the position where the procedure was called,
+/// resizes the stack to the previous frame's size, and restores the previous stack frame.
+///
+/// Args:
+///   vm: Pointer to the virtual machine whose stack frame will be restored.
+///
+/// Errors:
+///   - May return memory allocation errors if stack resizing fails.
+///   - May return StackUnderflow if there are no stack frames to restore.
+pub fn returnValue(vm: *Vm) !void {
+    const new_stack_len = vm.current_stack_frame.stack_start;
+    const dst_idx = new_stack_len - 1;
+    const src_idx = vm.stack.items.len - 1;
+    vm.stack.items[dst_idx] = vm.stack.items[src_idx];
+    try vm.stack.resize(vm.allocator, new_stack_len);
+    vm.current_stack_frame = vm.stack_frames.pop() orelse return error.StackUnderflow;
+}
+
 /// Evaluates a procedure with the specified number of arguments.
-/// Creates a new stack frame, executes the procedure implementation, and restores the previous frame.
+/// Creates a new stack frame and executes the procedure implementation.
+/// For native procedures, executes immediately and calls ret() to restore the frame.
+/// For bytecode procedures, sets up the instruction pointer for execution.
 /// The procedure and its arguments are expected to be on the stack, with the procedure
 /// at the position just before the arguments.
 ///
@@ -91,21 +117,18 @@ pub fn loadMany(vm: *Vm, vals: []const Val) !void {
 /// Errors:
 ///   - May return memory allocation errors if stack frame operations fail.
 ///   - May return StackUnderflow if there are no stack frames to restore.
-pub fn eval_procedure(vm: *Vm, arg_count: usize) !void {
+pub fn evalProcedure(vm: *Vm, arg_count: usize) !void {
     try vm.stack_frames.append(vm.allocator, vm.current_stack_frame);
     vm.current_stack_frame = Vm.StackFrame{
         .stack_start = vm.stack.items.len - arg_count,
-        .instructions = &.{},
-        .instruction_idx = 0,
     };
-    const procedure_idx = vm.current_stack_frame.stack_start - 1;
-    const procedure = try vm.fromVal(Procedure, vm.stack.items[procedure_idx]);
-    switch (procedure.implementation) {
+    const proc_idx = vm.current_stack_frame.stack_start - 1;
+    const proc = try vm.fromVal(Procedure, vm.stack.items[proc_idx]);
+    switch (proc.implementation) {
         .native => |native| {
             const return_val = native.func(Procedure.Context{ .vm = vm });
-            try vm.stack.resize(vm.allocator, procedure_idx + 1);
-            vm.stack.items[procedure_idx] = return_val;
-            vm.current_stack_frame = vm.stack_frames.pop() orelse return error.StackUnderflow;
+            try vm.stack.append(vm.allocator, return_val);
+            try returnValue(vm);
         },
         .bytecode => |bytecode| {
             vm.current_stack_frame.instructions = bytecode.instructions;
@@ -132,8 +155,7 @@ test "execute eval_procedure instruction calls procedure with arguments" {
     var vm = Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const test_procedure = Procedure{
-        .name = null,
+    const proc = Procedure{
         .implementation = .{ .native = .{ .func = struct {
             fn addTwo(ctx: Procedure.Context) Val {
                 const args = ctx.localStack();
@@ -144,7 +166,7 @@ test "execute eval_procedure instruction calls procedure with arguments" {
         }.addTwo } },
     };
     try loadMany(&vm, &.{
-        try vm.toVal(test_procedure),
+        try vm.toVal(proc),
         Val.init(10),
         Val.init(20),
     });
@@ -182,18 +204,13 @@ test "execute bytecode procedure loads instructions into stack frame" {
                 Instruction{ .repr = .{ .load = Val.init(5) } },
                 Instruction{ .repr = .{ .load = Val.init(7) } },
             },
-            .instruction_idx = 0,
         },
         vm.current_stack_frame,
     );
 }
 
 test "execute bytecode procedure with arguments sets correct stack start" {
-    var vm = Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    const proc = try vm.toVal(Procedure{
-        .name = try vm.interner.internStatic(Symbol.init("test-with-args")),
+    const proc = Procedure{
         .implementation = .{
             .bytecode = .{
                 .instructions = &[_]Instruction{
@@ -201,10 +218,11 @@ test "execute bytecode procedure with arguments sets correct stack start" {
                 },
             },
         },
-    });
-
+    };
+    var vm = Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
     try loadMany(&vm, &.{
-        proc,
+        try vm.toVal(proc),
         Val.init(10),
         Val.init(20),
         Val.init(30),
@@ -214,11 +232,46 @@ test "execute bytecode procedure with arguments sets correct stack start" {
     try testing.expectEqualDeep(
         Vm.StackFrame{
             .stack_start = 1,
-            .instructions = &[_]Instruction{
-                Instruction{ .repr = .{ .load = Val.init(42) } },
-            },
-            .instruction_idx = 0,
+            .instructions = proc.implementation.bytecode.instructions,
         },
         vm.current_stack_frame,
+    );
+}
+
+test "return_value restores previous stack frame and places return value on top" {
+    const proc = Procedure{
+        .implementation = .{
+            .bytecode = .{
+                .instructions = &[_]Instruction{
+                    Instruction{ .repr = .{ .load = Val.init(42) } },
+                },
+            },
+        },
+    };
+    var vm = Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try loadMany(&vm, &.{
+        Val.init(100),
+        Val.init(200),
+        try vm.toVal(proc),
+        Val.init(10),
+        Val.init(20),
+    });
+    try evalProcedure(&vm, 2);
+    try load(&vm, Val.init(999));
+    try testing.expectEqual(1, vm.stack_frames.items.len);
+    try testing.expectEqualDeep(
+        Vm.StackFrame{ .stack_start = 3, .instructions = proc.implementation.bytecode.instructions },
+        vm.current_stack_frame,
+    );
+
+    try execute(Instruction{ .repr = .return_value }, &vm);
+    try testing.expectEqual(0, vm.stack_frames.items.len);
+    try testing.expectEqualDeep(Vm.StackFrame{}, vm.current_stack_frame);
+    try testing.expectFmt(
+        "(100 200 999)",
+        "{f}",
+        .{vm.inspector().prettySlice(vm.stack.items)},
     );
 }

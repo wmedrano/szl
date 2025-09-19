@@ -17,7 +17,7 @@ const Procedure = @This();
 /// The name of this procedure as an interned symbol.
 /// This is used for identifying procedures in error messages,
 /// debugging, and reflection.
-name: ?Symbol.Interned,
+name: ?Symbol.Interned = null,
 
 /// The implementation for this procedure.
 /// Can be either a native Zig function or compiled bytecode.
@@ -31,6 +31,14 @@ pub const Impl = union(enum) {
     native: Native,
     /// Bytecode implementation with compiled instructions.
     bytecode: Bytecode,
+};
+
+/// Native Zig function wrapper for procedures.
+/// Contains a function pointer that takes a Context and returns a value.
+pub const Native = struct {
+    /// Function pointer that implements the procedure logic.
+    /// Takes a Context providing access to VM state and returns a value.
+    func: *const fn (Context) Val,
 };
 
 /// Execution context for procedure calls.
@@ -48,14 +56,6 @@ pub const Context = struct {
         const frame = self.vm.current_stack_frame;
         return self.vm.stack.items[frame.stack_start..];
     }
-};
-
-/// Native Zig function wrapper for procedures.
-/// Contains a function pointer that takes a Context and returns a value.
-pub const Native = struct {
-    /// Function pointer that implements the procedure logic.
-    /// Takes a Context providing access to VM state and returns a value.
-    func: *const fn (Context) Val,
 };
 
 /// Bytecode implementation for procedures.
