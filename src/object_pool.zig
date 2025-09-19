@@ -95,7 +95,7 @@ pub fn ObjectPool(T: type) type {
         }
 
         /// Adds an object to the pool and returns a handle for accessing it.
-        /// Reuses freed slots when available, otherwise allocates new space.
+        /// The pool manages memory efficiently by recycling previously freed slots.
         ///
         /// Args:
         ///   self: Pointer to the object pool.
@@ -147,9 +147,8 @@ pub fn ObjectPool(T: type) type {
                 return null;
         }
 
-        /// Marks an object as deleted and makes its slot available for reuse.
-        /// The object's memory is not immediately freed, but the slot can be
-        /// recycled for future allocations.
+        /// Removes an object from the pool, making its handle invalid.
+        /// The pool may reuse the freed slot for future allocations.
         ///
         /// Args:
         ///   self: Pointer to the object pool.

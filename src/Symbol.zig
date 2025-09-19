@@ -76,9 +76,8 @@ pub const Interner = struct {
         self.symbols.deinit(self.allocator);
     }
 
-    /// Interns a symbol, creating a copy of its data if it hasn't been seen before.
-    /// If the symbol already exists in the interner, returns the existing interned version.
-    /// The symbol's data will be duplicated and owned by the interner.
+    /// Interns a symbol, ensuring that identical symbols share the same memory location.
+    /// Returns an interned symbol that can be efficiently compared by reference.
     ///
     /// Args:
     ///   self: Pointer to the interner.
@@ -98,9 +97,8 @@ pub const Interner = struct {
         return interned;
     }
 
-    /// Interns a symbol with static lifetime data, avoiding the need to copy.
-    /// This is more efficient than intern() when the symbol data has static lifetime
-    /// (e.g., string literals) and doesn't need to be duplicated.
+    /// Interns a symbol with static lifetime data for improved performance.
+    /// Use this when the symbol data is guaranteed to outlive the interner.
     ///
     /// Args:
     ///   self: Pointer to the interner.

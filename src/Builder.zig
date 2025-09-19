@@ -170,16 +170,8 @@ pub fn internStaticVal(self: Builder, symbol: Symbol) !Val {
 }
 
 /// Creates a symbol table struct with all fields automatically interned.
-///
-/// This function takes a struct type with Symbol.Interned fields and returns
-/// an instance where each field is populated with the interned version of
-/// a symbol created from the field's name. This is useful for creating
-/// collections of commonly used symbols that can be efficiently accessed
-/// throughout the program.
-///
-/// The struct type T must have all fields of type Symbol.Interned. Each field
-/// name will be converted to a Symbol and then interned using internStatic(),
-/// which assumes the field names have static lifetime (no copying required).
+/// Each field name becomes an interned symbol, useful for creating collections
+/// of commonly used symbols for efficient access throughout the program.
 ///
 /// Example:
 ///   const Operators = struct {

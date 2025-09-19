@@ -21,6 +21,18 @@ vm: *Vm,
 symbols: SymbolTable,
 /// Accumulated instructions during compilation.
 instructions: std.ArrayList(Instruction) = .{},
+/// List of lexical bindings (local variables) visible in the current compilation scope.
+/// These bindings are used to resolve local variable references during compilation.
+bindings: std.ArrayList(LexicalBind) = .{},
+
+/// Represents a lexical binding that maps a symbol name to a local variable index.
+/// Used for resolving local variable references during procedure compilation.
+const LexicalBind = struct {
+    /// The interned symbol name for this binding.
+    name: Symbol.Interned,
+    /// The local variable index in the stack frame where this binding's value is stored.
+    index: usize,
+};
 
 /// Table of commonly used symbols that are pre-interned for efficient compilation.
 ///
@@ -70,6 +82,7 @@ pub fn compile(vm: *Vm, expr: Val) Error!Val {
 ///   self: The compiler instance to clean up.
 fn deinit(self: *Compiler) void {
     self.instructions.deinit(self.vm.allocator);
+    self.bindings.deinit(self.vm.allocator);
 }
 
 /// Adds an instruction to the compiler's instruction list.
@@ -82,6 +95,39 @@ fn deinit(self: *Compiler) void {
 ///   An error if memory allocation fails.
 fn addInstruction(self: *Compiler, instruction: Instruction) Error!void {
     try self.instructions.append(self.vm.allocator, instruction);
+}
+
+/// Adds a lexical binding to the compiler's binding list.
+/// This creates a mapping from a symbol name to a local variable index,
+/// enabling the compiler to resolve local variable references within procedure scope.
+///
+/// Args:
+///   self: The compiler instance.
+///   binding: The lexical binding to add, containing the symbol name and stack index.
+///
+/// Returns:
+///   An error if memory allocation fails.
+fn addBinding(self: *Compiler, binding: LexicalBind) Error!void {
+    try self.bindings.append(self.vm.allocator, binding);
+}
+
+/// Finds the stack index of a lexical binding by symbol name.
+/// Implements proper lexical scoping where inner bindings shadow outer ones.
+///
+/// Args:
+///   self: The compiler instance.
+///   symbol: The interned symbol to search for.
+///
+/// Returns:
+///   The stack index of the binding if found, or null if not found.
+fn findBinding(self: *Compiler, symbol: Symbol.Interned) ?usize {
+    var i = self.bindings.items.len;
+    while (i > 0) {
+        i -= 1;
+        if (self.bindings.items[i].name.eql(symbol))
+            return self.bindings.items[i].index;
+    }
+    return null;
 }
 
 /// Compiles a single expression into bytecode instructions.
@@ -114,6 +160,8 @@ fn compileOne(self: *Compiler, expr: Val) Error!void {
 /// Returns:
 ///   An error if memory allocation fails.
 fn compileSymbol(self: *Compiler, symbol: Symbol.Interned) Error!void {
+    if (self.findBinding(symbol)) |idx|
+        return self.addInstruction(Instruction.initGetLocal(idx));
     try self.addInstruction(Instruction.initGetGlobal(symbol));
 }
 
@@ -175,19 +223,24 @@ fn compileDefineVal(self: *Compiler, symbol: Symbol.Interned, body: *Inspector.L
 }
 
 fn compileDefineProc(self: *Compiler, signature: *Inspector.ListIterator, body: *Inspector.ListIterator) Error!void {
-    const name = signature.next() catch {
-        return Error.InvalidExpression;
-    } orelse return Error.InvalidExpression;
-    const name_sym = self.vm.fromVal(Symbol.Interned, name) catch
-        return Error.InvalidExpression;
-    // TODO: Support arguments.
-    if (!signature.isEmpty()) return Error.InvalidExpression;
-
     var sub_compiler = Compiler{
         .vm = self.vm,
         .symbols = self.symbols,
     };
     defer sub_compiler.deinit();
+    const name = signature.next() catch {
+        return Error.InvalidExpression;
+    } orelse return Error.InvalidExpression;
+    const name_sym = self.vm.fromVal(Symbol.Interned, name) catch
+        return Error.InvalidExpression;
+    var arg_count: usize = 0;
+    while (signature.next() catch return Error.InvalidExpression) |arg_val| {
+        const arg = self.vm.fromVal(Symbol.Interned, arg_val) catch
+            return Error.InvalidExpression;
+        try sub_compiler.addBinding(LexicalBind{ .name = arg, .index = arg_count });
+        arg_count += 1;
+    }
+
     while (body.next() catch return Error.InvalidExpression) |expr| {
         try sub_compiler.compileOne(expr);
     }

@@ -33,6 +33,12 @@ pub fn initGetGlobal(symbol: Symbol.Interned) Instruction {
     return Instruction{ .repr = .{ .get_global = symbol } };
 }
 
+/// Creates a new get_local instruction with the given local variable index.
+/// The index is relative to the current stack frame's starting position.
+pub fn initGetLocal(index: usize) Instruction {
+    return Instruction{ .repr = .{ .get_local = index } };
+}
+
 /// Creates a new return_value instruction.
 pub fn initReturnValue() Instruction {
     return Instruction{ .repr = .return_value };
@@ -48,6 +54,9 @@ pub const Repr = union(enum) {
     /// Instruction to retrieve a global variable value and load it onto the stack.
     /// The associated interned symbol identifies which global variable to retrieve.
     get_global: Symbol.Interned,
+    /// Instruction to retrieve a local variable value and load it onto the stack.
+    /// The associated index specifies which local variable (relative to stack frame start) to retrieve.
+    get_local: usize,
     /// Instruction to evaluate a procedure with arguments from the stack.
     /// The arg_count specifies how many arguments to pass to the procedure.
     eval_procedure: usize,
@@ -80,6 +89,7 @@ pub fn execute(self: Instruction, vm: *Vm) !void {
     switch (self.repr) {
         .load => |val| return load(vm, val),
         .get_global => |symbol| return getGlobal(vm, symbol),
+        .get_local => |idx| return getLocal(vm, idx),
         .eval_procedure => |arg_count| return evalProcedure(vm, arg_count),
         .return_value => return returnValue(vm),
         .raise_error => return raiseError(vm),
@@ -149,9 +159,23 @@ pub fn getGlobal(vm: *Vm, symbol: Symbol.Interned) !void {
     try load(vm, val);
 }
 
-/// Returns from the current procedure call.
-/// Copies the return value from the top of the stack to the position where the procedure was called,
-/// resizes the stack to the previous frame's size, and restores the previous stack frame.
+/// Retrieves a local variable value and loads it onto the stack.
+/// Calculates the absolute stack position by adding the local index to the current
+/// stack frame's starting position, then loads the value at that position.
+///
+/// Args:
+///   vm: Pointer to the virtual machine whose stack will be modified.
+///   idx: The local variable index relative to the current stack frame's start.
+///
+/// Errors:
+///   - May return memory allocation errors if the stack cannot be expanded.
+pub fn getLocal(vm: *Vm, idx: usize) !void {
+    const absolute_idx = vm.current_stack_frame.stack_start + idx;
+    try load(vm, vm.stack.items[absolute_idx]);
+}
+
+/// Returns from the current procedure call, restoring the previous execution context.
+/// Places the return value in the correct position for the calling procedure.
 ///
 /// Args:
 ///   vm: Pointer to the virtual machine whose stack frame will be restored.
@@ -172,11 +196,7 @@ pub fn returnValue(vm: *Vm) !void {
 }
 
 /// Evaluates a procedure with the specified number of arguments.
-/// Creates a new stack frame and executes the procedure implementation.
-/// For native procedures, executes immediately and calls ret() to restore the frame.
-/// For bytecode procedures, sets up the instruction pointer for execution.
-/// The procedure and its arguments are expected to be on the stack, with the procedure
-/// at the position just before the arguments.
+/// Handles both native and bytecode procedures, managing the execution context appropriately.
 ///
 /// Args:
 ///   vm: Pointer to the virtual machine that will execute the procedure.
@@ -516,6 +536,103 @@ test "get_global instruction works with different value types" {
     // Verify the values were loaded correctly
     try testing.expectFmt(
         "(#t test-symbol)",
+        "{f}",
+        .{vm.pretty(vm.stack.items)},
+    );
+}
+
+test "execute get_local instruction loads local value onto stack" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Set up a stack frame with local variables
+    vm.current_stack_frame.stack_start = 2;
+    try loadMany(&vm, &.{
+        Val.init(100), // position 0 - before frame
+        Val.init(200), // position 1 - before frame
+        Val.init(42),  // position 2 - local variable 0
+        Val.init(99),  // position 3 - local variable 1
+    });
+
+    // Execute get_local instruction for local variable 0
+    try execute(Instruction.initGetLocal(0), &vm);
+
+    // Verify the local value was loaded onto the stack
+    try testing.expectFmt(
+        "(100 200 42 99 42)",
+        "{f}",
+        .{vm.pretty(vm.stack.items)},
+    );
+}
+
+test "execute get_local instruction with multiple local variables" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Set up a stack frame with multiple local variables
+    vm.current_stack_frame.stack_start = 1;
+    try loadMany(&vm, &.{
+        Val.init(999), // position 0 - before frame
+        Val.init(10),  // position 1 - local variable 0
+        Val.init(20),  // position 2 - local variable 1
+        Val.init(30),  // position 3 - local variable 2
+    });
+
+    // Execute get_local instructions for all local variables
+    try execute(Instruction.initGetLocal(0), &vm);
+    try execute(Instruction.initGetLocal(1), &vm);
+    try execute(Instruction.initGetLocal(2), &vm);
+
+    // Verify all local values were loaded onto the stack in order
+    try testing.expectFmt(
+        "(999 10 20 30 10 20 30)",
+        "{f}",
+        .{vm.pretty(vm.stack.items)},
+    );
+}
+
+test "execute get_local instruction with zero stack frame start" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Set up a stack frame that starts at position 0
+    vm.current_stack_frame.stack_start = 0;
+    try loadMany(&vm, &.{
+        Val.init(42),  // position 0 - local variable 0
+        Val.init(99),  // position 1 - local variable 1
+    });
+
+    // Execute get_local instruction for local variable 1
+    try execute(Instruction.initGetLocal(1), &vm);
+
+    // Verify the local value was loaded onto the stack
+    try testing.expectFmt(
+        "(42 99 99)",
+        "{f}",
+        .{vm.pretty(vm.stack.items)},
+    );
+}
+
+test "get_local instruction works with different value types" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Set up a stack frame with local variables of different types
+    vm.current_stack_frame.stack_start = 0;
+    try loadMany(&vm, &.{
+        Val.init(true),  // position 0 - boolean local variable
+        try vm.builder().internVal(Symbol.init("local-symbol")), // position 1 - symbol local variable
+        Val.init(-123),  // position 2 - negative integer local variable
+    });
+
+    // Execute get_local instructions for different types
+    try execute(Instruction.initGetLocal(0), &vm);
+    try execute(Instruction.initGetLocal(1), &vm);
+    try execute(Instruction.initGetLocal(2), &vm);
+
+    // Verify the values were loaded correctly
+    try testing.expectFmt(
+        "(#t local-symbol -123 #t local-symbol -123)",
         "{f}",
         .{vm.pretty(vm.stack.items)},
     );

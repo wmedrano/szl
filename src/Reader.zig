@@ -79,20 +79,16 @@ pub fn next(self: *Reader) !?Val {
 }
 
 /// Parses an expression starting with an opening parenthesis.
-///
-/// This function is called when an opening parenthesis "(" is encountered.
-/// Currently returns a BadExpression error as expression parsing is not
-/// yet implemented. This function serves as a placeholder for future
-/// implementation of list and expression parsing.
+/// Handles nested expressions and builds proper list structures.
 ///
 /// Args:
 ///   self: Pointer to the Reader instance.
 ///
 /// Returns:
-///   A parsed expression value (when implemented).
+///   A parsed expression value representing the list.
 ///
 /// Errors:
-///   - BadExpression: Currently always returned as expressions are not implemented.
+///   - BadExpression: If the expression is malformed or unclosed.
 fn nextExpression(self: *Reader) !?Val {
     var expressions = std.ArrayList(Val){};
     defer expressions.deinit(self.vm.allocator);

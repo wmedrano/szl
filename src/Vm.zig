@@ -54,6 +54,8 @@ pairs: ObjectPool(Pair),
 /// Stores both native and bytecode procedures for efficient reuse.
 procedures: ObjectPool(Procedure),
 
+/// Error state for the virtual machine. When set, indicates that an error
+/// has occurred during execution and should be handled or propagated.
 err: ?Val = null,
 
 /// Configuration options for initializing the virtual machine.
@@ -67,9 +69,14 @@ pub const Options = struct {
 /// Each frame tracks the start position of its arguments on the stack, enabling
 /// proper scoping and parameter access during procedure execution.
 pub const StackFrame = struct {
-    /// Index into the stack where this frame's arguments begin.
+    /// Index into the stack where this frame's local variables and arguments begin.
+    /// Used as the base address for calculating absolute positions of local variables.
     stack_start: usize = 0,
+    /// Bytecode instructions for this stack frame to execute.
+    /// Contains the compiled procedure's instruction sequence.
     instructions: []const Instruction = &.{},
+    /// Current instruction pointer within the instructions array.
+    /// Points to the next instruction to be executed in this frame.
     instruction_idx: usize = 0,
 };
 
@@ -215,7 +222,7 @@ pub fn evalStr(self: *Vm, source: []const u8) !Val {
     var ret = Val.init({});
     while (try reader.next()) |expr| {
         const proc = try Compiler.compile(self, expr);
-        ret = try self.evalThunk(proc);
+        ret = try self.evalProc(proc, &.{});
     }
     return ret;
 }
@@ -225,20 +232,20 @@ test evalStr {
     defer vm.deinit();
 
     try testing.expectEqual(
-        try vm.evalStr("(define foo 40)"),
+        try vm.evalStr("(define (foo arg) (+ arg 2))"),
         Val.init({}),
     );
     try testing.expectEqual(
-        try vm.evalStr("(define (bar) 2)"),
+        try vm.evalStr("(define bar 40)"),
         Val.init({}),
     );
     try testing.expectEqual(
-        try vm.evalStr("(+ foo (bar))"),
+        try vm.evalStr("(foo bar)"),
         Val.init(42),
     );
 }
 
-/// Evaluates a compiled procedure (thunk) by executing its bytecode instructions.
+/// Evaluates a compiled procedure by executing its bytecode instructions.
 ///
 /// Loads the procedure into the VM's execution environment and runs it to completion,
 /// managing the call stack and returning the final result value.
@@ -246,6 +253,7 @@ test evalStr {
 /// Args:
 ///   self: Pointer to the VM instance.
 ///   proc: The compiled procedure value containing bytecode to execute.
+///   args: Arguments to pass to the procedure.
 ///
 /// Returns:
 ///   The final result value after executing all instructions in the procedure.
@@ -253,11 +261,12 @@ test evalStr {
 /// Errors:
 ///   - StackUnderflow if the execution stack becomes empty unexpectedly.
 ///   - Any errors that may occur during instruction execution.
-fn evalThunk(self: *Vm, proc: Val) !Val {
+fn evalProc(self: *Vm, proc: Val, args: []const Val) !Val {
     if (self.err) |_| return error.UnhandledError;
     try Instruction.load(self, proc);
+    try Instruction.loadMany(self, args);
     const initial_call_stack_size = self.stack_frames.items.len;
-    try Instruction.evalProcedure(self, 0);
+    try Instruction.evalProcedure(self, args.len);
     while (self.stack_frames.items.len > initial_call_stack_size) {
         try Instruction.executeNext(self);
     }
