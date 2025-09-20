@@ -105,6 +105,29 @@ pub const ListIterator = struct {
         }
     }
 
+    /// Returns the next value in the list without advancing the iterator.
+    ///
+    /// Args:
+    ///   self: The iterator instance.
+    ///
+    /// Returns:
+    ///   The next value in the list, or null if iteration is complete.
+    ///
+    /// Errors:
+    ///   - TypeMismatch if the list structure is improper (cdr is not nil or pair).
+    pub fn peek(self: ListIterator) !?Val {
+        switch (self.current.repr) {
+            .nil => {
+                return null;
+            },
+            .pair => |handle| {
+                const pair = try self.vm.inspector().resolve(Pair, handle);
+                return pair.car;
+            },
+            else => return error.TypeMismatch,
+        }
+    }
+
     /// Checks if the iterator has reached the end of the list.
     ///
     /// Args:

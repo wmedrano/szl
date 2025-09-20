@@ -49,9 +49,14 @@ pub fn initJump(offset: isize) Instruction {
     return Instruction{ .repr = .{ .jump = offset } };
 }
 
-/// Creates a new jump_if instruction with the given offset.
-pub fn initJumpIf(offset: isize) Instruction {
-    return Instruction{ .repr = .{ .jump_if = offset } };
+/// Creates a new jump_if_not instruction with the given offset.
+pub fn initJumpIfNot(offset: isize) Instruction {
+    return Instruction{ .repr = .{ .jump_if_not = offset } };
+}
+
+/// Creates a new squash instruction with the given count.
+pub fn initSquash(count: usize) Instruction {
+    return Instruction{ .repr = .{ .squash = count } };
 }
 
 /// Tagged union representing all possible instruction types in the virtual machine.
@@ -80,8 +85,11 @@ pub const Repr = union(enum) {
     /// The offset is added to the current instruction index to change execution flow.
     jump: isize,
     /// Instruction to conditionally jump by a specified offset in the instruction sequence.
-    /// Pops a value from the stack and jumps only if the value is truthy.
-    jump_if: isize,
+    /// Pops a value from the stack and jumps only if the value is falsy.
+    jump_if_not: isize,
+    /// Instruction to squash the top n values on the stack, keeping only the topmost value.
+    /// Takes n values from the stack and leaves only the top one.
+    squash: usize,
 };
 
 /// Executes this instruction on the given virtual machine.
@@ -96,6 +104,8 @@ pub const Repr = union(enum) {
 ///   - raise_error: Pops a value from the stack and sets it as the VM's error state
 ///   - jump: Jumps by a specified offset in the instruction sequence
 ///   - jump_if: Conditionally jumps by a specified offset if the popped stack value is truthy
+///   - jump_if_not: Conditionally jumps by a specified offset if the popped stack value is falsy
+///   - squash: Squashes the top n values on the stack, keeping only the topmost value
 ///
 /// Args:
 ///   self: The instruction to execute.
@@ -113,7 +123,8 @@ pub fn execute(self: Instruction, vm: *Vm) !void {
         .return_value => return returnValue(vm),
         .raise_error => return raiseError(vm),
         .jump => |offset| return jump(vm, offset),
-        .jump_if => |offset| return jumpIf(vm, offset),
+        .jump_if_not => |offset| return jumpIfNot(vm, offset),
+        .squash => |count| return squash(vm, count),
     }
 }
 
@@ -281,7 +292,7 @@ pub fn jump(vm: *Vm, offset: isize) void {
 }
 
 /// Conditionally jumps by the specified offset in the instruction sequence.
-/// Pops a value from the stack and jumps only if the value is truthy.
+/// Pops a value from the stack and jumps only if the value is falsy.
 ///
 /// Args:
 ///   vm: Pointer to the virtual machine whose instruction pointer will be modified.
@@ -289,11 +300,30 @@ pub fn jump(vm: *Vm, offset: isize) void {
 ///
 /// Errors:
 ///   - May return StackUnderflow if the stack is empty when trying to pop the condition value.
-pub fn jumpIf(vm: *Vm, offset: isize) !void {
+pub fn jumpIfNot(vm: *Vm, offset: isize) !void {
     const condition = vm.stack.pop() orelse return error.StackUnderflow;
-    if (condition.isTruthy()) {
+    if (!condition.isTruthy()) {
         jump(vm, offset);
     }
+}
+
+/// Squashes the top n values on the stack, keeping only the topmost value.
+/// Takes the specified number of values from the stack and leaves only the top one.
+///
+/// Args:
+///   vm: Pointer to the virtual machine whose stack will be modified.
+///   count: The number of values to squash (must be >= 1).
+///
+/// Errors:
+///   - May return StackUnderflow if there are fewer than count values on the stack.
+pub fn squash(vm: *Vm, count: usize) !void {
+    if (count == 0) return;
+    if (vm.stack.items.len < count) return error.StackUnderflow;
+
+    const top_value = vm.stack.items[vm.stack.items.len - 1];
+    const new_len = vm.stack.items.len - count + 1;
+    vm.stack.items[new_len - 1] = top_value;
+    try vm.stack.resize(vm.allocator, new_len);
 }
 
 test "execute load instruction pushes value onto stack" {
@@ -707,30 +737,7 @@ test "execute jump instruction modifies instruction pointer" {
     try testing.expectEqual(6, vm.current_stack_frame.instruction_idx);
 }
 
-test "execute jump_if instruction with truthy value jumps" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    // Set initial instruction index
-    vm.current_stack_frame.instruction_idx = 5;
-
-    // Push truthy value (true)
-    try load(&vm, Val.init(true));
-    try execute(Instruction.initJumpIf(3), &vm);
-    try testing.expectEqual(8, vm.current_stack_frame.instruction_idx);
-
-    // Push truthy value (any integer)
-    try load(&vm, Val.init(-1));
-    try execute(Instruction.initJumpIf(-2), &vm);
-    try testing.expectEqual(6, vm.current_stack_frame.instruction_idx);
-
-    // Push truthy value (symbol)
-    try load(&vm, try vm.builder().internVal(Symbol.init("test")));
-    try execute(Instruction.initJumpIf(1), &vm);
-    try testing.expectEqual(7, vm.current_stack_frame.instruction_idx);
-}
-
-test "execute jump_if instruction with falsy value does not jump" {
+test "execute jump_if_not instruction with falsy value jumps" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
@@ -739,17 +746,106 @@ test "execute jump_if instruction with falsy value does not jump" {
 
     // Push falsy value (false)
     try load(&vm, Val.init(false));
-    try execute(Instruction.initJumpIf(10), &vm);
-    try testing.expectEqual(5, vm.current_stack_frame.instruction_idx);
+    try execute(Instruction.initJumpIfNot(3), &vm);
+    try testing.expectEqual(8, vm.current_stack_frame.instruction_idx);
 
     // Verify stack is empty after popping condition
     try testing.expectEqual(0, vm.stack.items.len);
 }
 
-test "execute jump_if instruction with empty stack returns error" {
+test "execute jump_if_not instruction with truthy value does not jump" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    // Attempt to execute jump_if with empty stack
-    try testing.expectError(error.StackUnderflow, execute(Instruction.initJumpIf(5), &vm));
+    // Set initial instruction index
+    vm.current_stack_frame.instruction_idx = 5;
+
+    // Push truthy value (true)
+    try load(&vm, Val.init(true));
+    try execute(Instruction.initJumpIfNot(10), &vm);
+    try testing.expectEqual(5, vm.current_stack_frame.instruction_idx);
+
+    // Push truthy value (any integer)
+    try load(&vm, Val.init(42));
+    try execute(Instruction.initJumpIfNot(-2), &vm);
+    try testing.expectEqual(5, vm.current_stack_frame.instruction_idx);
+
+    // Push truthy value (symbol)
+    try load(&vm, try vm.builder().internVal(Symbol.init("test")));
+    try execute(Instruction.initJumpIfNot(1), &vm);
+    try testing.expectEqual(5, vm.current_stack_frame.instruction_idx);
+
+    // Verify stack is empty after popping all conditions
+    try testing.expectEqual(0, vm.stack.items.len);
+}
+
+test "execute jump_if_not instruction with empty stack returns error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Attempt to execute jump_if_not with empty stack
+    try testing.expectError(error.StackUnderflow, execute(Instruction.initJumpIfNot(5), &vm));
+}
+
+test "execute squash instruction removes specified number of values" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Load test values: (1 2 3 4)
+    try loadMany(&vm, &.{ Val.init(1), Val.init(2), Val.init(3), Val.init(4) });
+
+    // Test squash(1) => (1 2 3 4) - no change
+    try execute(Instruction.initSquash(1), &vm);
+    try testing.expectFmt("(1 2 3 4)", "{f}", .{vm.pretty(vm.stack.items)});
+
+    // Test squash(2) => (1 2 4) - removes 3, keeps 4
+    try execute(Instruction.initSquash(2), &vm);
+    try testing.expectFmt("(1 2 4)", "{f}", .{vm.pretty(vm.stack.items)});
+
+    // Test squash(3) => (4) - removes 1 and 2, keeps 4
+    try execute(Instruction.initSquash(3), &vm);
+    try testing.expectFmt("(4)", "{f}", .{vm.pretty(vm.stack.items)});
+}
+
+test "execute squash instruction with count 4 leaves only top value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Load test values: (1 2 3 4)
+    try loadMany(&vm, &.{ Val.init(1), Val.init(2), Val.init(3), Val.init(4) });
+
+    // Test squash(4) => (4) - removes all but top
+    try execute(Instruction.initSquash(4), &vm);
+    try testing.expectFmt("(4)", "{f}", .{vm.pretty(vm.stack.items)});
+}
+
+test "execute squash instruction with count 0 does nothing" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Load test values: (1 2 3)
+    try loadMany(&vm, &.{ Val.init(1), Val.init(2), Val.init(3) });
+
+    // Test squash(0) - should do nothing
+    try execute(Instruction.initSquash(0), &vm);
+    try testing.expectFmt("(1 2 3)", "{f}", .{vm.pretty(vm.stack.items)});
+}
+
+test "execute squash instruction with insufficient stack returns error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Load only 2 values
+    try loadMany(&vm, &.{ Val.init(1), Val.init(2) });
+
+    // Attempt to squash 3 values - should fail
+    try testing.expectError(error.StackUnderflow, execute(Instruction.initSquash(3), &vm));
+}
+
+test "execute squash instruction with empty stack returns error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Attempt to squash with empty stack
+    try testing.expectError(error.StackUnderflow, execute(Instruction.initSquash(1), &vm));
 }
