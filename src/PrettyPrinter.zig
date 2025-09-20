@@ -53,8 +53,6 @@ pub const Slice = struct {
 ///
 /// Args:
 ///   self: The PrettyPrinter instance to format.
-///   comptime fmt: Format string (unused, but required by std.fmt interface).
-///   options: Format options (unused, but required by std.fmt interface).
 ///   writer: The writer to output the formatted representation to.
 ///
 /// Returns:

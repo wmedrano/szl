@@ -1,3 +1,9 @@
+//! Tokenizer for parsing Scheme source code into token spans.
+//!
+//! This module provides a simple tokenizer that breaks source text into tokens.
+//! Parentheses are treated as individual tokens while other non-whitespace
+//! characters are grouped together into symbols.
+
 const std = @import("std");
 const testing = std.testing;
 

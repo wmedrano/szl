@@ -254,60 +254,95 @@ fn jumpDistance(start: usize, target: usize) isize {
     return @as(isize, @intCast(target)) - @as(isize, @intCast(start));
 }
 
-fn compileCond(self: *Compiler, iter: *Inspector.ListIterator) Error!void {
-    var jump_if_nots = std.ArrayList(usize){};
-    defer jump_if_nots.deinit(self.vm.allocator);
-    var jumps = std.ArrayList(usize){};
-    defer jumps.deinit(self.vm.allocator);
-    var has_fallback = false;
-    // Compile each clause.
-    while (iter.next() catch return Error.InvalidExpression) |clause_val| {
-        var clause = self.vm.inspector().iterList(clause_val) catch return Error.InvalidExpression;
+/// Represents the jump indices needed for a single cond clause.
+const ClauseJumps = struct {
+    jump_if_not_index: usize,
+    jump_to_end_index: usize,
+};
 
-        // Evaluate and test predicate.
-        const pred = clause.next() catch {
-            return Error.InvalidExpression;
-        } orelse return Error.InvalidExpression;
-        if (std.meta.eql(pred, Val.init(self.symbols.@"else"))) {
-            has_fallback = true;
-            _ = try self.compileMany(&clause, .{ .squash = true });
+/// Compiles a single clause in a cond expression, returning jump indices for
+/// later patching.
+///
+/// Returns null if this is an 'else' clause that should terminate clause processing.
+fn compileCondClause(self: *Compiler, clause_val: Val) Error!?ClauseJumps {
+    var clause_iter = self.vm.inspector().iterList(clause_val) catch return Error.InvalidExpression;
+
+    // Extract and compile the predicate
+    const predicate = clause_iter.next() catch {
+        return Error.InvalidExpression;
+    } orelse return Error.InvalidExpression;
+
+    // Handle 'else' clause specially
+    if (std.meta.eql(predicate, Val.init(self.symbols.@"else"))) {
+        _ = try self.compileMany(&clause_iter, .{ .squash = true });
+        return null; // Signal that this was an else clause
+    }
+
+    // Compile predicate and add conditional jump
+    try self.compileOne(predicate);
+    const jump_if_not_index = self.instructions.items.len;
+    try self.addInstruction(Instruction.initJumpIfNot(0)); // Placeholder, will be patched later
+
+    // Check for arrow syntax (=>)
+    const next_expr = clause_iter.peek() catch {
+        return Error.InvalidExpression;
+    } orelse return Error.InvalidExpression;
+    const uses_arrow_syntax = std.meta.eql(next_expr, Val.init(self.symbols.@"=>"));
+
+    if (uses_arrow_syntax) {
+        _ = clause_iter.next() catch return Error.InvalidExpression; // Consume the '=>' symbol
+    }
+
+    // Compile the clause body
+    const expression_count = try self.compileMany(&clause_iter, .{ .squash = true });
+    if (uses_arrow_syntax and expression_count > 1) {
+        return Error.InvalidExpression;
+    }
+
+    // Add jump to end after successful clause execution
+    const jump_to_end_index = self.instructions.items.len;
+    try self.addInstruction(Instruction.initJump(0)); // Placeholder, will be patched later
+    return ClauseJumps{
+        .jump_if_not_index = jump_if_not_index,
+        .jump_to_end_index = jump_to_end_index,
+    };
+}
+
+fn compileCond(self: *Compiler, iter: *Inspector.ListIterator) Error!void {
+    var clause_jumps = std.ArrayList(ClauseJumps){};
+    defer clause_jumps.deinit(self.vm.allocator);
+    var has_else_clause = false;
+
+    // Process each clause in the cond expression
+    while (iter.next() catch return Error.InvalidExpression) |clause_val| {
+        if (try self.compileCondClause(clause_val)) |jump| {
+            try clause_jumps.append(self.vm.allocator, jump);
+        } else {
+            // This was an 'else' clause
+            has_else_clause = true;
             break;
         }
-        try self.compileOne(pred);
-        try jump_if_nots.append(self.vm.allocator, self.instructions.items.len);
-        try self.addInstruction(Instruction.initJumpIfNot(0)); // Placeholder
-
-        // Evaluate clause
-        const leading_clause = clause.peek() catch {
-            return Error.InvalidExpression;
-        } orelse return Error.InvalidExpression;
-        const has_arrow = std.meta.eql(leading_clause, Val.init(self.symbols.@"=>"));
-        if (has_arrow) {
-            _ = clause.next() catch return Error.InvalidExpression;
-        }
-        const expressions = try self.compileMany(&clause, .{ .squash = true });
-        if (has_arrow and expressions > 1) return Error.InvalidExpression;
-
-        // Skip all other clauses by jumping to end.
-        try jumps.append(self.vm.allocator, self.instructions.items.len);
-        try self.addInstruction(Instruction.initJump(0)); // Placeholder
     }
 
-    // Add fallback
+    // Validate that we've processed all clauses
     if (!iter.isEmpty())
         return Error.InvalidExpression;
-    if (!has_fallback) {
-        if (jump_if_nots.items.len == 0) return Error.InvalidExpression;
+
+    // Add default fallback if no else clause was provided
+    if (!has_else_clause) {
+        if (clause_jumps.items.len == 0) return Error.InvalidExpression;
         try self.addInstruction(Instruction.initLoad(Val.init({})));
     }
-    const end_idx = self.instructions.items.len;
 
-    // Fix jumps
-    for (jump_if_nots.items, jumps.items) |jump_if_idx, jump_idx| {
-        self.instructions.items[jump_if_idx] =
-            Instruction.initJumpIfNot(jumpDistance(jump_if_idx, jump_idx));
-        self.instructions.items[jump_idx] =
-            Instruction.initJump(jumpDistance(jump_idx + 1, end_idx));
+    // Patch all jump instructions with correct offsets
+    const final_instruction_index = self.instructions.items.len;
+    for (clause_jumps.items) |jumps| {
+        // Patch the conditional jump to skip to next clause
+        self.instructions.items[jumps.jump_if_not_index] =
+            Instruction.initJumpIfNot(jumpDistance(jumps.jump_if_not_index, jumps.jump_to_end_index));
+        // Patch the unconditional jump to end
+        self.instructions.items[jumps.jump_to_end_index] =
+            Instruction.initJump(jumpDistance(jumps.jump_to_end_index + 1, final_instruction_index));
     }
 }
 

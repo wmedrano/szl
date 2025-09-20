@@ -174,8 +174,15 @@ pub const Interned = struct {
         return self.id == other.id;
     }
 
+    /// Converts an interned symbol to a Val representation.
+    ///
+    /// Args:
+    ///   self: The interned symbol to convert.
+    ///
+    /// Returns:
+    ///   A Val containing the interned symbol.
     pub fn toVal(self: Interned) Val {
-        Val.init(self);
+        return Val.init(self);
     }
 };
 
