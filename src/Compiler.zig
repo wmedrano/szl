@@ -43,6 +43,7 @@ const LexicalBind = struct {
 const SymbolTable = struct {
     define: Symbol.Interned,
     @"szl-define": Symbol.Interned,
+    @"if": Symbol.Interned,
 };
 
 /// Errors that can occur during compilation.
@@ -177,6 +178,7 @@ fn compileSymbol(self: *Compiler, symbol: Symbol.Interned) Error!void {
 fn compileExpression(self: *Compiler, leading: Val, args_iter: *Inspector.ListIterator) Error!void {
     if (self.vm.fromVal(Symbol.Interned, leading) catch null) |sym| {
         if (self.symbols.define.eql(sym)) return self.compileDefine(args_iter);
+        if (self.symbols.@"if".eql(sym)) return self.compileIf(args_iter);
     }
     try self.compileOne(leading);
     var arg_count: usize = 0;
@@ -185,6 +187,32 @@ fn compileExpression(self: *Compiler, leading: Val, args_iter: *Inspector.ListIt
         arg_count += 1;
     }
     try self.addInstruction(Instruction.initEvalProcedure(arg_count));
+}
+
+fn jumpDistance(start: usize, target: usize) isize {
+    return @as(isize, @intCast(target)) - @as(isize, @intCast(start));
+}
+
+fn compileIf(self: *Compiler, iter: *Inspector.ListIterator) Error!void {
+    const pred = iter.next() catch return Error.InvalidExpression;
+    const true_branch = iter.next() catch return Error.InvalidExpression;
+    const false_branch = iter.next() catch return Error.InvalidExpression;
+    if (!iter.isEmpty()) return Error.InvalidExpression;
+
+    try self.compileOne(pred orelse return Error.InvalidExpression);
+    const jump_if_idx = self.instructions.items.len;
+    try self.addInstruction(Instruction.initJumpIf(0));
+    if (false_branch) |b|
+        try self.compileOne(b)
+    else
+        try self.addInstruction(Instruction.initLoad(Val.init({})));
+    const jump_idx = self.instructions.items.len;
+    try self.addInstruction(Instruction.initJump(0));
+    try self.compileOne(true_branch orelse return Error.InvalidExpression);
+    self.instructions.items[jump_if_idx] = Instruction.initJumpIf(jumpDistance(jump_if_idx, jump_idx));
+    self.instructions.items[jump_idx] = Instruction.initJump(
+        jumpDistance(jump_idx + 1, self.instructions.items.len),
+    );
 }
 
 /// Compiles a define expression into bytecode instructions.
@@ -336,5 +364,89 @@ test "compile define procedure expression" {
     try testing.expectEqual(
         Instruction.initEvalProcedure(2),
         instructions[3],
+    );
+}
+
+test "compile if expression" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+    const plus = try vm.builder().internStatic(Symbol.init("+"));
+    const expr = try vm.builder().readOne("(if #t (+ 1 2) (+ 3 4 5 6))");
+    const proc = try vm.fromVal(Procedure, try compile(&vm, expr));
+
+    try testing.expectEqualDeep(
+        &[_]Instruction{
+            Instruction.initLoad(Val.init(true)),
+            Instruction.initJumpIf(7),
+            // False branch
+            Instruction.initGetGlobal(plus),
+            Instruction.initLoad(Val.init(3)),
+            Instruction.initLoad(Val.init(4)),
+            Instruction.initLoad(Val.init(5)),
+            Instruction.initLoad(Val.init(6)),
+            Instruction.initEvalProcedure(4),
+            Instruction.initJump(4),
+            // True Branch
+            Instruction.initGetGlobal(plus),
+            Instruction.initLoad(Val.init(1)),
+            Instruction.initLoad(Val.init(2)),
+            Instruction.initEvalProcedure(2),
+        },
+        proc.implementation.bytecode.instructions,
+    );
+}
+
+test "compile if expression with missing false branch uses nil" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+    const plus = try vm.builder().internStatic(Symbol.init("+"));
+    const expr = try vm.builder().readOne("(if #t (+ 1 2))");
+    const proc = try vm.fromVal(Procedure, try compile(&vm, expr));
+
+    try testing.expectEqualDeep(
+        &[_]Instruction{
+            Instruction.initLoad(Val.init(true)),
+            Instruction.initJumpIf(2),
+            // False branch
+            Instruction.initLoad(Val.init({})),
+            Instruction.initJump(4),
+            // True Branch
+            Instruction.initGetGlobal(plus),
+            Instruction.initLoad(Val.init(1)),
+            Instruction.initLoad(Val.init(2)),
+            Instruction.initEvalProcedure(2),
+        },
+        proc.implementation.bytecode.instructions,
+    );
+}
+
+test "if with true predicate evaluates true branch" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+    try testing.expectEqual(
+        try vm.evalStr("(if #t (+ 1 2 3 4) (+ 1 2))"),
+        Val.init(10),
+    );
+    try testing.expectEqual(
+        try vm.evalStr("(if #t (+ 1 2 3 4))"),
+        Val.init(10),
+    );
+}
+
+test "if with false predicate evaluates false branch" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+    try testing.expectEqual(
+        try vm.evalStr("(if #t (+ 1 2 3 4) (+ 1 2))"),
+        Val.init(10),
+    );
+}
+
+test "if with missing false branch returns nil" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+    try testing.expectEqual(
+        try vm.evalStr("(if #f (+ 1 2 3 4))"),
+        Val.init({}),
     );
 }

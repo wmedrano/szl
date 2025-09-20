@@ -232,16 +232,16 @@ test evalStr {
     defer vm.deinit();
 
     try testing.expectEqual(
+        Val.init({}),
         try vm.evalStr("(define (foo arg) (+ arg 2))"),
-        Val.init({}),
     );
     try testing.expectEqual(
+        Val.init({}),
         try vm.evalStr("(define bar 40)"),
-        Val.init({}),
     );
     try testing.expectEqual(
-        try vm.evalStr("(foo bar)"),
         Val.init(42),
+        try vm.evalStr("(foo bar)"),
     );
 }
 

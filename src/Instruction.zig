@@ -44,6 +44,16 @@ pub fn initReturnValue() Instruction {
     return Instruction{ .repr = .return_value };
 }
 
+/// Creates a new jump instruction with the given offset.
+pub fn initJump(offset: isize) Instruction {
+    return Instruction{ .repr = .{ .jump = offset } };
+}
+
+/// Creates a new jump_if instruction with the given offset.
+pub fn initJumpIf(offset: isize) Instruction {
+    return Instruction{ .repr = .{ .jump_if = offset } };
+}
+
 /// Tagged union representing all possible instruction types in the virtual machine.
 /// Each variant corresponds to a different operation that can be performed
 /// during program execution.
@@ -66,6 +76,12 @@ pub const Repr = union(enum) {
     /// Instruction to raise an error by popping the top value from the stack.
     /// Sets the popped value as the VM's error state to signal a runtime error.
     raise_error,
+    /// Instruction to jump by a specified offset in the instruction sequence.
+    /// The offset is added to the current instruction index to change execution flow.
+    jump: isize,
+    /// Instruction to conditionally jump by a specified offset in the instruction sequence.
+    /// Pops a value from the stack and jumps only if the value is truthy.
+    jump_if: isize,
 };
 
 /// Executes this instruction on the given virtual machine.
@@ -74,9 +90,12 @@ pub const Repr = union(enum) {
 /// Supported instructions:
 ///   - load: Pushes a value onto the stack
 ///   - get_global: Retrieves a global variable and pushes its value onto the stack
+///   - get_local: Retrieves a local variable and pushes its value onto the stack
 ///   - eval_procedure: Calls a procedure with specified number of arguments
 ///   - return_value: Returns from the current procedure, restoring the previous stack frame
 ///   - raise_error: Pops a value from the stack and sets it as the VM's error state
+///   - jump: Jumps by a specified offset in the instruction sequence
+///   - jump_if: Conditionally jumps by a specified offset if the popped stack value is truthy
 ///
 /// Args:
 ///   self: The instruction to execute.
@@ -93,6 +112,8 @@ pub fn execute(self: Instruction, vm: *Vm) !void {
         .eval_procedure => |arg_count| return evalProcedure(vm, arg_count),
         .return_value => return returnValue(vm),
         .raise_error => return raiseError(vm),
+        .jump => |offset| return jump(vm, offset),
+        .jump_if => |offset| return jumpIf(vm, offset),
     }
 }
 
@@ -245,6 +266,34 @@ pub fn raiseWithError(vm: *Vm, err: Val) void {
 pub fn raiseError(vm: *Vm) !void {
     const err = vm.stack.pop() orelse return error.StackUnderflow;
     vm.err = err;
+}
+
+/// Jumps by the specified offset in the instruction sequence.
+/// Adds the offset to the current instruction index to change execution flow.
+///
+/// Args:
+///   vm: Pointer to the virtual machine whose instruction pointer will be modified.
+///   offset: The offset to add to the current instruction index.
+pub fn jump(vm: *Vm, offset: isize) void {
+    const current_idx: isize = @intCast(vm.current_stack_frame.instruction_idx);
+    const new_idx = current_idx + offset;
+    vm.current_stack_frame.instruction_idx = @intCast(new_idx);
+}
+
+/// Conditionally jumps by the specified offset in the instruction sequence.
+/// Pops a value from the stack and jumps only if the value is truthy.
+///
+/// Args:
+///   vm: Pointer to the virtual machine whose instruction pointer will be modified.
+///   offset: The offset to add to the current instruction index if jumping.
+///
+/// Errors:
+///   - May return StackUnderflow if the stack is empty when trying to pop the condition value.
+pub fn jumpIf(vm: *Vm, offset: isize) !void {
+    const condition = vm.stack.pop() orelse return error.StackUnderflow;
+    if (condition.isTruthy()) {
+        jump(vm, offset);
+    }
 }
 
 test "execute load instruction pushes value onto stack" {
@@ -636,4 +685,71 @@ test "get_local instruction works with different value types" {
         "{f}",
         .{vm.pretty(vm.stack.items)},
     );
+}
+
+test "execute jump instruction modifies instruction pointer" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Set initial instruction index
+    vm.current_stack_frame.instruction_idx = 5;
+
+    // Execute jump with positive offset
+    try execute(Instruction.initJump(3), &vm);
+    try testing.expectEqual(8, vm.current_stack_frame.instruction_idx);
+
+    // Execute jump with negative offset
+    try execute(Instruction.initJump(-2), &vm);
+    try testing.expectEqual(6, vm.current_stack_frame.instruction_idx);
+
+    // Execute jump with zero offset
+    try execute(Instruction.initJump(0), &vm);
+    try testing.expectEqual(6, vm.current_stack_frame.instruction_idx);
+}
+
+test "execute jump_if instruction with truthy value jumps" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Set initial instruction index
+    vm.current_stack_frame.instruction_idx = 5;
+
+    // Push truthy value (true)
+    try load(&vm, Val.init(true));
+    try execute(Instruction.initJumpIf(3), &vm);
+    try testing.expectEqual(8, vm.current_stack_frame.instruction_idx);
+
+    // Push truthy value (non-zero integer)
+    try load(&vm, Val.init(42));
+    try execute(Instruction.initJumpIf(-2), &vm);
+    try testing.expectEqual(6, vm.current_stack_frame.instruction_idx);
+
+    // Push truthy value (symbol)
+    try load(&vm, try vm.builder().internVal(Symbol.init("test")));
+    try execute(Instruction.initJumpIf(1), &vm);
+    try testing.expectEqual(7, vm.current_stack_frame.instruction_idx);
+}
+
+test "execute jump_if instruction with falsy value does not jump" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Set initial instruction index
+    vm.current_stack_frame.instruction_idx = 5;
+
+    // Push falsy value (false)
+    try load(&vm, Val.init(false));
+    try execute(Instruction.initJumpIf(10), &vm);
+    try testing.expectEqual(5, vm.current_stack_frame.instruction_idx);
+
+    // Verify stack is empty after popping condition
+    try testing.expectEqual(0, vm.stack.items.len);
+}
+
+test "execute jump_if instruction with empty stack returns error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Attempt to execute jump_if with empty stack
+    try testing.expectError(error.StackUnderflow, execute(Instruction.initJumpIf(5), &vm));
 }
