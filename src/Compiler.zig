@@ -48,6 +48,7 @@ const SymbolTable = struct {
     @"else": Symbol.Interned,
     define: Symbol.Interned,
     quote: Symbol.Interned,
+    begin: Symbol.Interned,
 };
 
 /// Errors that can occur during compilation.
@@ -237,6 +238,8 @@ fn compileExpression(self: *Compiler, leading: Val, args_iter: *Inspector.ListIt
             return self.compileDefine(args_iter);
         if (self.symbols.quote.eql(sym))
             return self.compileQuote(args_iter);
+        if (self.symbols.begin.eql(sym))
+            return self.compileBegin(args_iter);
     }
     try self.compileOne(leading);
     const arg_count = try self.compileMany(args_iter, .{ .allow_zero = true });
@@ -499,6 +502,20 @@ fn compileQuote(self: *Compiler, iter: *Inspector.ListIterator) Error!void {
     if (!iter.isEmpty()) return Error.InvalidExpression;
 
     try self.addInstruction(Instruction.initLoad(expr));
+}
+
+/// Compiles a begin expression into bytecode.
+/// Begin expressions evaluate all their arguments in sequence and return the result of the last one.
+/// If no arguments are provided, returns nil.
+///
+/// Args:
+///   self: The compiler instance.
+///   iter: Iterator over the arguments to the begin expression.
+///
+/// Returns:
+///   An error if compilation fails.
+fn compileBegin(self: *Compiler, iter: *Inspector.ListIterator) Error!void {
+    _ = try self.compileMany(iter, .{ .allow_zero = true, .squash = true });
 }
 
 test "compile with expression is function call" {
@@ -930,5 +947,76 @@ test "compile quote with multiple arguments fails" {
     try testing.expectError(
         Error.InvalidExpression,
         compile(&vm, try vm.builder().readOne("(quote 1 2)")),
+    );
+}
+
+test "compile begin with no arguments returns nil" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const proc_val = try compile(&vm, try vm.builder().readOne("(begin)"));
+    const proc = try vm.fromVal(Procedure, proc_val);
+
+    try testing.expectEqualDeep(
+        &[_]Instruction{
+            Instruction.initLoad(Val.init({})),
+        },
+        proc.implementation.bytecode.instructions,
+    );
+}
+
+test "compile begin with single expression" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const proc_val = try compile(&vm, try vm.builder().readOne("(begin 42)"));
+    const proc = try vm.fromVal(Procedure, proc_val);
+
+    try testing.expectEqualDeep(
+        &[_]Instruction{
+            Instruction.initLoad(Val.init(42)),
+        },
+        proc.implementation.bytecode.instructions,
+    );
+}
+
+test "compile begin with multiple expressions" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const proc_val = try compile(&vm, try vm.builder().readOne("(begin 1 2 3)"));
+    const proc = try vm.fromVal(Procedure, proc_val);
+
+    try testing.expectEqualDeep(
+        &[_]Instruction{
+            Instruction.initLoad(Val.init(1)),
+            Instruction.initLoad(Val.init(2)),
+            Instruction.initLoad(Val.init(3)),
+            Instruction.initSquash(3),
+        },
+        proc.implementation.bytecode.instructions,
+    );
+}
+
+test "compile begin with function calls" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const proc_val = try compile(&vm, try vm.builder().readOne("(begin (+ 1 2) (+ 3 4))"));
+    const proc = try vm.fromVal(Procedure, proc_val);
+
+    try testing.expectEqualDeep(
+        &[_]Instruction{
+            Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("+"))),
+            Instruction.initLoad(Val.init(1)),
+            Instruction.initLoad(Val.init(2)),
+            Instruction.initEvalProcedure(2),
+            Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("+"))),
+            Instruction.initLoad(Val.init(3)),
+            Instruction.initLoad(Val.init(4)),
+            Instruction.initEvalProcedure(2),
+            Instruction.initSquash(2),
+        },
+        proc.implementation.bytecode.instructions,
     );
 }
