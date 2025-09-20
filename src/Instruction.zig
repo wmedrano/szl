@@ -599,8 +599,8 @@ test "execute get_local instruction loads local value onto stack" {
     try loadMany(&vm, &.{
         Val.init(100), // position 0 - before frame
         Val.init(200), // position 1 - before frame
-        Val.init(42),  // position 2 - local variable 0
-        Val.init(99),  // position 3 - local variable 1
+        Val.init(42), // position 2 - local variable 0
+        Val.init(99), // position 3 - local variable 1
     });
 
     // Execute get_local instruction for local variable 0
@@ -622,9 +622,9 @@ test "execute get_local instruction with multiple local variables" {
     vm.current_stack_frame.stack_start = 1;
     try loadMany(&vm, &.{
         Val.init(999), // position 0 - before frame
-        Val.init(10),  // position 1 - local variable 0
-        Val.init(20),  // position 2 - local variable 1
-        Val.init(30),  // position 3 - local variable 2
+        Val.init(10), // position 1 - local variable 0
+        Val.init(20), // position 2 - local variable 1
+        Val.init(30), // position 3 - local variable 2
     });
 
     // Execute get_local instructions for all local variables
@@ -647,8 +647,8 @@ test "execute get_local instruction with zero stack frame start" {
     // Set up a stack frame that starts at position 0
     vm.current_stack_frame.stack_start = 0;
     try loadMany(&vm, &.{
-        Val.init(42),  // position 0 - local variable 0
-        Val.init(99),  // position 1 - local variable 1
+        Val.init(42), // position 0 - local variable 0
+        Val.init(99), // position 1 - local variable 1
     });
 
     // Execute get_local instruction for local variable 1
@@ -669,9 +669,9 @@ test "get_local instruction works with different value types" {
     // Set up a stack frame with local variables of different types
     vm.current_stack_frame.stack_start = 0;
     try loadMany(&vm, &.{
-        Val.init(true),  // position 0 - boolean local variable
+        Val.init(true), // position 0 - boolean local variable
         try vm.builder().internVal(Symbol.init("local-symbol")), // position 1 - symbol local variable
-        Val.init(-123),  // position 2 - negative integer local variable
+        Val.init(-123), // position 2 - negative integer local variable
     });
 
     // Execute get_local instructions for different types
@@ -719,8 +719,8 @@ test "execute jump_if instruction with truthy value jumps" {
     try execute(Instruction.initJumpIf(3), &vm);
     try testing.expectEqual(8, vm.current_stack_frame.instruction_idx);
 
-    // Push truthy value (non-zero integer)
-    try load(&vm, Val.init(42));
+    // Push truthy value (any integer)
+    try load(&vm, Val.init(-1));
     try execute(Instruction.initJumpIf(-2), &vm);
     try testing.expectEqual(6, vm.current_stack_frame.instruction_idx);
 

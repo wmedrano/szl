@@ -94,6 +94,13 @@ pub fn register(vm: *Vm) !void {
             .implementation = Procedure.initNative(equalFunc),
         }),
     );
+    try vm.builder().define(
+        Symbol.init("abs"),
+        try vm.builder().build(Procedure{
+            .name = try vm.interner.internStatic(Symbol.init("abs")),
+            .implementation = Procedure.initNative(absFunc),
+        }),
+    );
 }
 
 /// Native implementation of the '+' arithmetic operator.
@@ -479,6 +486,46 @@ fn greaterThanOrEqualFunc(ctx: Procedure.Context) Val {
 ///   If any argument is not numeric, raises an error instead of returning.
 fn equalFunc(ctx: Procedure.Context) Val {
     return compareFunc(ctx, isEqual);
+}
+
+/// Native implementation of the 'abs' absolute value function.
+/// Returns the absolute value of a single numeric argument.
+/// Expects exactly one argument that must be a numeric value (either i64 or f64).
+/// Returns the same type as the input (i64 for i64 input, f64 for f64 input).
+///
+/// Args:
+///   ctx: The procedure execution context containing the VM and local stack arguments.
+///
+/// Returns:
+///   A Val containing the absolute value of the input argument.
+///   If the wrong number of arguments or non-numeric argument is provided, raises an error instead of returning.
+fn absFunc(ctx: Procedure.Context) Val {
+    const args = ctx.localStack();
+    if (args.len != 1) {
+        Instruction.raiseWithError(ctx.vm, Val.init({}));
+        return Val.init({});
+    }
+
+    switch (args[0].repr) {
+        .i64 => |val| {
+            if (val < 0) {
+                return Val.init(-val);
+            } else {
+                return Val.init(val);
+            }
+        },
+        .f64 => |val| {
+            if (val < 0.0) {
+                return Val.init(-val);
+            } else {
+                return Val.init(val);
+            }
+        },
+        else => {
+            Instruction.raiseWithError(ctx.vm, Val.init({}));
+            return Val.init({});
+        },
+    }
 }
 
 test "+ with no arguments returns 0" {
@@ -1428,5 +1475,95 @@ test "= with non-number is error" {
     try testing.expectError(
         error.SzlError,
         vm.evalStr("(= #t 5)"),
+    );
+}
+
+test "abs with positive integer returns same value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        Val.init(42),
+        try vm.evalStr("(abs 42)"),
+    );
+}
+
+test "abs with negative integer returns positive value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        Val.init(42),
+        try vm.evalStr("(abs -42)"),
+    );
+}
+
+test "abs with zero returns zero" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        Val.init(0),
+        try vm.evalStr("(abs 0)"),
+    );
+}
+
+test "abs with positive float returns same value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        Val.init(3.14),
+        try vm.evalStr("(abs 3.14)"),
+    );
+}
+
+test "abs with negative float returns positive value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        Val.init(3.14),
+        try vm.evalStr("(abs -3.14)"),
+    );
+}
+
+test "abs with zero float returns zero" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        Val.init(0.0),
+        try vm.evalStr("(abs 0.0)"),
+    );
+}
+
+test "abs with no arguments is error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectError(
+        error.SzlError,
+        vm.evalStr("(abs)"),
+    );
+}
+
+test "abs with multiple arguments is error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectError(
+        error.SzlError,
+        vm.evalStr("(abs 5 10)"),
+    );
+}
+
+test "abs with non-number is error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectError(
+        error.SzlError,
+        vm.evalStr("(abs #t)"),
     );
 }
