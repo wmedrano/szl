@@ -9,7 +9,7 @@ const std = @import("std");
 const testing = std.testing;
 
 const Builder = @import("Builder.zig");
-const builtins = @import("builtins.zig");
+const builtins = @import("builtins/builtins.zig");
 const Compiler = @import("Compiler.zig");
 const Handle = @import("object_pool.zig").Handle;
 const Inspector = @import("Inspector.zig");
@@ -262,7 +262,7 @@ test evalStr {
 ///   - StackUnderflow if the execution stack becomes empty unexpectedly.
 ///   - Any errors that may occur during instruction execution.
 fn evalProc(self: *Vm, proc: Val, args: []const Val) !Val {
-    if (self.err) |_| return error.UnhandledError;
+    if (self.err) |_| return error.SzlError;
     try Instruction.load(self, proc);
     try Instruction.loadMany(self, args);
     const initial_call_stack_size = self.stack_frames.items.len;

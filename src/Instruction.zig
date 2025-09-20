@@ -185,9 +185,12 @@ pub fn loadMany(vm: *Vm, vals: []const Val) !void {
 ///
 /// Errors:
 ///   - May return memory allocation errors if the stack cannot be expanded.
-///   - Currently panics if the global variable is not found (error handling not yet implemented).
+///   - Raises an error if the global variable is not found.
 pub fn getGlobal(vm: *Vm, symbol: Symbol.Interned) !void {
-    const val = vm.inspector().get(symbol) orelse @panic("value not found, errors not supported");
+    const val = vm.inspector().get(symbol) orelse {
+        raiseWithError(vm, Val.init({}));
+        return;
+    };
     try load(vm, val);
 }
 
