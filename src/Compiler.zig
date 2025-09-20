@@ -47,6 +47,7 @@ const SymbolTable = struct {
     cond: Symbol.Interned,
     @"else": Symbol.Interned,
     define: Symbol.Interned,
+    quote: Symbol.Interned,
 };
 
 /// Errors that can occur during compilation.
@@ -234,6 +235,8 @@ fn compileExpression(self: *Compiler, leading: Val, args_iter: *Inspector.ListIt
             return self.compileCond(args_iter);
         if (self.symbols.define.eql(sym))
             return self.compileDefine(args_iter);
+        if (self.symbols.quote.eql(sym))
+            return self.compileQuote(args_iter);
     }
     try self.compileOne(leading);
     const arg_count = try self.compileMany(args_iter, .{ .allow_zero = true });
@@ -477,6 +480,25 @@ fn compileDefineProc(self: *Compiler, signature: *Inspector.ListIterator, body: 
     try self.addInstruction(Instruction.initLoad(name));
     try self.addInstruction(Instruction.initLoad(proc_val));
     try self.addInstruction(Instruction.initEvalProcedure(2));
+}
+
+/// Compiles a quote expression into bytecode.
+/// Quote expressions take exactly one argument and return it without evaluation.
+/// Generates a Load instruction with the quoted value.
+///
+/// Args:
+///   self: The compiler instance.
+///   iter: Iterator over the arguments to the quote expression.
+///
+/// Returns:
+///   An error if the arguments are invalid (not exactly one argument).
+fn compileQuote(self: *Compiler, iter: *Inspector.ListIterator) Error!void {
+    const expr = iter.next() catch {
+        return Error.InvalidExpression;
+    } orelse return Error.InvalidExpression;
+    if (!iter.isEmpty()) return Error.InvalidExpression;
+
+    try self.addInstruction(Instruction.initLoad(expr));
 }
 
 test "compile with expression is function call" {
@@ -795,5 +817,118 @@ test "cond with only else expression is expression" {
             Instruction.initLoad(Val.init(43)),
         },
         proc.implementation.bytecode.instructions,
+    );
+}
+
+test "compile quote with integer" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const proc_val = try compile(&vm, try vm.builder().readOne("'42"));
+    const proc = try vm.fromVal(Procedure, proc_val);
+
+    try testing.expectEqual(1, proc.implementation.bytecode.instructions.len);
+    try testing.expectEqual(
+        Instruction.initLoad(Val.init(42)),
+        proc.implementation.bytecode.instructions[0],
+    );
+}
+
+test "compile quote with symbol" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const proc_val = try compile(&vm, try vm.builder().readOne("'foo"));
+    const proc = try vm.fromVal(Procedure, proc_val);
+
+    try testing.expectEqual(1, proc.implementation.bytecode.instructions.len);
+    const instruction = proc.implementation.bytecode.instructions[0];
+    try testing.expectEqual(.load, std.meta.activeTag(instruction.repr));
+
+    // Check that the loaded value is the symbol 'foo'
+    const loaded_val = instruction.repr.load;
+    try testing.expectEqual(.symbol, std.meta.activeTag(loaded_val.repr));
+    try testing.expectFmt(
+        "foo",
+        "{f}",
+        .{vm.pretty(loaded_val)},
+    );
+}
+
+test "compile quote with boolean" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const proc_val = try compile(&vm, try vm.builder().readOne("#t"));
+    const proc = try vm.fromVal(Procedure, proc_val);
+
+    try testing.expectEqual(1, proc.implementation.bytecode.instructions.len);
+    try testing.expectEqual(
+        Instruction.initLoad(Val.init(true)),
+        proc.implementation.bytecode.instructions[0],
+    );
+}
+
+test "compile quote with list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const proc_val = try compile(&vm, try vm.builder().readOne("'(1 2 3)"));
+    const proc = try vm.fromVal(Procedure, proc_val);
+
+    try testing.expectEqual(1, proc.implementation.bytecode.instructions.len);
+    const instruction = proc.implementation.bytecode.instructions[0];
+    try testing.expectEqual(.load, std.meta.activeTag(instruction.repr));
+
+    // Check that the loaded value is the list (1 2 3)
+    const loaded_val = instruction.repr.load;
+    try testing.expectFmt(
+        "(1 2 3)",
+        "{f}",
+        .{vm.pretty(loaded_val)},
+    );
+}
+
+test "compile quote with empty list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const proc_val = try compile(&vm, try vm.builder().readOne("'()"));
+    const proc = try vm.fromVal(Procedure, proc_val);
+
+    try testing.expectEqual(1, proc.implementation.bytecode.instructions.len);
+    const instruction = proc.implementation.bytecode.instructions[0];
+    try testing.expectEqual(.load, std.meta.activeTag(instruction.repr));
+
+    // Check that the loaded value is nil (empty list)
+    const loaded_val = instruction.repr.load;
+    try testing.expectFmt(
+        "()",
+        "{f}",
+        .{vm.pretty(loaded_val)},
+    );
+}
+
+test "compile quote with no arguments fails" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectError(
+        Error.InvalidExpression,
+        compile(&vm, try vm.builder().readOne("(quote)")),
+    );
+    try testing.expectError(
+        error.BadExpression,
+        vm.builder().readOne("'"),
+    );
+}
+
+test "compile quote with multiple arguments fails" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectError(
+        Error.InvalidExpression,
+        compile(&vm, try vm.builder().readOne("(quote 1 2)")),
     );
 }

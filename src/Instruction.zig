@@ -256,8 +256,8 @@ pub fn evalProcedure(vm: *Vm, arg_count: usize) !void {
     }
 }
 
-/// Raises an error by setting the given value as the VM's error state.  This is
-/// a convenience function for directly raising an error with a specific value.
+/// Raises an error by setting the given value as the VM's error state.
+/// This is a convenience function for directly raising an error with a specific value.
 ///
 /// Args:
 ///   vm: Pointer to the virtual machine whose error state will be set.

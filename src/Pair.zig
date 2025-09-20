@@ -18,7 +18,7 @@ car: Val,
 /// CDR stands for "Contents of the Decrement part of Register".
 cdr: Val,
 
-/// Create a new pair with `first` and `second`.
+/// Creates a new pair with `first` and `second`.
 pub fn init(first: Val, second: Val) Pair {
     return Pair{ .car = first, .cdr = second };
 }

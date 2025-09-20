@@ -11,20 +11,20 @@ const testing = std.testing;
 /// Handles parentheses as individual tokens and groups other characters into symbols.
 const Tokenizer = @This();
 
-/// The source text being tokenized
+/// The source text being tokenized.
 source: []const u8,
-/// Current position in the source text
+/// Current position in the source text.
 idx: usize,
 
-/// Represents a span of text with start and end positions
+/// Represents a span of text with start and end positions.
 pub const Span = struct {
-    /// Starting position in the source text
+    /// Starting position in the source text.
     start: usize,
-    /// Ending position in the source text (exclusive)
+    /// Ending position in the source text (exclusive).
     end: usize,
 };
 
-/// Creates a new tokenizer for the given source text
+/// Creates a new tokenizer for the given source text.
 pub fn init(source: []const u8) Tokenizer {
     return Tokenizer{ .source = source, .idx = 0 };
 }
@@ -36,29 +36,29 @@ pub fn next(self: *Tokenizer) ?Span {
     self.eatWhitespace();
     const next_char = self.currentChar() orelse return null;
     if (isParen(next_char)) return self.eat();
+    if (next_char == '\'') return self.eat();
     return self.eatSymbol();
 }
 
-/// Returns the text content of the next token, or null if no more tokens are
-/// available.
+/// Returns the text content of the next token, or null if no more tokens are available.
 pub fn nextText(self: *Tokenizer) ?[]const u8 {
     const span = self.next() orelse return null;
     return self.text(span);
 }
 
-/// Returns the text content for a given span
+/// Returns the text content for a given span.
 pub fn text(self: Tokenizer, span: Span) []const u8 {
     return self.source[span.start..span.end];
 }
 
-/// Returns the current character at the tokenizer's position, or null if at end
+/// Returns the current character at the tokenizer's position, or null if at end.
 fn currentChar(self: Tokenizer) ?u8 {
     if (self.idx < self.source.len)
         return self.source[self.idx];
     return null;
 }
 
-/// Consumes a single character and returns its span
+/// Consumes a single character and returns its span.
 inline fn eat(self: *Tokenizer) Span {
     const span = Span{ .start = self.idx, .end = self.idx + 1 };
     self.idx += 1;
@@ -70,7 +70,7 @@ fn isParen(ch: u8) bool {
     return ch == '(' or ch == ')';
 }
 
-/// Returns true if the character is whitespace (space, tab, newline, carriage return)
+/// Returns true if the character is whitespace (space, tab, newline, carriage return).
 fn isWhitespace(ch: u8) bool {
     switch (ch) {
         ' ', '\t', '\n', '\r' => return true,
@@ -78,7 +78,7 @@ fn isWhitespace(ch: u8) bool {
     }
 }
 
-/// Skips over whitespace characters in the source text
+/// Skips over whitespace characters in the source text.
 fn eatWhitespace(self: *Tokenizer) void {
     while (self.currentChar()) |ch| {
         if (!isWhitespace(ch)) return;
@@ -86,7 +86,7 @@ fn eatWhitespace(self: *Tokenizer) void {
     }
 }
 
-/// Consumes characters until whitespace is encountered, returning the span of the symbol
+/// Consumes characters until whitespace is encountered, returning the span of the symbol.
 fn eatSymbol(self: *Tokenizer) Span {
     const start = self.idx;
     while (self.currentChar()) |ch| {
@@ -180,4 +180,57 @@ test "next returns correct span indexes then span matches expected positions" {
     try testing.expectEqual(11, span2.end);
 
     try testing.expectEqual(null, tokenizer.next());
+}
+
+test "single quote then returns quote as individual token" {
+    var tokenizer = init("'");
+    try testing.expectEqualStrings("'", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
+}
+
+test "quote followed by symbol then returns separate tokens" {
+    var tokenizer = init("'hello");
+    try testing.expectEqualStrings("'", tokenizer.nextText().?);
+    try testing.expectEqualStrings("hello", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
+}
+
+test "quote with whitespace then ignores whitespace" {
+    var tokenizer = init("'   hello");
+    try testing.expectEqualStrings("'", tokenizer.nextText().?);
+    try testing.expectEqualStrings("hello", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
+}
+
+test "quote in expression then returns as separate token" {
+    var tokenizer = init("('quoted symbol)");
+    try testing.expectEqualStrings("(", tokenizer.nextText().?);
+    try testing.expectEqualStrings("'", tokenizer.nextText().?);
+    try testing.expectEqualStrings("quoted", tokenizer.nextText().?);
+    try testing.expectEqualStrings("symbol", tokenizer.nextText().?);
+    try testing.expectEqualStrings(")", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
+}
+
+test "multiple quotes then returns each quote separately" {
+    var tokenizer = init("''hello");
+    try testing.expectEqualStrings("'", tokenizer.nextText().?);
+    try testing.expectEqualStrings("'", tokenizer.nextText().?);
+    try testing.expectEqualStrings("hello", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
+}
+
+test "quote within symbol then returns as single token" {
+    var tokenizer = init("hello'world");
+    try testing.expectEqualStrings("hello'world", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
+}
+
+test "quote span positions then returns correct indexes" {
+    var tokenizer = init("hello 'world");
+    _ = tokenizer.next(); // skip hello
+    const quote_span = tokenizer.next().?;
+    try testing.expectEqual(6, quote_span.start);
+    try testing.expectEqual(7, quote_span.end);
+    try testing.expectEqualStrings("'", tokenizer.text(quote_span));
 }

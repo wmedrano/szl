@@ -102,8 +102,8 @@ pub fn init(options: Options) !Vm {
     return vm;
 }
 
-/// Releases all memory associated with the virtual machine.  This includes all
-/// interned symbols and value.
+/// Releases all memory associated with the virtual machine.
+/// This includes all interned symbols and values.
 ///
 /// Args:
 ///   self: Pointer to the VM to deinitialize.

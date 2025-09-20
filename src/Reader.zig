@@ -8,6 +8,7 @@
 const std = @import("std");
 const testing = std.testing;
 
+const Pair = @import("Pair.zig");
 const Symbol = @import("Symbol.zig");
 const Tokenizer = @import("Tokenizer.zig");
 const Val = @import("Val.zig");
@@ -19,6 +20,8 @@ const Reader = @This();
 vm: *Vm,
 /// The tokenizer used to break source text into tokens.
 tokenizer: Tokenizer,
+
+const Error = error{ BadExpression, OutOfMemory };
 
 /// Reads exactly one value from the provided source text.
 ///
@@ -71,11 +74,38 @@ pub fn init(vm: *Vm, source: []const u8) Reader {
 /// Errors:
 ///   - BadExpression: If a closing parenthesis is encountered without a matching open.
 ///   - Other errors from parseToken or nextExpression functions.
-pub fn next(self: *Reader) !?Val {
+pub fn next(self: *Reader) Error!?Val {
     const token = self.tokenizer.nextText() orelse return null;
     if (std.mem.eql(u8, token, "(")) return self.nextExpression();
     if (std.mem.eql(u8, token, ")")) return error.BadExpression;
+    if (std.mem.eql(u8, token, "'")) return try self.nextQuoted();
     return try self.parseToken(token);
+}
+
+/// Parses a quoted expression (quote syntax sugar).
+///
+/// Handles the single quote character which is syntactic sugar for the quote special form.
+/// Transforms 'expr into (quote expr) by building the appropriate list structure.
+///
+/// Args:
+///   self: Pointer to the Reader instance.
+///
+/// Returns:
+///   A Val representing the quoted expression as (quote expr).
+///
+/// Errors:
+///   - BadExpression: If no expression follows the quote character.
+///   - Other errors from the VM's builder when creating the quote structure.
+fn nextQuoted(self: *Reader) Error!Val {
+    const expr = (try self.next()) orelse return error.BadExpression;
+    const builder = self.vm.builder();
+    return try builder.build(Pair{
+        .car = try builder.internStaticVal(Symbol.init("quote")),
+        .cdr = try builder.build(Pair{
+            .car = expr,
+            .cdr = Val.init({}),
+        }),
+    });
 }
 
 /// Parses an expression starting with an opening parenthesis.
@@ -583,6 +613,122 @@ test "readOne with empty nested lists with whitespace returns proper structure" 
     const result = try readOne(&vm, "( ( ) )");
     try testing.expectFmt(
         "(())",
+        "{f}",
+        .{vm.pretty(result)},
+    );
+}
+
+test "readOne with quoted symbol returns quote expression" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "'hello");
+    try testing.expectFmt(
+        "(quote hello)",
+        "{f}",
+        .{vm.pretty(result)},
+    );
+}
+
+test "readOne with quoted boolean returns quote expression" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "'#t");
+    try testing.expectFmt(
+        "(quote #t)",
+        "{f}",
+        .{vm.pretty(result)},
+    );
+}
+
+test "readOne with quoted integer returns quote expression" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "'42");
+    try testing.expectFmt(
+        "(quote 42)",
+        "{f}",
+        .{vm.pretty(result)},
+    );
+}
+
+test "readOne with quoted float returns quote expression" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "'3.14");
+    try testing.expectFmt(
+        "(quote 3.14)",
+        "{f}",
+        .{vm.pretty(result)},
+    );
+}
+
+test "readOne with quoted list returns quote expression" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "'(a b c)");
+    try testing.expectFmt(
+        "(quote (a b c))",
+        "{f}",
+        .{vm.pretty(result)},
+    );
+}
+
+test "readOne with quoted empty list returns quote expression" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "'()");
+    try testing.expectFmt(
+        "(quote ())",
+        "{f}",
+        .{vm.pretty(result)},
+    );
+}
+
+test "readOne with quoted nested list returns quote expression" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "'(a (b c) d)");
+    try testing.expectFmt(
+        "(quote (a (b c) d))",
+        "{f}",
+        .{vm.pretty(result)},
+    );
+}
+
+test "readOne with quote followed by nothing returns BadExpression error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectError(
+        error.BadExpression,
+        readOne(&vm, "'"),
+    );
+}
+
+test "readOne with quote followed by whitespace only returns BadExpression error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectError(
+        error.BadExpression,
+        readOne(&vm, "'   "),
+    );
+}
+
+test "readOne with nested quotes returns nested quote expressions" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "''hello");
+    try testing.expectFmt(
+        "(quote (quote hello))",
         "{f}",
         .{vm.pretty(result)},
     );

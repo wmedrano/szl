@@ -19,6 +19,8 @@ const Builder = @This();
 
 vm: *Vm,
 
+const Error = error{OutOfMemory};
+
 /// Converts a Zig value to a Scheme value representation.
 /// This function provides type-safe conversion from compile-time known
 /// Zig types to the dynamic value system used by the Scheme interpreter.
@@ -41,7 +43,7 @@ vm: *Vm,
 ///
 /// Returns:
 ///   A Val representing the converted value, or a compile error for unsupported types.
-pub fn build(self: Builder, v: anytype) !Val {
+pub fn build(self: Builder, v: anytype) Error!Val {
     const type_info = @TypeOf(v);
     switch (type_info) {
         Val,
