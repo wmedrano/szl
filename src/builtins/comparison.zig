@@ -24,35 +24,35 @@ pub fn register(vm: *Vm) !void {
         Symbol.init("<"),
         try vm.builder().build(Procedure{
             .name = try vm.interner.internStatic(Symbol.init("<")),
-            .implementation = Procedure.initNative(lessThanFunc),
+            .implementation = .{ .native = .{ .func = lessThanFunc } },
         }),
     );
     try vm.builder().define(
         Symbol.init(">"),
         try vm.builder().build(Procedure{
             .name = try vm.interner.internStatic(Symbol.init(">")),
-            .implementation = Procedure.initNative(greaterThanFunc),
+            .implementation = .{ .native = .{ .func = greaterThanFunc } },
         }),
     );
     try vm.builder().define(
         Symbol.init("<="),
         try vm.builder().build(Procedure{
             .name = try vm.interner.internStatic(Symbol.init("<=")),
-            .implementation = Procedure.initNative(lessThanOrEqualFunc),
+            .implementation = .{ .native = .{ .func = lessThanOrEqualFunc } },
         }),
     );
     try vm.builder().define(
         Symbol.init(">="),
         try vm.builder().build(Procedure{
             .name = try vm.interner.internStatic(Symbol.init(">=")),
-            .implementation = Procedure.initNative(greaterThanOrEqualFunc),
+            .implementation = .{ .native = .{ .func = greaterThanOrEqualFunc } },
         }),
     );
     try vm.builder().define(
         Symbol.init("="),
         try vm.builder().build(Procedure{
             .name = try vm.interner.internStatic(Symbol.init("=")),
-            .implementation = Procedure.initNative(equalFunc),
+            .implementation = .{ .native = .{ .func = equalFunc } },
         }),
     );
 }

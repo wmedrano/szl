@@ -7,6 +7,7 @@ const testing = std.testing;
 
 const Inspector = @import("Inspector.zig");
 const Instruction = @import("Instruction.zig");
+const LexicalScope = @import("LexicalScope.zig");
 const Pair = @import("Pair.zig");
 const Procedure = @import("Procedure.zig");
 const Symbol = @import("Symbol.zig");
@@ -21,18 +22,8 @@ vm: *Vm,
 symbols: SymbolTable,
 /// Accumulated instructions during compilation.
 instructions: std.ArrayList(Instruction) = .{},
-/// List of lexical bindings (local variables) visible in the current compilation scope.
-/// These bindings are used to resolve local variable references during compilation.
-bindings: std.ArrayList(LexicalBind) = .{},
-
-/// Represents a lexical binding that maps a symbol name to a local variable index.
-/// Used for resolving local variable references during procedure compilation.
-const LexicalBind = struct {
-    /// The interned symbol name for this binding.
-    name: Symbol.Interned,
-    /// The local variable index in the stack frame where this binding's value is stored.
-    index: usize,
-};
+/// Lexical scope for managing local variable bindings during compilation.
+scope: LexicalScope = .{},
 
 /// Table of commonly used symbols that are pre-interned for efficient compilation.
 ///
@@ -74,12 +65,32 @@ pub fn compile(vm: *Vm, expr: Val) Error!Val {
     };
     defer compiler.deinit();
     try compiler.compileOne(expr);
-    const instructions = try compiler.instructions.toOwnedSlice(vm.allocator);
-    const proc = Procedure{
-        .name = null,
-        .implementation = Procedure.initBytecode(instructions),
-    };
+    const proc = try compiler.toProcedure(null);
     return try vm.builder().build(proc);
+}
+
+/// Converts the compiler's accumulated instructions into a Procedure.
+/// Takes ownership of the instruction list and creates a bytecode procedure
+/// with the specified name and argument count from the lexical scope.
+///
+/// Args:
+///   self: The compiler instance containing instructions and scope information.
+///   name: Optional name for the procedure (used for debugging/introspection).
+///
+/// Returns:
+///   A Procedure containing the compiled bytecode instructions, or an error if
+///   memory allocation fails when transferring ownership of instructions.
+fn toProcedure(self: *Compiler, name: ?Symbol.Interned) Error!Procedure {
+    const instructions = try self.instructions.toOwnedSlice(self.vm.allocator);
+    return Procedure{
+        .name = name,
+        .implementation = .{
+            .bytecode = .{
+                .args = self.scope.procedureArgCount(),
+                .instructions = instructions,
+            },
+        },
+    };
 }
 
 /// Test helper for verifying compiled instruction sequences.
@@ -105,13 +116,13 @@ pub fn expectInstructions(expected_instructions: []const Instruction, vm: *Vm, s
 }
 
 /// Deallocates resources used by the compiler.
-/// Cleans up the instruction list and lexical bindings.
+/// Cleans up the instruction list and lexical scope.
 ///
 /// Args:
 ///   self: The compiler instance to clean up.
 fn deinit(self: *Compiler) void {
     self.instructions.deinit(self.vm.allocator);
-    self.bindings.deinit(self.vm.allocator);
+    self.scope.deinit(self.vm.allocator);
 }
 
 /// Adds an instruction to the compiler's instruction list.
@@ -127,7 +138,7 @@ fn addInstruction(self: *Compiler, instruction: Instruction) Error!void {
     try self.instructions.append(self.vm.allocator, instruction);
 }
 
-/// Adds a lexical binding to the compiler's binding list.
+/// Adds a lexical binding to the compiler's lexical scope.
 /// Creates a mapping from a symbol name to a local variable index,
 /// enabling the compiler to resolve local variable references within procedure scope.
 /// Bindings are added in order to support proper lexical scoping.
@@ -138,8 +149,8 @@ fn addInstruction(self: *Compiler, instruction: Instruction) Error!void {
 ///
 /// Returns:
 ///   An error if memory allocation fails.
-fn addBinding(self: *Compiler, binding: LexicalBind) Error!void {
-    try self.bindings.append(self.vm.allocator, binding);
+fn addBinding(self: *Compiler, binding: LexicalScope.LexicalBind) Error!void {
+    try self.scope.addBinding(self.vm.allocator, binding);
 }
 
 /// Finds the stack index of a lexical binding by symbol name.
@@ -153,13 +164,7 @@ fn addBinding(self: *Compiler, binding: LexicalBind) Error!void {
 /// Returns:
 ///   The stack index of the binding if found, or null if not found.
 fn findBinding(self: *Compiler, symbol: Symbol.Interned) ?usize {
-    var i = self.bindings.items.len;
-    while (i > 0) {
-        i -= 1;
-        if (self.bindings.items[i].name.eql(symbol))
-            return self.bindings.items[i].index;
-    }
-    return null;
+    return self.scope.findBinding(symbol);
 }
 
 /// Behavior when compiling multiple expressions.
@@ -501,16 +506,16 @@ fn compileDefineProc(self: *Compiler, signature: *Inspector.ListIterator, body: 
     while (signature.next() catch return Error.InvalidExpression) |arg_val| {
         const arg = self.vm.fromVal(Symbol.Interned, arg_val) catch
             return Error.InvalidExpression;
-        try sub_compiler.addBinding(LexicalBind{ .name = arg, .index = arg_count });
+        try sub_compiler.addBinding(LexicalScope.LexicalBind{
+            .name = arg,
+            .index = arg_count,
+            .bind_type = .procedure_arg,
+        });
         arg_count += 1;
     }
 
     _ = try sub_compiler.compileMany(body, .{});
-    const instructions = try sub_compiler.instructions.toOwnedSlice(self.vm.allocator);
-    const proc = Procedure{
-        .name = name_sym,
-        .implementation = Procedure.initBytecode(instructions),
-    };
+    const proc = try sub_compiler.toProcedure(name_sym);
     const proc_val = self.vm.builder().build(proc) catch return Error.InvalidExpression;
 
     try self.addInstruction(Instruction.initGetGlobal(self.symbols.@"szl-define"));

@@ -24,28 +24,28 @@ pub fn register(vm: *Vm) !void {
         Symbol.init("+"),
         try vm.builder().build(Procedure{
             .name = try vm.interner.internStatic(Symbol.init("+")),
-            .implementation = Procedure.initNative(addFunc),
+            .implementation = .{ .native = .{ .func = addFunc } },
         }),
     );
     try vm.builder().define(
         Symbol.init("-"),
         try vm.builder().build(Procedure{
             .name = try vm.interner.internStatic(Symbol.init("-")),
-            .implementation = Procedure.initNative(subFunc),
+            .implementation = .{ .native = .{ .func = subFunc } },
         }),
     );
     try vm.builder().define(
         Symbol.init("*"),
         try vm.builder().build(Procedure{
             .name = try vm.interner.internStatic(Symbol.init("*")),
-            .implementation = Procedure.initNative(mulFunc),
+            .implementation = .{ .native = .{ .func = mulFunc } },
         }),
     );
     try vm.builder().define(
         Symbol.init("/"),
         try vm.builder().build(Procedure{
             .name = try vm.interner.internStatic(Symbol.init("/")),
-            .implementation = Procedure.initNative(divFunc),
+            .implementation = .{ .native = .{ .func = divFunc } },
         }),
     );
 }

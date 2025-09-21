@@ -260,6 +260,10 @@ pub fn evalProcedure(vm: *Vm, arg_count: usize) !void {
             try returnValue(vm);
         },
         .bytecode => |bytecode| {
+            if (arg_count != bytecode.args) {
+                raiseWithError(vm, Val.init({}));
+                return error.SzlError;
+            }
             vm.current_stack_frame.instructions = bytecode.instructions;
         },
     }
@@ -356,14 +360,14 @@ test "execute eval_procedure instruction calls procedure with arguments" {
     defer vm.deinit();
 
     const proc = Procedure{
-        .implementation = Procedure.initNative(struct {
+        .implementation = .{ .native = .{ .func = struct {
             fn addTwo(ctx: Procedure.Context) Val {
                 const args = ctx.localStack();
                 const val1 = ctx.vm.fromVal(i64, args[0]) catch unreachable;
                 const val2 = ctx.vm.fromVal(i64, args[1]) catch unreachable;
                 return Val.init(val1 + val2);
             }
-        }.addTwo),
+        }.addTwo } },
     };
     try loadMany(&vm, &.{
         try vm.toVal(proc),
@@ -383,12 +387,13 @@ test "execute bytecode procedure loads instructions into stack frame" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
+    const instructions = &[_]Instruction{
+        Instruction.initLoad(Val.init(5)),
+        Instruction.initLoad(Val.init(7)),
+    };
     const proc = try vm.toVal(Procedure{
         .name = try vm.interner.internStatic(Symbol.init("test-bytecode")),
-        .implementation = Procedure.initStaticBytecode(&[_]Instruction{
-            Instruction.initLoad(Val.init(5)),
-            Instruction.initLoad(Val.init(7)),
-        }),
+        .implementation = .{ .bytecode = .{ .instructions = try vm.allocator.dupe(Instruction, instructions) } },
     });
     try load(&vm, proc);
 
@@ -407,13 +412,18 @@ test "execute bytecode procedure loads instructions into stack frame" {
 }
 
 test "execute bytecode procedure with arguments sets correct stack start" {
-    const proc = Procedure{
-        .implementation = Procedure.initStaticBytecode(&[_]Instruction{
-            Instruction.initLoad(Val.init(42)),
-        }),
-    };
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
+
+    const instructions = &[_]Instruction{
+        Instruction.initLoad(Val.init(42)),
+    };
+    const proc = Procedure{
+        .implementation = .{ .bytecode = .{
+            .args = 3,
+            .instructions = try vm.allocator.dupe(Instruction, instructions),
+        } },
+    };
     try loadMany(&vm, &.{
         try vm.toVal(proc),
         Val.init(10),
@@ -432,13 +442,18 @@ test "execute bytecode procedure with arguments sets correct stack start" {
 }
 
 test "return_value restores previous stack frame and places return value on top" {
-    const proc = Procedure{
-        .implementation = Procedure.initStaticBytecode(&[_]Instruction{
-            Instruction.initLoad(Val.init(42)),
-        }),
-    };
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
+
+    const instructions = &[_]Instruction{
+        Instruction.initLoad(Val.init(42)),
+    };
+    const proc = Procedure{
+        .implementation = .{ .bytecode = .{
+            .args = 2,
+            .instructions = try vm.allocator.dupe(Instruction, instructions),
+        } },
+    };
 
     // Stack layout: [100, 200, proc, 10, 20]
     try loadMany(&vm, &.{

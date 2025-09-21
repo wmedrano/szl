@@ -210,11 +210,11 @@ test "isTruthy returns true for procedure" {
 
     const proc = Procedure{
         .name = try vm.interner.internStatic(Symbol.init("test-proc")),
-        .implementation = Procedure.initNative(struct {
+        .implementation = .{ .native = .{ .func = struct {
             fn func(_: Procedure.Context) Val {
                 return Val.init({});
             }
-        }.func),
+        }.func } },
     };
     const proc_val = try vm.toVal(proc);
 
@@ -240,11 +240,11 @@ test "isProcedure returns true for procedure value" {
 
     const proc = Procedure{
         .name = try vm.interner.internStatic(Symbol.init("test-proc")),
-        .implementation = Procedure.initNative(struct {
+        .implementation = .{ .native = .{ .func = struct {
             fn func(_: Procedure.Context) Val {
                 return Val.init({});
             }
-        }.func),
+        }.func } },
     };
     const proc_val = try vm.toVal(proc);
 

@@ -24,7 +24,7 @@ pub fn register(vm: *Vm) !void {
         Symbol.init("szl-define"),
         try vm.builder().build(Procedure{
             .name = try vm.interner.internStatic(Symbol.init("szl-define")),
-            .implementation = Procedure.initNative(szlDefineFunc),
+            .implementation = .{ .native = .{ .func = szlDefineFunc } },
         }),
     );
 }

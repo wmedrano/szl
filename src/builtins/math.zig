@@ -24,7 +24,7 @@ pub fn register(vm: *Vm) !void {
         Symbol.init("abs"),
         try vm.builder().build(Procedure{
             .name = try vm.interner.internStatic(Symbol.init("abs")),
-            .implementation = Procedure.initNative(absFunc),
+            .implementation = .{ .native = .{ .func = absFunc } },
         }),
     );
 }
