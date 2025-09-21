@@ -19,6 +19,7 @@ const ObjectPool = @import("object_pool.zig").ObjectPool;
 const Pair = @import("Pair.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
 const Procedure = @import("Procedure.zig");
+const String = @import("String.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 
@@ -85,6 +86,10 @@ pairs: ObjectPool(Pair),
 /// Stores both native and bytecode procedures for efficient reuse.
 procedures: ObjectPool(Procedure),
 
+/// Object pool for managing String objects with automatic memory recycling.
+/// Provides efficient allocation and deallocation of string values.
+strings: ObjectPool(String),
+
 /// Error state for the virtual machine. When set, indicates that an error
 /// has occurred during execution and should be handled or propagated.
 err: ?Val = null,
@@ -128,6 +133,7 @@ pub fn init(options: Options) !Vm {
         .interner = interner,
         .pairs = ObjectPool(Pair).init(),
         .procedures = ObjectPool(Procedure).init(),
+        .strings = ObjectPool(String).init(),
         .common_symbols = undefined,
     };
     vm.common_symbols = try vm.builder().symbolTable(CommonSymbolTable);
@@ -149,6 +155,12 @@ pub fn deinit(self: *Vm) void {
     var proc_iter = self.procedures.iterator();
     while (proc_iter.next()) |proc| proc.deinit(self.allocator);
     self.procedures.deinit(self.allocator);
+    var string_iter = self.strings.iterator();
+    while (string_iter.next()) |string| {
+        var mutable_string = string;
+        mutable_string.deinit(self.allocator);
+    }
+    self.strings.deinit(self.allocator);
 }
 
 fn PrettyReturnType(comptime T: type) type {
@@ -323,8 +335,31 @@ pub fn expectEval(self: *Vm, expected: []const u8, input: []const u8) !void {
     try testing.expectFmt(expected, "{f}", .{self.pretty(actual_val)});
     switch (expected_val.repr) {
         .nil, .boolean, .i64, .f64, .char, .symbol => try testing.expectEqual(expected_val, actual_val),
-        .pair, .proc => {},
+        .string, .pair, .proc => {},
     }
+}
+
+/// Test helper function that reads a single Scheme expression and validates both its type and formatted output.
+///
+/// This function parses a single Scheme expression from the input string and performs validation
+/// against expected results. It can optionally verify the value's type tag and always checks
+/// that the formatted output matches the expected string representation.
+///
+/// Args:
+///   self: Pointer to the VM instance to use for reading and formatting.
+///   expected_tag: Optional type tag to verify against the parsed value's type.
+///   expected: The expected formatted string representation of the parsed value.
+///   input: The Scheme expression string to parse and validate.
+///
+/// Errors:
+///   - Any errors from readOne() during expression parsing.
+///   - Test failure if the type tag doesn't match (when expected_tag is provided).
+///   - Test failure if the formatted output doesn't match the expected string.
+pub fn expectReadOne(self: *Vm, expected_tag: ?std.meta.Tag(Val.Repr), expected: []const u8, input: []const u8) !void {
+    const actual_val = try self.builder().readOne(input);
+    if (expected_tag) |tag|
+        try testing.expectEqual(tag, std.meta.activeTag(actual_val.repr));
+    try testing.expectFmt(expected, "{f}", .{self.pretty(actual_val)});
 }
 
 test "evalStr with multiple expressions compiles last expression to procedure" {

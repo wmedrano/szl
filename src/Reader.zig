@@ -10,6 +10,7 @@ const testing = std.testing;
 
 const Char = @import("Char.zig");
 const Pair = @import("Pair.zig");
+const String = @import("String.zig");
 const Symbol = @import("Symbol.zig");
 const Tokenizer = @import("Tokenizer.zig");
 const Val = @import("Val.zig");
@@ -215,11 +216,81 @@ fn parseChar(token: []const u8) !?Char {
     return null;
 }
 
+/// Parses a string literal token into a string value.
+///
+/// Handles string literals in the form "string content" with escape sequences.
+/// Supports common escape sequences like \", \\, \n, \r, \t, \b, \f, \a, \v, \0
+/// and hexadecimal escape sequences \xHH.
+///
+/// Args:
+///   self: The Reader instance.
+///   token: The token text to parse as a string literal.
+///
+/// Returns:
+///   A String value if the token is a valid string literal, null otherwise.
+///
+/// Errors:
+///   - BadExpression: If the string literal is malformed.
+///   - OutOfMemory: If string allocation fails.
+fn parseString(self: *Reader, token: []const u8) !?String {
+    if (token.len < 2 or token[0] != '"') {
+        return null;
+    }
+
+    // Check if string is properly closed
+    if (token[token.len - 1] != '"') {
+        return error.BadExpression;
+    }
+
+    var string = String.init();
+    errdefer string.deinit(self.vm.allocator);
+    const content = token[1 .. token.len - 1]; // Remove surrounding quotes
+    var i: usize = 0;
+
+    while (i < content.len) {
+        const ch = content[i];
+        if (ch != '\\') {
+            try string.appendByte(self.vm.allocator, content[i]);
+            i += 1;
+        } else {
+            if (i + 1 >= content.len)
+                return error.BadExpression;
+            switch (content[i + 1]) {
+                '"' => try string.appendByte(self.vm.allocator, '"'),
+                '\\' => try string.appendByte(self.vm.allocator, '\\'),
+                'n' => try string.appendByte(self.vm.allocator, '\n'),
+                'r' => try string.appendByte(self.vm.allocator, '\r'),
+                't' => try string.appendByte(self.vm.allocator, '\t'),
+                'b' => try string.appendByte(self.vm.allocator, 0x08), // backspace
+                'f' => try string.appendByte(self.vm.allocator, 0x0C), // form feed
+                'a' => try string.appendByte(self.vm.allocator, 0x07), // bell/alarm
+                'v' => try string.appendByte(self.vm.allocator, 0x0B), // vertical tab
+                '0' => try string.appendByte(self.vm.allocator, 0x00), // null
+                'x' => {
+                    // Hexadecimal escape sequence \xHH
+                    if (i + 3 >= content.len) return error.BadExpression;
+                    const hex_str = content[i + 2 .. i + 4];
+                    const value = std.fmt.parseInt(u8, hex_str, 16) catch {
+                        return error.BadExpression;
+                    };
+                    try string.appendByte(self.vm.allocator, value);
+                    i += 2; // Skip extra characters for hex
+                },
+                else => return error.BadExpression,
+            }
+            i += 2; // Skip escape sequence
+        }
+    }
+
+    return string;
+}
+
 /// Parses a single token into its corresponding value.
 ///
 /// Converts textual token representations into their appropriate value types.
 /// Recognizes boolean literals (#t and #f), character literals (#\<char>),
-/// integers, floating point numbers, and treats all other tokens as symbols.
+/// string literals ("string"), integers, floating point numbers, and treats
+/// all other tokens as symbols.
 /// This function handles the core atomic value parsing for the Scheme reader.
 ///
 /// Args:
@@ -247,12 +318,25 @@ fn parseToken(self: *Reader, token: []const u8) !Val {
         }
     }
 
+    // Check if this looks like a string literal
+    if (token.len >= 2 and token[0] == '"') {
+        if (try self.parseString(token)) |string| {
+            return self.vm.toVal(string);
+        } else {
+            return error.BadExpression;
+        }
+    }
+
     if (std.fmt.parseInt(i64, token, 10) catch null) |x|
         return Val.init(x);
     if (std.fmt.parseFloat(f64, token) catch null) |x|
         return Val.init(x);
     return self.vm.toVal(Symbol.init(token));
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// Basic readOne tests
+////////////////////////////////////////////////////////////////////////////////
 
 test "readOne with empty input returns NoValue error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
@@ -340,6 +424,10 @@ test "readOne with whitespace around single value succeeds" {
     );
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// Integer parsing tests
+////////////////////////////////////////////////////////////////////////////////
+
 test "readOne with positive integer returns integer value" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
@@ -379,6 +467,10 @@ test "readOne with large integer returns integer value" {
         try readOne(&vm, "9223372036854775807"),
     );
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// List parsing tests
+////////////////////////////////////////////////////////////////////////////////
 
 test "readOne with empty list returns empty list" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
@@ -622,6 +714,10 @@ test "readOne with nested expressions and whitespace returns proper structure" {
     );
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// Float parsing tests
+////////////////////////////////////////////////////////////////////////////////
+
 test "readOne with positive float returns float value" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
@@ -707,6 +803,10 @@ test "readOne with empty nested lists with whitespace returns proper structure" 
         .{vm.pretty(result)},
     );
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// Quote parsing tests
+////////////////////////////////////////////////////////////////////////////////
 
 test "readOne with quoted symbol returns quote expression" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
@@ -844,22 +944,14 @@ test "readOne with single character literal returns character value" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const result = try readOne(&vm, "#\\a");
-    try testing.expectEqual(
-        Val.init(Char.init('a')),
-        result,
-    );
+    try vm.expectReadOne(.char, "#\\a", "#\\a");
 }
 
 test "readOne with uppercase character literal returns character value" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const result = try readOne(&vm, "#\\A");
-    try testing.expectEqual(
-        Val.init(Char.init('A')),
-        result,
-    );
+    try vm.expectReadOne(.char, "#\\A", "#\\A");
 }
 
 test "readOne with uppercase character literal x returns #\\x" {
@@ -888,11 +980,7 @@ test "readOne with space character name returns character value" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const result = try readOne(&vm, "#\\space");
-    try testing.expectEqual(
-        Val.init(Char.init(0x20)),
-        result,
-    );
+    try vm.expectReadOne(.char, "#\\space", "#\\space");
 }
 
 test "readOne with newline character name returns character value" {
@@ -1202,4 +1290,110 @@ test "readOne with mixed printable and non-printable characters returns proper l
         "{f}",
         .{vm.pretty(result)},
     );
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// String tests
+////////////////////////////////////////////////////////////////////////////////
+
+test "readOne with simple string literal returns string value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectReadOne(.string, "\"hello world\"", "\"hello world\"");
+}
+
+test "readOne with empty string literal returns empty string value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectReadOne(.string, "\"\"", "\"\"");
+}
+
+test "readOne with string containing escape sequences returns string value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectReadOne(.string, "\"hello\\nworld\\t\"", "\"hello\\nworld\\t\"");
+}
+
+test "readOne with string containing escaped quotes returns string value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectReadOne(.string, "\"say \\\"hello\\\"\"", "\"say \\\"hello\\\"\"");
+}
+
+test "readOne with string containing hex escape sequences returns string value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectReadOne(.string, "\"ABC\"", "\"\\x41\\x42\\x43\"");
+}
+
+test "readOne with string containing all escape sequences returns string value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // The pretty printer will format these back as escape sequences
+    try vm.expectReadOne(.string, "\"\\\"\\\\\\n\\r\\t\\b\\f\\a\\v\\0\"", "\"\\\"\\\\\\n\\r\\t\\b\\f\\a\\v\\0\"");
+}
+
+test "readOne with strings in list returns proper list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "(\"hello\" \"world\" \"test\")");
+    try testing.expectFmt(
+        "(\"hello\" \"world\" \"test\")",
+        "{f}",
+        .{vm.pretty(result)},
+    );
+}
+
+test "readOne with unclosed string literal returns BadExpression error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectError(
+        error.BadExpression,
+        readOne(&vm, "\"unclosed string"),
+    );
+}
+
+test "readOne with invalid escape sequence returns BadExpression error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectError(
+        error.BadExpression,
+        readOne(&vm, "\"invalid\\q\""),
+    );
+}
+
+test "readOne with incomplete hex escape sequence returns BadExpression error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectError(
+        error.BadExpression,
+        readOne(&vm, "\"\\x4\""),
+    );
+}
+
+test "readOne with invalid hex escape sequence returns BadExpression error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectError(
+        error.BadExpression,
+        readOne(&vm, "\"\\xGG\""),
+    );
+}
+
+test "readOne with string containing unicode characters returns string value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectReadOne(.string, "\"héllo 🤖\"", "\"héllo 🤖\"");
 }

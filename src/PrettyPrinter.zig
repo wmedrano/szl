@@ -13,6 +13,7 @@ const object_pool = @import("object_pool.zig");
 const Handle = object_pool.Handle;
 const Pair = @import("Pair.zig");
 const Procedure = @import("Procedure.zig");
+const String = @import("String.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
@@ -102,6 +103,41 @@ fn formatValue(self: PrettyPrinter, writer: *std.Io.Writer, val: Val) error{Writ
                     }
                 },
             }
+        },
+        .string => |s| {
+            const string = self.vm.inspector().resolve(String, s) catch {
+                try writer.writeAll("#<invalid-cons>");
+                return;
+            };
+            try writer.writeByte('"');
+            for (string.slice()) |byte| {
+                switch (byte) {
+                    '"' => try writer.writeAll("\\\""),
+                    '\\' => try writer.writeAll("\\\\"),
+                    '\n' => try writer.writeAll("\\n"),
+                    '\r' => try writer.writeAll("\\r"),
+                    '\t' => try writer.writeAll("\\t"),
+                    0x08 => try writer.writeAll("\\b"),
+                    0x0C => try writer.writeAll("\\f"),
+                    0x07 => try writer.writeAll("\\a"),
+                    0x0B => try writer.writeAll("\\v"),
+                    0x00 => try writer.writeAll("\\0"),
+                    else => {
+                        // For printable ASCII and valid UTF-8, write directly
+                        // For control characters and invalid bytes, use hex escape
+                        if (byte >= 0x20 and byte <= 0x7E) {
+                            try writer.writeByte(byte);
+                        } else if (byte >= 0x80) {
+                            // Likely part of UTF-8 sequence, write directly
+                            try writer.writeByte(byte);
+                        } else {
+                            // Control character, use hex escape
+                            try writer.print("\\x{X:0>2}", .{byte});
+                        }
+                    },
+                }
+            }
+            try writer.writeByte('"');
         },
         .symbol => |sym| {
             const symbol = self.vm.interner.get(sym) catch |err| switch (err) {
@@ -401,5 +437,91 @@ test "slice formats as list" {
         "(1 2 3)",
         "{f}",
         .{slice},
+    );
+}
+
+test "string formats with quotes and escapes" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const string = try vm.strings.put(
+        testing.allocator,
+        String.initStatic("hello world"),
+    );
+    const val = Val{ .repr = .{ .string = string } };
+
+    try testing.expectFmt(
+        "\"hello world\"",
+        "{f}",
+        .{PrettyPrinter{ .vm = &vm, .val = val }},
+    );
+}
+
+test "string with escape characters formats correctly" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const string = try vm.strings.put(
+        testing.allocator,
+        String.initStatic("hello\nworld\t!"),
+    );
+    const val = Val{ .repr = .{ .string = string } };
+
+    try testing.expectFmt(
+        "\"hello\\nworld\\t!\"",
+        "{f}",
+        .{PrettyPrinter{ .vm = &vm, .val = val }},
+    );
+}
+
+test "string with quotes and backslashes formats correctly" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const string = try vm.strings.put(
+        testing.allocator,
+        String.initStatic("say \"hello\" and use \\"),
+    );
+    const val = Val{ .repr = .{ .string = string } };
+
+    try testing.expectFmt(
+        "\"say \\\"hello\\\" and use \\\\\"",
+        "{f}",
+        .{PrettyPrinter{ .vm = &vm, .val = val }},
+    );
+}
+
+test "empty string formats correctly" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const string = try vm.strings.put(
+        testing.allocator,
+        String.init(),
+    );
+    const val = Val{ .repr = .{ .string = string } };
+
+    try testing.expectFmt(
+        "\"\"",
+        "{f}",
+        .{PrettyPrinter{ .vm = &vm, .val = val }},
+    );
+}
+
+test "string with control characters formats with hex escapes" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const data = [_]u8{ 'h', 'i', 0x01, 0x1F, '!' };
+    const string = try vm.strings.put(
+        testing.allocator,
+        try String.initFromSlice(testing.allocator, &data),
+    );
+    const val = Val{ .repr = .{ .string = string } };
+
+    try testing.expectFmt(
+        "\"hi\\x01\\x1F!\"",
+        "{f}",
+        .{PrettyPrinter{ .vm = &vm, .val = val }},
     );
 }

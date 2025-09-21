@@ -8,11 +8,12 @@
 const std = @import("std");
 const testing = std.testing;
 
+const Char = @import("Char.zig");
 const object_pool = @import("object_pool.zig");
 const Handle = object_pool.Handle;
-const Char = @import("Char.zig");
 const Pair = @import("Pair.zig");
 const Procedure = @import("Procedure.zig");
+const String = @import("String.zig");
 const Symbol = @import("Symbol.zig");
 const Vm = @import("Vm.zig");
 
@@ -45,6 +46,10 @@ pub const Repr = union(enum) {
     /// Characters in Scheme are single byte values represented with #\ notation.
     char: Char,
 
+    /// Represents a string value using a handle to an object pool.
+    /// Strings in Scheme are sequences of characters enclosed in double quotes.
+    string: Handle(String),
+
     /// Represents a symbol value using an interned symbol for efficient comparison.
     /// Symbols in Scheme are identifiers that evaluate to themselves when quoted
     /// or are used for variable/function names when unquoted.
@@ -70,6 +75,7 @@ pub const Repr = union(enum) {
 ///   - f64, comptime_float: Converted to floating point values
 ///   - Char: Converted to character values
 ///   - Symbol.Interned: Converted to symbol values
+///   - Handle(String): Converted to string values
 ///   - Handle(Pair): Converted to pair values
 ///   - Handle(Procedure): Converted to procedure values
 ///
@@ -85,6 +91,7 @@ pub fn init(v: anytype) Val {
         f64, comptime_float => return init(Val.Repr{ .f64 = v }),
         Char => return init(Val.Repr{ .char = v }),
         Symbol.Interned => return init(Val.Repr{ .symbol = v }),
+        Handle(String) => return init(Val.Repr{ .string = v }),
         Handle(Pair) => return init(Val.Repr{ .pair = v }),
         Handle(Procedure) => return init(Val.Repr{ .proc = v }),
         else => @compileError("type " ++ @typeName(type_info) ++ " not supported for Val.init."),
@@ -143,6 +150,20 @@ pub fn isProcedure(self: Val) bool {
 pub fn isChar(self: Val) bool {
     return switch (self.repr) {
         .char => true,
+        else => false,
+    };
+}
+
+/// Determines if a value is a string.
+///
+/// Args:
+///   self: The value to test for string type.
+///
+/// Returns:
+///   true if the value is a string, false otherwise.
+pub fn isString(self: Val) bool {
+    return switch (self.repr) {
+        .string => true,
         else => false,
     };
 }
@@ -362,4 +383,35 @@ test "character values are truthy" {
 
     try testing.expectEqual(true, char_a.isTruthy());
     try testing.expectEqual(true, char_null.isTruthy());
+}
+
+test "isString returns true for string values" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const string_val = try vm.toVal(String.initStatic("hello"));
+    try testing.expectEqual(true, string_val.isString());
+}
+
+test "isString returns false for non-string values" {
+    const bool_val = Val.init(true);
+    const int_val = Val.init(42);
+    const nil_val = Val.init({});
+    const char_val = Val.init(Char.init('a'));
+
+    try testing.expectEqual(false, bool_val.isString());
+    try testing.expectEqual(false, int_val.isString());
+    try testing.expectEqual(false, nil_val.isString());
+    try testing.expectEqual(false, char_val.isString());
+}
+
+test "string values are truthy" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const string_val = try vm.toVal(String.initStatic("hello"));
+    try testing.expectEqual(true, string_val.isTruthy());
+
+    const empty_val = try vm.toVal(String.init());
+    try testing.expectEqual(true, empty_val.isTruthy());
 }

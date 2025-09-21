@@ -7,12 +7,13 @@
 const std = @import("std");
 const testing = std.testing;
 
+const Char = @import("Char.zig");
 const object_pool = @import("object_pool.zig");
 const Handle = object_pool.Handle;
-const Char = @import("Char.zig");
 const Pair = @import("Pair.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
 const Procedure = @import("Procedure.zig");
+const String = @import("String.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
@@ -209,6 +210,11 @@ pub fn to(self: Inspector, T: type, val: Val) !T {
             u8 => return c.data,
             else => return error.TypeMismatch,
         },
+        .string => |s| switch (T) {
+            Handle(String) => return s,
+            String => return self.vm.strings.get(s),
+            else => return error.TypeMismatch,
+        },
         .symbol => |s| switch (T) {
             Symbol.Interned => return s,
             Symbol => return self.vm.interner.get(s),
@@ -240,7 +246,8 @@ pub fn resolve(self: Inspector, T: type, handle: Handle(T)) !T {
     return switch (T) {
         Pair => self.vm.pairs.get(handle) orelse error.ObjectNotFound,
         Procedure => self.vm.procedures.get(handle) orelse error.ObjectNotFound,
-        else => @compileError("resolve() only supports Pair and Procedure, got " ++ @typeName(T)),
+        String => self.vm.strings.get(handle) orelse return error.ObjectNotFound,
+        else => @compileError("resolve() only supports Pair, Procedure, and String, got " ++ @typeName(T)),
     };
 }
 

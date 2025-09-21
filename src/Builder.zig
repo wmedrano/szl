@@ -11,6 +11,7 @@ const Handle = object_pool.Handle;
 const Pair = @import("Pair.zig");
 const Procedure = @import("Procedure.zig");
 const Reader = @import("Reader.zig");
+const String = @import("String.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
@@ -31,6 +32,8 @@ const Error = error{OutOfMemory};
 ///   - bool: Converted to boolean values
 ///   - i64, comptime_int: Converted to integer values
 ///   - Symbol, Symbol.Interned: Converted to interned symbols
+///   - Handle(String): Direct string handles
+///   - String: Stored in object pool and converted to string values
 ///   - Handle(Pair): Direct pair handles
 ///   - Pair: Stored in object pool and converted to pair values
 ///   - Handle(Procedure): Direct procedure handles
@@ -53,10 +56,12 @@ pub fn build(self: Builder, v: anytype) Error!Val {
         i64,
         comptime_int,
         Symbol.Interned,
+        Handle(String),
         Handle(Pair),
         Handle(Procedure),
         => return Val.init(v),
         Symbol => return self.internVal(v),
+        String => return Val.init(try self.vm.strings.put(self.vm.allocator, v)),
         Pair => return Val.init(try self.vm.pairs.put(self.vm.allocator, v)),
         Procedure => return Val.init(try self.vm.procedures.put(self.vm.allocator, v)),
         []const Val, []Val => {
@@ -253,7 +258,7 @@ test "build with Symbol creates symbol val" {
     const symbol = Symbol{ .data = "test-symbol" };
     const result = try vm.builder().build(symbol);
 
-    try testing.expect(result.repr == .symbol);
+    try testing.expectEqual(.symbol, std.meta.activeTag(result.repr));
     try testing.expect(@TypeOf(result.repr.symbol) == Symbol.Interned);
     try testing.expect(
         symbol.eql(try vm.interner.get(result.repr.symbol)),
@@ -268,7 +273,7 @@ test "build with Symbol.Interned creates symbol val" {
     const interned = try vm.interner.intern(symbol);
     const result = try vm.builder().build(interned);
 
-    try testing.expect(result.repr == .symbol);
+    try testing.expectEqual(.symbol, std.meta.activeTag(result.repr));
     try testing.expect(@TypeOf(result.repr.symbol) == Symbol.Interned);
     try testing.expectEqual(
         interned,
@@ -308,7 +313,7 @@ test "build with Symbol returns a symbol" {
     const symbol = Symbol{ .data = "hello-world" };
     const result = try vm.builder().build(symbol);
 
-    try testing.expect(result.repr == .symbol);
+    try testing.expectEqual(.symbol, std.meta.activeTag(result.repr));
     try testing.expectFmt(
         "hello-world",
         "{f}",
@@ -324,7 +329,7 @@ test "build with Symbol.Interned returns a symbol" {
     const interned = try vm.interner.intern(symbol);
     const result = try vm.builder().build(interned);
 
-    try testing.expect(result.repr == .symbol);
+    try testing.expectEqual(.symbol, std.meta.activeTag(result.repr));
     try testing.expectFmt(
         "test-symbol",
         "{f}",
@@ -341,7 +346,7 @@ test "build with Pair creates cons val" {
         .cdr = try vm.builder().build(2),
     });
 
-    try testing.expect(result.repr == .pair);
+    try testing.expectEqual(.pair, std.meta.activeTag(result.repr));
     try testing.expectFmt(
         "(1 . 2)",
         "{f}",
@@ -406,7 +411,7 @@ test "build with single element []Val creates proper list" {
     const array: []const Val = &.{try vm.builder().build(42)};
     const result = try vm.builder().build(array);
 
-    try testing.expect(result.repr == .pair);
+    try testing.expectEqual(.pair, std.meta.activeTag(result.repr));
     const pair = try vm.inspector().to(Pair, result);
     try testing.expectEqual(
         try vm.builder().build(42),
@@ -430,7 +435,7 @@ test "build with multiple element []Val creates proper list" {
     const result = try vm.builder().build(array);
 
     // Check that result is a proper list: (1 2 3)
-    try testing.expect(result.repr == .pair);
+    try testing.expectEqual(.pair, std.meta.activeTag(result.repr));
 
     const first_pair = try vm.inspector().to(Pair, result);
     try testing.expectEqual(
@@ -438,14 +443,14 @@ test "build with multiple element []Val creates proper list" {
         first_pair.car,
     );
 
-    try testing.expect(first_pair.cdr.repr == .pair);
+    try testing.expectEqual(.pair, std.meta.activeTag(first_pair.cdr.repr));
     const second_pair = try vm.inspector().to(Pair, first_pair.cdr);
     try testing.expectEqual(
         try vm.builder().build(2),
         second_pair.car,
     );
 
-    try testing.expect(second_pair.cdr.repr == .pair);
+    try testing.expectEqual(.pair, std.meta.activeTag(second_pair.cdr.repr));
     const third_pair = try vm.inspector().to(Pair, second_pair.cdr);
     try testing.expectEqual(
         try vm.builder().build(3),
@@ -542,7 +547,7 @@ test "internVal creates symbol val from Symbol" {
     const symbol = Symbol.init("test-symbol");
     const result = try vm.builder().internVal(symbol);
 
-    try testing.expect(result.repr == .symbol);
+    try testing.expectEqual(.symbol, std.meta.activeTag(result.repr));
     try testing.expectFmt(
         "test-symbol",
         "{f}",
@@ -557,10 +562,37 @@ test "internStaticVal creates symbol val from Symbol" {
     const symbol = Symbol.init("static-symbol");
     const result = try vm.builder().internStaticVal(symbol);
 
-    try testing.expect(result.repr == .symbol);
+    try testing.expectEqual(.symbol, std.meta.activeTag(result.repr));
     try testing.expectFmt(
         "static-symbol",
         "{f}",
         .{vm.inspector().pretty(result)},
     );
+}
+
+test "build with String creates string val" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const test_string = try String.initFromSlice(testing.allocator, "hello world");
+    const result = try vm.builder().build(test_string);
+
+    try testing.expectEqual(.string, std.meta.activeTag(result.repr));
+    try testing.expectFmt(
+        "\"hello world\"",
+        "{f}",
+        .{vm.inspector().pretty(result)},
+    );
+}
+
+test "build with Handle(String) creates string val" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const test_string = try String.initFromSlice(testing.allocator, "test string");
+    const string_handle = try vm.strings.put(testing.allocator, test_string);
+    const result = try vm.builder().build(string_handle);
+
+    try testing.expectEqual(.string, std.meta.activeTag(result.repr));
+    try testing.expectEqual(string_handle, result.repr.string);
 }

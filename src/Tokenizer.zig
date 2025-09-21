@@ -38,12 +38,8 @@ pub fn next(self: *Tokenizer) ?Span {
 
     if (isParen(next_char)) return self.eat();
     if (next_char == '\'') return self.eat();
-
-    // Special handling for character literals that start with #\
-    if (next_char == '#' and self.peekCharAt(1) == '\\') {
-        return self.eatCharacterLiteral();
-    }
-
+    if (std.mem.startsWith(u8, self.rest(), "#\\")) return self.eatCharacterLiteral();
+    if (next_char == '"') return self.eatStringLiteral();
     return self.eatSymbol();
 }
 
@@ -65,12 +61,9 @@ fn currentChar(self: Tokenizer) ?u8 {
     return null;
 }
 
-/// Returns the character at the given offset from the current position, or null if out of bounds.
-fn peekCharAt(self: Tokenizer, offset: usize) ?u8 {
-    const peek_idx = self.idx + offset;
-    if (peek_idx < self.source.len)
-        return self.source[peek_idx];
-    return null;
+/// Returns the remaining unprocessed source text from the current position.
+fn rest(self: Tokenizer) []const u8 {
+    return self.source[self.idx..];
 }
 
 /// Consumes a single character and returns its span.
@@ -133,10 +126,38 @@ fn eatCharacterLiteral(self: *Tokenizer) Span {
     return Span{ .start = start, .end = self.idx };
 }
 
+/// Consumes a string literal starting with " and returns its span.
+/// Handles escape sequences properly within the string.
+fn eatStringLiteral(self: *Tokenizer) Span {
+    const start = self.idx;
+
+    // Consume the opening quote
+    _ = self.eat();
+
+    while (self.currentChar()) |ch| {
+        _ = self.eat();
+        if (ch == '"') break;
+        if (ch == '\\') {
+            // Escape sequence, consume the character after the backslash.
+            if (self.currentChar()) |_| _ = self.eat();
+        }
+    }
+
+    return Span{ .start = start, .end = self.idx };
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Basic Tokenization Tests
+////////////////////////////////////////////////////////////////////////////////
+
 test "empty input then returns null" {
     var tokenizer = init("");
     try testing.expectEqual(null, tokenizer.nextText());
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// Character Literal Tests
+////////////////////////////////////////////////////////////////////////////////
 
 test "character literal with parenthesis" {
     var tokenizer = init("#\\(");
@@ -161,6 +182,10 @@ test "character literal with invalid hex" {
     try testing.expectEqualStrings("#\\x123xyz", tokenizer.nextText().?);
     try testing.expectEqual(null, tokenizer.nextText());
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// Symbol and Parenthesis Tests
+////////////////////////////////////////////////////////////////////////////////
 
 test "single symbol then returns symbol" {
     var tokenizer = init("hello");
@@ -230,6 +255,10 @@ test "symbol immediately followed by parenthesis then returns separate tokens" {
     try testing.expectEqual(null, tokenizer.nextText());
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// Span and Position Tests
+////////////////////////////////////////////////////////////////////////////////
+
 test "next returns correct span indexes then span matches expected positions" {
     var tokenizer = init("hello world");
     const span1 = tokenizer.next().?;
@@ -242,6 +271,10 @@ test "next returns correct span indexes then span matches expected positions" {
 
     try testing.expectEqual(null, tokenizer.next());
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// Quote Tests
+////////////////////////////////////////////////////////////////////////////////
 
 test "single quote then returns quote as individual token" {
     var tokenizer = init("'");
@@ -294,4 +327,46 @@ test "quote span positions then returns correct indices" {
     try testing.expectEqual(6, quote_span.start);
     try testing.expectEqual(7, quote_span.end);
     try testing.expectEqualStrings("'", tokenizer.text(quote_span));
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Strings
+////////////////////////////////////////////////////////////////////////////////
+
+test "string literal basic tokenization" {
+    var tokenizer = init("\"hello world\"");
+    try testing.expectEqualStrings("\"hello world\"", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
+}
+
+test "string literal with escape sequences" {
+    var tokenizer = init("\"hello\\nworld\\t\"");
+    try testing.expectEqualStrings("\"hello\\nworld\\t\"", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
+}
+
+test "string literal with escaped quotes" {
+    var tokenizer = init("\"say \\\"hello\\\"\"");
+    try testing.expectEqualStrings("\"say \\\"hello\\\"\"", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
+}
+
+test "empty string literal" {
+    var tokenizer = init("\"\"");
+    try testing.expectEqualStrings("\"\"", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
+}
+
+test "string literal with multiple tokens" {
+    var tokenizer = init("hello \"world\" test");
+    try testing.expectEqualStrings("hello", tokenizer.nextText().?);
+    try testing.expectEqualStrings("\"world\"", tokenizer.nextText().?);
+    try testing.expectEqualStrings("test", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
+}
+
+test "unclosed string literal" {
+    var tokenizer = init("\"unclosed");
+    try testing.expectEqualStrings("\"unclosed", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
 }
