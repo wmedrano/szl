@@ -12,10 +12,8 @@ const Procedure = @import("../Procedure.zig");
 const Symbol = @import("../Symbol.zig");
 const Val = @import("../Val.zig");
 const Vm = @import("../Vm.zig");
-const arithmetic = @import("arithmetic.zig");
-const comparison = @import("comparison.zig");
 const define = @import("define.zig");
-const math = @import("math.zig");
+const numbers = @import("numbers.zig");
 
 /// Registers all built-in functions with the virtual machine.
 ///
@@ -29,15 +27,5 @@ const math = @import("math.zig");
 ///   May return allocation errors if registering built-ins fails.
 pub fn register(vm: *Vm) !void {
     try define.register(vm);
-    try arithmetic.register(vm);
-    try comparison.register(vm);
-    try math.register(vm);
-}
-
-// Reference the individual modules to include their tests
-test {
-    _ = arithmetic;
-    _ = comparison;
-    _ = define;
-    _ = math;
+    try numbers.register(vm);
 }
