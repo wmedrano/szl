@@ -6,7 +6,7 @@ const std = @import("std");
 const testing = std.testing;
 
 const Inspector = @import("Inspector.zig");
-const Instruction = @import("Instruction.zig");
+const Instruction = @import("instruction.zig").Instruction;
 const LexicalScope = @import("LexicalScope.zig");
 const Pair = @import("Pair.zig");
 const Procedure = @import("Procedure.zig");
@@ -703,7 +703,7 @@ test "compile define procedure expression" {
     );
     try testing.expectEqual(
         .procedure,
-        std.meta.activeTag(instructions[2].repr.load.repr),
+        std.meta.activeTag(instructions[2].load.repr),
     );
     try testing.expectEqual(
         Instruction.initEvalProcedure(2),
@@ -946,10 +946,10 @@ test "compile quote with list" {
 
     try testing.expectEqual(1, proc.implementation.bytecode.instructions.len);
     const instruction = proc.implementation.bytecode.instructions[0];
-    try testing.expectEqual(.load, std.meta.activeTag(instruction.repr));
+    try testing.expectEqual(.load, std.meta.activeTag(instruction));
 
     // Check that the loaded value is the list (1 2 3)
-    const loaded_val = instruction.repr.load;
+    const loaded_val = instruction.load;
     try testing.expectFmt(
         "(1 2 3)",
         "{f}",

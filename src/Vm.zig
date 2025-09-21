@@ -13,7 +13,8 @@ const builtins = @import("builtins/builtins.zig");
 const Compiler = @import("Compiler.zig");
 const Handle = @import("object_pool.zig").Handle;
 const Inspector = @import("Inspector.zig");
-const Instruction = @import("Instruction.zig");
+const instruction = @import("instruction.zig");
+const Instruction = instruction.Instruction;
 const ObjectPool = @import("object_pool.zig").ObjectPool;
 const Pair = @import("Pair.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
@@ -254,12 +255,12 @@ test evalStr {
 ///   - Any errors that may occur during instruction execution.
 fn evalProc(self: *Vm, proc: Val, args: []const Val) !Val {
     if (self.err) |_| return error.SzlError;
-    try Instruction.load(self, proc);
-    try Instruction.loadMany(self, args);
+    try instruction.load(self, proc);
+    try instruction.loadMany(self, args);
     const initial_call_stack_size = self.stack_frames.items.len;
-    try Instruction.evalProcedure(self, args.len);
+    try instruction.evalProcedure(self, args.len);
     while (self.stack_frames.items.len > initial_call_stack_size) {
-        try Instruction.executeNext(self);
+        try instruction.executeNext(self);
     }
     const return_value = self.stack.pop() orelse return error.StackUnderflow;
     return return_value;

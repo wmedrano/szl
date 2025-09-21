@@ -6,7 +6,8 @@
 const std = @import("std");
 const testing = std.testing;
 
-const Instruction = @import("../Instruction.zig");
+const instruction = @import("../instruction.zig");
+const Instruction = instruction.Instruction;
 const Procedure = @import("../Procedure.zig");
 const Symbol = @import("../Symbol.zig");
 const Val = @import("../Val.zig");
@@ -80,7 +81,7 @@ fn compareFunc(ctx: Procedure.Context, predicate: *const fn (f64, f64) bool) Val
             .i64 => |val| @as(f64, @floatFromInt(val)),
             .f64 => |val| val,
             else => {
-                Instruction.raiseWithError(ctx.vm, Val.init({}));
+                instruction.raiseWithError(ctx.vm, Val.init({}));
                 return Val.init({});
             },
         };
@@ -89,7 +90,7 @@ fn compareFunc(ctx: Procedure.Context, predicate: *const fn (f64, f64) bool) Val
             .i64 => |val| @as(f64, @floatFromInt(val)),
             .f64 => |val| val,
             else => {
-                Instruction.raiseWithError(ctx.vm, Val.init({}));
+                instruction.raiseWithError(ctx.vm, Val.init({}));
                 return Val.init({});
             },
         };

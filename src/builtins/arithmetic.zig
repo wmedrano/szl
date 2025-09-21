@@ -6,7 +6,8 @@
 const std = @import("std");
 const testing = std.testing;
 
-const Instruction = @import("../Instruction.zig");
+const instruction = @import("../instruction.zig");
+const Instruction = instruction.Instruction;
 const Procedure = @import("../Procedure.zig");
 const Symbol = @import("../Symbol.zig");
 const Val = @import("../Val.zig");
@@ -75,7 +76,7 @@ fn addFunc(ctx: Procedure.Context) Val {
                 sum_f64 += val;
             },
             else => {
-                Instruction.raiseWithError(ctx.vm, Val.init({}));
+                instruction.raiseWithError(ctx.vm, Val.init({}));
                 return Val.init({});
             },
         }
@@ -117,7 +118,7 @@ fn subFunc(ctx: Procedure.Context) Val {
             result_f64 = val;
         },
         else => {
-            Instruction.raiseWithError(ctx.vm, Val.init({}));
+            instruction.raiseWithError(ctx.vm, Val.init({}));
             return Val.init({});
         },
     }
@@ -140,7 +141,7 @@ fn subFunc(ctx: Procedure.Context) Val {
                 result_f64 -= val;
             },
             else => {
-                Instruction.raiseWithError(ctx.vm, Val.init({}));
+                instruction.raiseWithError(ctx.vm, Val.init({}));
                 return Val.init({});
             },
         }
@@ -179,7 +180,7 @@ fn mulFunc(ctx: Procedure.Context) Val {
                 result_f64 *= val;
             },
             else => {
-                Instruction.raiseWithError(ctx.vm, Val.init({}));
+                instruction.raiseWithError(ctx.vm, Val.init({}));
                 return Val.init({});
             },
         }
@@ -212,7 +213,7 @@ fn mulFunc(ctx: Procedure.Context) Val {
 fn divFunc(ctx: Procedure.Context) Val {
     const args = ctx.localStack();
     if (args.len == 0) {
-        Instruction.raiseWithError(ctx.vm, Val.init({}));
+        instruction.raiseWithError(ctx.vm, Val.init({}));
         return Val.init({});
     }
 
@@ -221,7 +222,7 @@ fn divFunc(ctx: Procedure.Context) Val {
         .i64 => |val| @as(f64, @floatFromInt(val)),
         .f64 => |val| val,
         else => {
-            Instruction.raiseWithError(ctx.vm, Val.init({}));
+            instruction.raiseWithError(ctx.vm, Val.init({}));
             return Val.init({});
         },
     };
@@ -229,7 +230,7 @@ fn divFunc(ctx: Procedure.Context) Val {
     // If only one argument, return its reciprocal
     if (args.len == 1) {
         if (result == 0.0) {
-            Instruction.raiseWithError(ctx.vm, Val.init({}));
+            instruction.raiseWithError(ctx.vm, Val.init({}));
             return Val.init({});
         }
         return Val.init(1.0 / result);
@@ -241,13 +242,13 @@ fn divFunc(ctx: Procedure.Context) Val {
             .i64 => |val| @as(f64, @floatFromInt(val)),
             .f64 => |val| val,
             else => {
-                Instruction.raiseWithError(ctx.vm, Val.init({}));
+                instruction.raiseWithError(ctx.vm, Val.init({}));
                 return Val.init({});
             },
         };
 
         if (divisor == 0.0) {
-            Instruction.raiseWithError(ctx.vm, Val.init({}));
+            instruction.raiseWithError(ctx.vm, Val.init({}));
             return Val.init({});
         }
 

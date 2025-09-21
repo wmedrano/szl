@@ -7,7 +7,7 @@
 const std = @import("std");
 const testing = std.testing;
 
-const Instruction = @import("Instruction.zig");
+const Instruction = @import("instruction.zig").Instruction;
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");

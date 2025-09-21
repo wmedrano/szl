@@ -6,7 +6,8 @@
 const std = @import("std");
 const testing = std.testing;
 
-const Instruction = @import("../Instruction.zig");
+const instruction = @import("../instruction.zig");
+const Instruction = instruction.Instruction;
 const Procedure = @import("../Procedure.zig");
 const Symbol = @import("../Symbol.zig");
 const Val = @import("../Val.zig");
@@ -42,16 +43,16 @@ pub fn register(vm: *Vm) !void {
 fn szlDefineFunc(ctx: Procedure.Context) Val {
     const args = ctx.localStack();
     if (args.len != 2) {
-        Instruction.raiseWithError(ctx.vm, Val.init({}));
+        instruction.raiseWithError(ctx.vm, Val.init({}));
         return Val.init({});
     }
     const symbol = ctx.vm.fromVal(Symbol.Interned, args[0]) catch {
-        Instruction.raiseWithError(ctx.vm, Val.init({}));
+        instruction.raiseWithError(ctx.vm, Val.init({}));
         return Val.init({});
     };
     const val = args[1];
     ctx.vm.builder().define(symbol, val) catch {
-        Instruction.raiseWithError(ctx.vm, Val.init({}));
+        instruction.raiseWithError(ctx.vm, Val.init({}));
         return Val.init({});
     };
     return Val.init({});
