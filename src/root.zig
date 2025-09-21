@@ -14,7 +14,7 @@ test {
 test "define" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
-    try vm.expectEval("()", "(define x 28)");
+    try vm.expectEval("*unspecified*", "(define x 28)");
     try vm.expectEval("28", "x");
 }
 

@@ -44,25 +44,25 @@ fn szlDefineFunc(ctx: Procedure.Context) Val {
     const args = ctx.localStack();
     if (args.len != 2) {
         instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
-        return Val.init({});
+        return Val.init(ctx.vm.common_symbols.@"*unspecified*");
     }
     const symbol = ctx.vm.fromVal(Symbol.Interned, args[0]) catch {
         instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
-        return Val.init({});
+        return Val.init(ctx.vm.common_symbols.@"*unspecified*");
     };
     const val = args[1];
     ctx.vm.builder().define(symbol, val) catch {
         instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"invalid-argument"));
-        return Val.init({});
+        return Val.init(ctx.vm.common_symbols.@"*unspecified*");
     };
-    return Val.init({});
+    return Val.init(ctx.vm.common_symbols.@"*unspecified*");
 }
 
 test "szl-define defines global variable successfully" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try vm.expectEval("()", "(szl-define 'foo 42)");
+    try vm.expectEval("*unspecified*", "(szl-define 'foo 42)");
     try testing.expectEqual(
         Val.init(42),
         vm.inspector().get(Symbol.init("foo")),
@@ -115,14 +115,14 @@ test "szl-define can redefine existing variable with new value" {
     defer vm.deinit();
 
     // Define initial value
-    try vm.expectEval("()", "(szl-define 'x 100)");
+    try vm.expectEval("*unspecified*", "(szl-define 'x 100)");
     try testing.expectEqual(
         Val.init(100),
         vm.inspector().get(Symbol.init("x")),
     );
 
     // Redefine with new value
-    try vm.expectEval("()", "(szl-define 'x 200)");
+    try vm.expectEval("*unspecified*", "(szl-define 'x 200)");
     try testing.expectEqual(
         Val.init(200),
         vm.inspector().get(Symbol.init("x")),
@@ -134,21 +134,21 @@ test "szl-define can redefine variable with different type" {
     defer vm.deinit();
 
     // Define as integer
-    try vm.expectEval("()", "(szl-define 'var 42)");
+    try vm.expectEval("*unspecified*", "(szl-define 'var 42)");
     try testing.expectEqual(
         Val.init(42),
         vm.inspector().get(Symbol.init("var")),
     );
 
     // Redefine as boolean
-    try vm.expectEval("()", "(szl-define 'var #t)");
+    try vm.expectEval("*unspecified*", "(szl-define 'var #t)");
     try testing.expectEqual(
         Val.init(true),
         vm.inspector().get(Symbol.init("var")),
     );
 
     // Redefine as different integer
-    try vm.expectEval("()", "(szl-define 'var -5)");
+    try vm.expectEval("*unspecified*", "(szl-define 'var -5)");
     try testing.expectEqual(
         Val.init(-5),
         vm.inspector().get(Symbol.init("var")),
@@ -160,12 +160,12 @@ test "szl-define multiple redefinitions preserve only latest value" {
     defer vm.deinit();
 
     // Define initial value
-    try vm.expectEval("()", "(szl-define 'counter 1)");
+    try vm.expectEval("*unspecified*", "(szl-define 'counter 1)");
 
     // Multiple redefinitions
-    try vm.expectEval("()", "(szl-define 'counter 2)");
-    try vm.expectEval("()", "(szl-define 'counter 3)");
-    try vm.expectEval("()", "(szl-define 'counter 4)");
+    try vm.expectEval("*unspecified*", "(szl-define 'counter 2)");
+    try vm.expectEval("*unspecified*", "(szl-define 'counter 3)");
+    try vm.expectEval("*unspecified*", "(szl-define 'counter 4)");
 
     // Only the latest value should be preserved
     try testing.expectEqual(

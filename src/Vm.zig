@@ -33,6 +33,7 @@ const Vm = @This();
 /// to intern symbols repeatedly during compilation.
 const CommonSymbolTable = struct {
     // Language construct symbols
+    @"*unspecified*": Symbol.Interned,
     @"=>": Symbol.Interned,
     @"else": Symbol.Interned,
     @"if": Symbol.Interned,
@@ -276,8 +277,8 @@ test evalStr {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try vm.expectEval("()", "(define (foo arg) (+ arg 2))");
-    try vm.expectEval("()", "(define bar 40)");
+    try vm.expectEval("*unspecified*", "(define (foo arg) (+ arg 2))");
+    try vm.expectEval("*unspecified*", "(define bar 40)");
     try vm.expectEval("42", "(foo bar)");
 }
 

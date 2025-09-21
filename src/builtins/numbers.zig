@@ -508,9 +508,9 @@ fn absFunc(ctx: Procedure.Context) Val {
     }
 }
 
-// =============================================================================
-// TESTS - ARITHMETIC OPERATIONS
-// =============================================================================
+////////////////////////////////////////////////////////////////////////////////
+// Arithmetic operations
+////////////////////////////////////////////////////////////////////////////////
 
 test "+ with no arguments returns 0" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
@@ -839,9 +839,9 @@ test "/ always returns float even for integer division" {
     try testing.expectApproxEqRel(expected, actual, 1e-10);
 }
 
-// =============================================================================
-// TESTS - COMPARISON OPERATIONS
-// =============================================================================
+////////////////////////////////////////////////////////////////////////////////
+// Comparison operators
+////////////////////////////////////////////////////////////////////////////////
 
 test "< with no arguments returns #t" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
@@ -1250,9 +1250,9 @@ test "= with non-number is error" {
     );
 }
 
-// =============================================================================
-// TESTS - MATHEMATICAL FUNCTIONS
-// =============================================================================
+////////////////////////////////////////////////////////////////////////////////
+// Mathematical functions
+////////////////////////////////////////////////////////////////////////////////
 
 test "abs with positive integer returns same value" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
