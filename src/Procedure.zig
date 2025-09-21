@@ -19,11 +19,6 @@ const Procedure = @This();
 /// debugging, and reflection.
 name: ?Symbol.Interned = null,
 
-// TODO: Add arg count
-// TODO: Add temp count
-// TODO: Check arg count when running eval
-// TODO: Add temp count when running eval
-
 /// The implementation for this procedure.
 /// Can be either a native Zig function or compiled bytecode.
 implementation: Impl,

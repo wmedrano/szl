@@ -157,6 +157,10 @@ pub fn isTruthy(self: Val) bool {
     };
 }
 
+test "Val size is 16 bytes" {
+    try testing.expectEqual(16, @sizeOf(Val));
+}
+
 test "isTruthy returns false for boolean false" {
     const val = Val.init(false);
     try testing.expectEqual(false, val.isTruthy());

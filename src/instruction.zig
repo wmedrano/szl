@@ -363,6 +363,10 @@ pub fn squash(vm: *Vm, count: usize) !void {
     try vm.stack.resize(vm.allocator, new_len);
 }
 
+test "Instruction size is 24 bytes" {
+    try testing.expectEqual(24, @sizeOf(Instruction));
+}
+
 test "execute load instruction pushes value onto stack" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
