@@ -81,7 +81,7 @@ fn compareFunc(ctx: Procedure.Context, predicate: *const fn (f64, f64) bool) Val
             .i64 => |val| @as(f64, @floatFromInt(val)),
             .f64 => |val| val,
             else => {
-                instruction.raiseWithError(ctx.vm, Val.init({}));
+                instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
                 return Val.init({});
             },
         };
@@ -90,7 +90,7 @@ fn compareFunc(ctx: Procedure.Context, predicate: *const fn (f64, f64) bool) Val
             .i64 => |val| @as(f64, @floatFromInt(val)),
             .f64 => |val| val,
             else => {
-                instruction.raiseWithError(ctx.vm, Val.init({}));
+                instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
                 return Val.init({});
             },
         };

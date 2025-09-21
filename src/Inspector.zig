@@ -213,7 +213,7 @@ pub fn to(self: Inspector, T: type, val: Val) !T {
             Pair => return try self.resolve(Pair, c),
             else => return error.TypeMismatch,
         },
-        .procedure => |p| switch (T) {
+        .proc => |p| switch (T) {
             Handle(Procedure) => return p,
             Procedure => return try self.resolve(Procedure, p),
             else => return error.TypeMismatch,

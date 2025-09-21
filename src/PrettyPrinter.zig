@@ -99,7 +99,7 @@ fn formatValue(self: PrettyPrinter, writer: *std.Io.Writer, val: Val) error{Writ
             try self.formatCdr(writer, cons.cdr);
             try writer.writeAll(")");
         },
-        .procedure => |proc_handle| try self.formatProcedure(writer, proc_handle),
+        .proc => |proc_handle| try self.formatProcedure(writer, proc_handle),
     }
 }
 

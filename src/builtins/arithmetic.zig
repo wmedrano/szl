@@ -76,7 +76,7 @@ fn addFunc(ctx: Procedure.Context) Val {
                 sum_f64 += val;
             },
             else => {
-                instruction.raiseWithError(ctx.vm, Val.init({}));
+                instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
                 return Val.init({});
             },
         }
@@ -118,7 +118,7 @@ fn subFunc(ctx: Procedure.Context) Val {
             result_f64 = val;
         },
         else => {
-            instruction.raiseWithError(ctx.vm, Val.init({}));
+            instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
             return Val.init({});
         },
     }
@@ -141,7 +141,7 @@ fn subFunc(ctx: Procedure.Context) Val {
                 result_f64 -= val;
             },
             else => {
-                instruction.raiseWithError(ctx.vm, Val.init({}));
+                instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
                 return Val.init({});
             },
         }
@@ -180,7 +180,7 @@ fn mulFunc(ctx: Procedure.Context) Val {
                 result_f64 *= val;
             },
             else => {
-                instruction.raiseWithError(ctx.vm, Val.init({}));
+                instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
                 return Val.init({});
             },
         }
@@ -213,7 +213,7 @@ fn mulFunc(ctx: Procedure.Context) Val {
 fn divFunc(ctx: Procedure.Context) Val {
     const args = ctx.localStack();
     if (args.len == 0) {
-        instruction.raiseWithError(ctx.vm, Val.init({}));
+        instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
         return Val.init({});
     }
 
@@ -222,7 +222,7 @@ fn divFunc(ctx: Procedure.Context) Val {
         .i64 => |val| @as(f64, @floatFromInt(val)),
         .f64 => |val| val,
         else => {
-            instruction.raiseWithError(ctx.vm, Val.init({}));
+            instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
             return Val.init({});
         },
     };
@@ -230,7 +230,7 @@ fn divFunc(ctx: Procedure.Context) Val {
     // If only one argument, return its reciprocal
     if (args.len == 1) {
         if (result == 0.0) {
-            instruction.raiseWithError(ctx.vm, Val.init({}));
+            instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"division-by-zero"));
             return Val.init({});
         }
         return Val.init(1.0 / result);
@@ -242,13 +242,13 @@ fn divFunc(ctx: Procedure.Context) Val {
             .i64 => |val| @as(f64, @floatFromInt(val)),
             .f64 => |val| val,
             else => {
-                instruction.raiseWithError(ctx.vm, Val.init({}));
+                instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
                 return Val.init({});
             },
         };
 
         if (divisor == 0.0) {
-            instruction.raiseWithError(ctx.vm, Val.init({}));
+            instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"division-by-zero"));
             return Val.init({});
         }
 

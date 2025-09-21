@@ -195,7 +195,7 @@ pub fn loadMany(vm: *Vm, vals: []const Val) !void {
 ///   - Raises an error if the global variable is not found.
 pub fn getGlobal(vm: *Vm, symbol: Symbol.Interned) !void {
     const val = vm.inspector().get(symbol) orelse {
-        raiseWithError(vm, Val.init({}));
+        raiseWithError(vm, Val.init(vm.common_symbols.@"undefined-variable"));
         return;
     };
     try load(vm, val);
@@ -278,11 +278,11 @@ pub fn evalProcedure(vm: *Vm, arg_count: usize) !void {
         },
         .bytecode => |bytecode| {
             if (arg_count != bytecode.args) {
-                raiseWithError(vm, Val.init({}));
+                raiseWithError(vm, Val.init(vm.common_symbols.@"wrong-number-of-arguments"));
                 return error.SzlError;
             }
             if (bytecode.locals_count < bytecode.args) {
-                raiseWithError(vm, Val.init({}));
+                raiseWithError(vm, Val.init(vm.common_symbols.@"invalid-procedure"));
                 return error.SzlError;
             }
             for (0..bytecode.locals_count - bytecode.args) |_|
@@ -1154,7 +1154,7 @@ test "bytecode procedure with locals_count > args allocates additional local var
     try executeNext(&vm); // Get local 2 (additional local)
     try executeNext(&vm); // Get local 3 (additional local)
 
-    try testing.expectEqual(.procedure, std.meta.activeTag(vm.stack.items[0].repr));
+    try testing.expectEqual(.proc, std.meta.activeTag(vm.stack.items[0].repr));
     try testing.expectFmt(
         "(10 20 () () 10 20 () ())",
         "{f}",
@@ -1187,7 +1187,7 @@ test "bytecode procedure with locals_count equal to args works correctly" {
     try Instruction.execute(Instruction.initEvalProcedure(2), &vm);
 
     // Should work without allocating additional locals
-    try testing.expectEqual(.procedure, std.meta.activeTag(vm.stack.items[0].repr));
+    try testing.expectEqual(.proc, std.meta.activeTag(vm.stack.items[0].repr));
     try testing.expectFmt(
         "(42 99)",
         "{f}",
@@ -1276,7 +1276,7 @@ test "bytecode procedure initializes additional locals to unit values" {
     try executeNext(&vm); // get_local 1
 
     // Should get back the value we set
-    try testing.expectEqual(.procedure, std.meta.activeTag(vm.stack.items[0].repr));
+    try testing.expectEqual(.proc, std.meta.activeTag(vm.stack.items[0].repr));
     try testing.expectFmt(
         "(42 777 777)",
         "{f}",

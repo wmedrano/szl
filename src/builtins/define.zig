@@ -43,16 +43,16 @@ pub fn register(vm: *Vm) !void {
 fn szlDefineFunc(ctx: Procedure.Context) Val {
     const args = ctx.localStack();
     if (args.len != 2) {
-        instruction.raiseWithError(ctx.vm, Val.init({}));
+        instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
         return Val.init({});
     }
     const symbol = ctx.vm.fromVal(Symbol.Interned, args[0]) catch {
-        instruction.raiseWithError(ctx.vm, Val.init({}));
+        instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
         return Val.init({});
     };
     const val = args[1];
     ctx.vm.builder().define(symbol, val) catch {
-        instruction.raiseWithError(ctx.vm, Val.init({}));
+        instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"invalid-argument"));
         return Val.init({});
     };
     return Val.init({});

@@ -18,30 +18,10 @@ const Compiler = @This();
 
 /// The virtual machine instance to compile for.
 vm: *Vm,
-/// Cached interned symbols used during compilation for efficient lookups.
-symbols: SymbolTable,
 /// Accumulated instructions during compilation.
 instructions: std.ArrayList(Instruction) = .{},
 /// Lexical scope for managing local variable bindings during compilation.
 scope: LexicalScope = .{},
-
-/// Table of commonly used symbols that are pre-interned for efficient compilation.
-///
-/// This struct contains interned versions of symbols that the compiler needs
-/// to recognize and handle specially during compilation. By pre-interning these
-/// symbols, the compiler can perform fast symbol comparisons without needing
-/// to intern symbols repeatedly during compilation.
-const SymbolTable = struct {
-    @"=>": Symbol.Interned,
-    @"else": Symbol.Interned,
-    @"if": Symbol.Interned,
-    @"szl-define": Symbol.Interned,
-    begin: Symbol.Interned,
-    cond: Symbol.Interned,
-    define: Symbol.Interned,
-    let: Symbol.Interned,
-    quote: Symbol.Interned,
-};
 
 /// Errors that can occur during compilation.
 pub const Error = error{
@@ -62,7 +42,6 @@ pub const Error = error{
 pub fn compile(vm: *Vm, expr: Val) Error!Val {
     var compiler = Compiler{
         .vm = vm,
-        .symbols = try vm.builder().symbolTable(SymbolTable),
     };
     defer compiler.deinit();
     try compiler.compileOne(expr);
@@ -189,7 +168,7 @@ fn compileMany(self: *Compiler, iter: *Inspector.ListIterator, comptime behavior
 ///   An error if the expression cannot be compiled.
 fn compileOne(self: *Compiler, expr: Val) Error!void {
     switch (expr.repr) {
-        .boolean, .i64, .f64, .procedure => try self.addInstruction(Instruction.initLoad(expr)),
+        .boolean, .i64, .f64, .proc => try self.addInstruction(Instruction.initLoad(expr)),
         .nil => return error.InvalidExpression,
         .symbol => |s| return self.compileSymbol(s),
         .pair => |p| {
@@ -230,17 +209,17 @@ fn compileSymbol(self: *Compiler, symbol: Symbol.Interned) Error!void {
 ///   An error if any part of the expression cannot be compiled.
 fn compileExpression(self: *Compiler, leading: Val, args_iter: *Inspector.ListIterator) Error!void {
     if (self.vm.fromVal(Symbol.Interned, leading) catch null) |sym| {
-        if (self.symbols.@"if".eql(sym))
+        if (self.vm.common_symbols.@"if".eql(sym))
             return self.compileIf(args_iter);
-        if (self.symbols.begin.eql(sym))
+        if (self.vm.common_symbols.begin.eql(sym))
             return self.compileBegin(args_iter);
-        if (self.symbols.cond.eql(sym))
+        if (self.vm.common_symbols.cond.eql(sym))
             return self.compileCond(args_iter);
-        if (self.symbols.define.eql(sym))
+        if (self.vm.common_symbols.define.eql(sym))
             return self.compileDefine(args_iter);
-        if (self.symbols.let.eql(sym))
+        if (self.vm.common_symbols.let.eql(sym))
             return self.compileLet(args_iter);
-        if (self.symbols.quote.eql(sym))
+        if (self.vm.common_symbols.quote.eql(sym))
             return self.compileQuote(args_iter);
     }
     try self.compileOne(leading);
@@ -296,7 +275,7 @@ fn compileCondClause(self: *Compiler, clause_val: Val) Error!?ClauseJumps {
     } orelse return Error.InvalidExpression;
 
     // Handle 'else' clause specially
-    if (std.meta.eql(predicate, Val.init(self.symbols.@"else"))) {
+    if (std.meta.eql(predicate, Val.init(self.vm.common_symbols.@"else"))) {
         _ = try self.compileMany(&clause_iter, .{ .squash = true });
         return null; // Signal that this was an else clause
     }
@@ -310,7 +289,7 @@ fn compileCondClause(self: *Compiler, clause_val: Val) Error!?ClauseJumps {
     const next_expr = clause_iter.peek() catch return Error.InvalidExpression;
     var uses_arrow_syntax = false;
     if (next_expr) |expr| {
-        uses_arrow_syntax = std.meta.eql(expr, Val.init(self.symbols.@"=>"));
+        uses_arrow_syntax = std.meta.eql(expr, Val.init(self.vm.common_symbols.@"=>"));
         if (uses_arrow_syntax)
             _ = clause_iter.next() catch return Error.InvalidExpression; // Consume the '=>' symbol
     }
@@ -462,7 +441,7 @@ fn compileDefineVal(self: *Compiler, symbol: Symbol.Interned, body: *Inspector.L
     } orelse return Error.InvalidExpression;
     if (!body.isEmpty()) return Error.InvalidExpression;
 
-    try self.addInstruction(Instruction.initGetGlobal(self.symbols.@"szl-define"));
+    try self.addInstruction(Instruction.initGetGlobal(self.vm.common_symbols.@"szl-define"));
     try self.addInstruction(Instruction.initLoad(Val.init(symbol)));
     try self.compileOne(expr);
     try self.addInstruction(Instruction.initEvalProcedure(2));
@@ -483,7 +462,6 @@ fn compileDefineVal(self: *Compiler, symbol: Symbol.Interned, body: *Inspector.L
 fn compileDefineProc(self: *Compiler, signature: *Inspector.ListIterator, body: *Inspector.ListIterator) Error!void {
     var sub_compiler = Compiler{
         .vm = self.vm,
-        .symbols = self.symbols,
     };
     defer sub_compiler.deinit();
     const name = signature.next() catch {
@@ -510,7 +488,7 @@ fn compileDefineProc(self: *Compiler, signature: *Inspector.ListIterator, body: 
     const proc = try sub_compiler.toProcedure(name_sym);
     const proc_val = self.vm.builder().build(proc) catch return Error.InvalidExpression;
 
-    try self.addInstruction(Instruction.initGetGlobal(self.symbols.@"szl-define"));
+    try self.addInstruction(Instruction.initGetGlobal(self.vm.common_symbols.@"szl-define"));
     try self.addInstruction(Instruction.initLoad(name));
     try self.addInstruction(Instruction.initLoad(proc_val));
     try self.addInstruction(Instruction.initEvalProcedure(2));
@@ -702,7 +680,7 @@ test "compile define procedure expression" {
         instructions[1],
     );
     try testing.expectEqual(
-        .procedure,
+        .proc,
         std.meta.activeTag(instructions[2].load.repr),
     );
     try testing.expectEqual(

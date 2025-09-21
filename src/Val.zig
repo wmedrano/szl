@@ -52,7 +52,7 @@ pub const Repr = union(enum) {
 
     /// Represents a procedure (function) that can be called in the interpreter.
     /// Procedures include both built-in functions and user-defined functions.
-    procedure: Handle(Procedure),
+    proc: Handle(Procedure),
 };
 
 /// Create a new `Val` for a supported type.
@@ -79,7 +79,7 @@ pub fn init(v: anytype) Val {
         f64, comptime_float => return init(Val.Repr{ .f64 = v }),
         Symbol.Interned => return init(Val.Repr{ .symbol = v }),
         Handle(Pair) => return init(Val.Repr{ .pair = v }),
-        Handle(Procedure) => return init(Val.Repr{ .procedure = v }),
+        Handle(Procedure) => return init(Val.Repr{ .proc = v }),
         else => @compileError("type " ++ @typeName(type_info) ++ " not supported for Val.init."),
     }
 }
@@ -121,7 +121,7 @@ pub fn isPair(self: Val) bool {
 ///   true if the value is a procedure, false otherwise.
 pub fn isProcedure(self: Val) bool {
     return switch (self.repr) {
-        .procedure => true,
+        .proc => true,
         else => false,
     };
 }

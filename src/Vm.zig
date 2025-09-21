@@ -24,8 +24,38 @@ const Val = @import("Val.zig");
 
 const Vm = @This();
 
+/// Table of commonly used symbols that are pre-interned for efficient compilation.
+///
+/// This struct contains interned versions of symbols that the compiler needs
+/// to recognize and handle specially during compilation. By pre-interning these
+/// symbols, the compiler can perform fast symbol comparisons without needing
+/// to intern symbols repeatedly during compilation.
+const CommonSymbolTable = struct {
+    // Language construct symbols
+    @"=>": Symbol.Interned,
+    @"else": Symbol.Interned,
+    @"if": Symbol.Interned,
+    @"szl-define": Symbol.Interned,
+    begin: Symbol.Interned,
+    cond: Symbol.Interned,
+    define: Symbol.Interned,
+    let: Symbol.Interned,
+    quote: Symbol.Interned,
+
+    // Error symbols
+    @"undefined-variable": Symbol.Interned,
+    @"wrong-number-of-arguments": Symbol.Interned,
+    @"invalid-procedure": Symbol.Interned,
+    @"type-error": Symbol.Interned,
+    @"division-by-zero": Symbol.Interned,
+    @"invalid-argument": Symbol.Interned,
+};
+
 /// Memory allocator used for all dynamic allocations within the VM.
 allocator: std.mem.Allocator,
+
+/// Cached interned symbols used during compilation for efficient lookups.
+common_symbols: CommonSymbolTable,
 
 /// Execution stack that holds values during computation and procedure calls.
 /// Values are pushed and popped as expressions are evaluated.
@@ -98,7 +128,9 @@ pub fn init(options: Options) !Vm {
         .interner = interner,
         .pairs = ObjectPool(Pair).init(),
         .procedures = ObjectPool(Procedure).init(),
+        .common_symbols = undefined,
     };
+    vm.common_symbols = try vm.builder().symbolTable(CommonSymbolTable);
     try builtins.register(&vm);
     return vm;
 }
@@ -291,7 +323,7 @@ pub fn expectEval(self: *Vm, expected: []const u8, input: []const u8) !void {
     try testing.expectFmt(expected, "{f}", .{self.pretty(actual_val)});
     switch (expected_val.repr) {
         .nil, .boolean, .i64, .f64, .symbol => try testing.expectEqual(expected_val, actual_val),
-        .pair, .procedure => {},
+        .pair, .proc => {},
     }
 }
 

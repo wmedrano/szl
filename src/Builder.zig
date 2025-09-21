@@ -477,7 +477,7 @@ test "build with Procedure creates procedure val" {
 
     const result = try vm.builder().build(test_procedure);
 
-    try testing.expect(result.repr == .procedure);
+    try testing.expectEqual(.proc, std.meta.activeTag(result.repr));
     try testing.expectFmt(
         "#<procedure:test-proc>",
         "{f}",

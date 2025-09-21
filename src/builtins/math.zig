@@ -44,7 +44,7 @@ pub fn register(vm: *Vm) !void {
 fn absFunc(ctx: Procedure.Context) Val {
     const args = ctx.localStack();
     if (args.len != 1) {
-        instruction.raiseWithError(ctx.vm, Val.init({}));
+        instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
         return Val.init({});
     }
 
@@ -64,7 +64,7 @@ fn absFunc(ctx: Procedure.Context) Val {
             }
         },
         else => {
-            instruction.raiseWithError(ctx.vm, Val.init({}));
+            instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
             return Val.init({});
         },
     }
