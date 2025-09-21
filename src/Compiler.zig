@@ -33,13 +33,14 @@ scope: LexicalScope = .{},
 /// to intern symbols repeatedly during compilation.
 const SymbolTable = struct {
     @"=>": Symbol.Interned,
+    @"else": Symbol.Interned,
     @"if": Symbol.Interned,
     @"szl-define": Symbol.Interned,
-    cond: Symbol.Interned,
-    @"else": Symbol.Interned,
-    define: Symbol.Interned,
-    quote: Symbol.Interned,
     begin: Symbol.Interned,
+    cond: Symbol.Interned,
+    define: Symbol.Interned,
+    let: Symbol.Interned,
+    quote: Symbol.Interned,
 };
 
 /// Errors that can occur during compilation.
@@ -71,7 +72,7 @@ pub fn compile(vm: *Vm, expr: Val) Error!Val {
 
 /// Converts the compiler's accumulated instructions into a Procedure.
 /// Takes ownership of the instruction list and creates a bytecode procedure
-/// with the specified name and argument count from the lexical scope.
+/// with the specified name, argument count, and local variable count from the lexical scope.
 ///
 /// Args:
 ///   self: The compiler instance containing instructions and scope information.
@@ -87,6 +88,7 @@ fn toProcedure(self: *Compiler, name: ?Symbol.Interned) Error!Procedure {
         .implementation = .{
             .bytecode = .{
                 .args = self.scope.procedureArgCount(),
+                .locals_count = self.scope.count(),
                 .instructions = instructions,
             },
         },
@@ -136,35 +138,6 @@ fn deinit(self: *Compiler) void {
 ///   An error if memory allocation fails.
 fn addInstruction(self: *Compiler, instruction: Instruction) Error!void {
     try self.instructions.append(self.vm.allocator, instruction);
-}
-
-/// Adds a lexical binding to the compiler's lexical scope.
-/// Creates a mapping from a symbol name to a local variable index,
-/// enabling the compiler to resolve local variable references within procedure scope.
-/// Bindings are added in order to support proper lexical scoping.
-///
-/// Args:
-///   self: The compiler instance.
-///   binding: The lexical binding to add, containing the symbol name and stack index.
-///
-/// Returns:
-///   An error if memory allocation fails.
-fn addBinding(self: *Compiler, binding: LexicalScope.LexicalBind) Error!void {
-    try self.scope.addBinding(self.vm.allocator, binding);
-}
-
-/// Finds the stack index of a lexical binding by symbol name.
-/// Searches bindings in reverse order to implement proper lexical scoping
-/// where inner bindings shadow outer ones (most recent binding wins).
-///
-/// Args:
-///   self: The compiler instance.
-///   symbol: The interned symbol to search for.
-///
-/// Returns:
-///   The stack index of the binding if found, or null if not found.
-fn findBinding(self: *Compiler, symbol: Symbol.Interned) ?usize {
-    return self.scope.findBinding(symbol);
 }
 
 /// Behavior when compiling multiple expressions.
@@ -238,8 +211,8 @@ fn compileOne(self: *Compiler, expr: Val) Error!void {
 /// Returns:
 ///   An error if memory allocation fails.
 fn compileSymbol(self: *Compiler, symbol: Symbol.Interned) Error!void {
-    if (self.findBinding(symbol)) |idx|
-        return self.addInstruction(Instruction.initGetLocal(idx));
+    if (self.scope.resolve(symbol)) |binding|
+        return self.addInstruction(Instruction.initGetLocal(binding.index));
     try self.addInstruction(Instruction.initGetGlobal(symbol));
 }
 
@@ -259,18 +232,34 @@ fn compileExpression(self: *Compiler, leading: Val, args_iter: *Inspector.ListIt
     if (self.vm.fromVal(Symbol.Interned, leading) catch null) |sym| {
         if (self.symbols.@"if".eql(sym))
             return self.compileIf(args_iter);
+        if (self.symbols.begin.eql(sym))
+            return self.compileBegin(args_iter);
         if (self.symbols.cond.eql(sym))
             return self.compileCond(args_iter);
         if (self.symbols.define.eql(sym))
             return self.compileDefine(args_iter);
+        if (self.symbols.let.eql(sym))
+            return self.compileLet(args_iter);
         if (self.symbols.quote.eql(sym))
             return self.compileQuote(args_iter);
-        if (self.symbols.begin.eql(sym))
-            return self.compileBegin(args_iter);
     }
     try self.compileOne(leading);
     const arg_count = try self.compileMany(args_iter, .{ .allow_zero = true });
     try self.addInstruction(Instruction.initEvalProcedure(arg_count));
+}
+
+/// Compiles a begin expression into bytecode.
+/// Begin expressions evaluate all their arguments in sequence and return the result of the last one.
+/// If no arguments are provided, returns nil.
+///
+/// Args:
+///   self: The compiler instance.
+///   iter: Iterator over the arguments to the begin expression.
+///
+/// Returns:
+///   An error if compilation fails.
+fn compileBegin(self: *Compiler, iter: *Inspector.ListIterator) Error!void {
+    _ = try self.compileMany(iter, .{ .allow_zero = true, .squash = true });
 }
 
 /// Calculates the relative jump distance between two instruction positions.
@@ -506,11 +495,14 @@ fn compileDefineProc(self: *Compiler, signature: *Inspector.ListIterator, body: 
     while (signature.next() catch return Error.InvalidExpression) |arg_val| {
         const arg = self.vm.fromVal(Symbol.Interned, arg_val) catch
             return Error.InvalidExpression;
-        try sub_compiler.addBinding(LexicalScope.LexicalBind{
-            .name = arg,
-            .index = arg_count,
-            .bind_type = .procedure_arg,
-        });
+        _ = try sub_compiler.scope.addBinding(
+            self.vm.allocator,
+            LexicalScope.Binding{
+                .name = arg,
+                .index = arg_count,
+                .type = .argument,
+            },
+        );
         arg_count += 1;
     }
 
@@ -522,6 +514,118 @@ fn compileDefineProc(self: *Compiler, signature: *Inspector.ListIterator, body: 
     try self.addInstruction(Instruction.initLoad(name));
     try self.addInstruction(Instruction.initLoad(proc_val));
     try self.addInstruction(Instruction.initEvalProcedure(2));
+}
+
+/// Compiles a single let binding (name expression) pair.
+///
+/// Parses a binding in the form (name expression), compiles the expression,
+/// and creates a hidden binding that will store the result. The binding starts
+/// as 'hidden' so it's not available to other binding expressions in the same let.
+///
+/// Args:
+///   self: The compiler instance.
+///   binding: The binding pair in the form (name expression).
+///
+/// Returns:
+///   The binding ID for later activation, or an error if compilation fails.
+fn compileLetBinding(self: *Compiler, binding: Val) Error!LexicalScope.Id {
+    const inspector = self.vm.inspector();
+    var parts = inspector.iterList(binding) catch return Error.InvalidExpression;
+
+    // Extract variable name from binding
+    const name_val = parts.next() catch {
+        return Error.InvalidExpression;
+    } orelse return Error.InvalidExpression;
+
+    const name = inspector.to(Symbol.Interned, name_val) catch return Error.InvalidExpression;
+
+    // Create hidden binding for the variable (not yet accessible to other bindings)
+    const id = try self.scope.addVariable(self.vm.allocator, name, .hidden);
+
+    // Extract and compile the initialization expression
+    const expr_val = parts.next() catch {
+        return Error.InvalidExpression;
+    } orelse return Error.InvalidExpression;
+
+    if (!parts.isEmpty()) return Error.InvalidExpression;
+
+    // Compile the expression and store result in the local variable
+    try self.compileOne(expr_val);
+    try self.addInstruction(
+        Instruction.initSetLocal(self.scope.getBinding(id).?.index),
+    );
+
+    return id;
+}
+
+/// Compiles all let bindings in sequence, collecting their IDs.
+/// Each binding is compiled, but remains hidden until activation.
+///
+/// Args:
+///   self: The compiler instance.
+///   bindings_expr: The list of binding pairs.
+///
+/// Returns:
+///   ArrayList of binding IDs for later activation.
+fn compileLetBindings(self: *Compiler, bindings_expr: Val) Error!std.ArrayList(LexicalScope.Id) {
+    var ids = std.ArrayList(LexicalScope.Id){};
+    const inspector = self.vm.inspector();
+    var bindings = inspector.iterList(bindings_expr) catch return Error.InvalidExpression;
+
+    while (bindings.next() catch return Error.InvalidExpression) |binding| {
+        const id = try self.compileLetBinding(binding);
+        try ids.append(self.vm.allocator, id);
+    }
+
+    return ids;
+}
+
+/// Activates hidden let bindings by changing their type to local variables.
+/// This makes the bindings available for use in the let body.
+///
+/// Args:
+///   self: The compiler instance.
+///   ids: List of binding IDs to activate.
+fn activateLetBindings(self: *Compiler, ids: []const LexicalScope.Id) void {
+    for (ids) |id|
+        self.scope.getBinding(id).?.type = .local;
+}
+
+/// Compiles a let expression into bytecode.
+///
+/// Let expressions bind variables locally and evaluate expressions in that scope.
+/// Uses a two-phase binding approach to ensure proper semantics:
+/// 1. All binding expressions are compiled with bindings in 'hidden' state
+/// 2. Bindings are activated (changed to 'local') before compiling the body
+///
+/// This prevents bindings from referencing themselves or later bindings during
+/// their initialization, which matches standard let semantics.
+///
+/// Args:
+///   self: The compiler instance.
+///   iter: Iterator over the let arguments (bindings and body expressions).
+///
+/// Returns:
+///   An error if compilation fails.
+fn compileLet(self: *Compiler, iter: *Inspector.ListIterator) Error!void {
+    // Extract the bindings list from the let expression
+    const bindings_expr = iter.next() catch {
+        return Error.InvalidExpression;
+    } orelse return Error.InvalidExpression;
+
+    // Phase 1: Compile all binding expressions while bindings are hidden
+    var let_binding_ids = try self.compileLetBindings(bindings_expr);
+    defer {
+        // Clean up bindings when exiting let scope to prevent variable leakage
+        for (let_binding_ids.items) |id| self.scope.clear(id);
+        let_binding_ids.deinit(self.vm.allocator);
+    }
+
+    // Phase 2: Activate bindings (convert hidden -> local) before evaluating body
+    self.activateLetBindings(let_binding_ids.items);
+
+    // Compile body expressions with activated bindings available
+    _ = try self.compileMany(iter, .{ .allow_zero = true, .squash = true });
 }
 
 /// Compiles a quote expression into bytecode.
@@ -541,20 +645,6 @@ fn compileQuote(self: *Compiler, iter: *Inspector.ListIterator) Error!void {
     if (!iter.isEmpty()) return Error.InvalidExpression;
 
     try self.addInstruction(Instruction.initLoad(expr));
-}
-
-/// Compiles a begin expression into bytecode.
-/// Begin expressions evaluate all their arguments in sequence and return the result of the last one.
-/// If no arguments are provided, returns nil.
-///
-/// Args:
-///   self: The compiler instance.
-///   iter: Iterator over the arguments to the begin expression.
-///
-/// Returns:
-///   An error if compilation fails.
-fn compileBegin(self: *Compiler, iter: *Inspector.ListIterator) Error!void {
-    _ = try self.compileMany(iter, .{ .allow_zero = true, .squash = true });
 }
 
 test "compile with expression is function call" {
@@ -946,4 +1036,170 @@ test "compile begin with function calls" {
         Instruction.initEvalProcedure(2),
         Instruction.initSquash(2),
     }, &vm, "(begin (+ 1 2) (+ 3 4))");
+}
+
+test "compile let with single binding" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try expectInstructions(&[_]Instruction{
+        Instruction.initLoad(Val.init(42)),
+        Instruction.initSetLocal(0),
+        Instruction.initGetLocal(0),
+    }, &vm, "(let ((x 42)) x)");
+}
+
+test "compile let with multiple bindings" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const src =
+        \\ (let ((x 10)
+        \\       (y 20))
+        \\   (+ x y))
+    ;
+    try expectInstructions(&[_]Instruction{
+        // Bind x
+        Instruction.initLoad(Val.init(10)),
+        Instruction.initSetLocal(0),
+        // Bind y
+        Instruction.initLoad(Val.init(20)),
+        Instruction.initSetLocal(1),
+        // Evaluate body
+        Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("+"))),
+        Instruction.initGetLocal(0),
+        Instruction.initGetLocal(1),
+        Instruction.initEvalProcedure(2),
+    }, &vm, src);
+}
+
+test "compile let with no bindings" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try expectInstructions(&[_]Instruction{
+        Instruction.initLoad(Val.init(42)),
+    }, &vm, "(let () 42)");
+}
+
+test "compile let with multiple body expressions returns last" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try expectInstructions(&[_]Instruction{
+        // Bind x
+        Instruction.initLoad(Val.init(5)),
+        Instruction.initSetLocal(0),
+        // Evaluate 1st body expression
+        Instruction.initGetLocal(0),
+        // Evaluate 2nd body expression
+        Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("+"))),
+        Instruction.initGetLocal(0),
+        Instruction.initLoad(Val.init(1)),
+        Instruction.initEvalProcedure(2),
+        // Keep only the last value
+        Instruction.initSquash(2),
+    }, &vm, "(let ((x 5)) x (+ x 1))");
+}
+
+test "compile let with expression in binding" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try expectInstructions(&[_]Instruction{
+        // Bind x
+        Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("+"))),
+        Instruction.initLoad(Val.init(3)),
+        Instruction.initLoad(Val.init(4)),
+        Instruction.initEvalProcedure(2),
+        Instruction.initSetLocal(0),
+        // Evaluate body
+        Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("*"))),
+        Instruction.initGetLocal(0),
+        Instruction.initLoad(Val.init(2)),
+        Instruction.initEvalProcedure(2),
+    }, &vm, "(let ((x (+ 3 4))) (* x 2))");
+}
+
+test "compile let variable scoping" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Test that let variables are not available in their own binding expressions
+    // This should compile y as a global variable reference since x is not yet available
+    try expectInstructions(&[_]Instruction{
+        // Bind x
+        Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("y"))),
+        Instruction.initSetLocal(0),
+        // Bind y
+        Instruction.initLoad(Val.init(20)),
+        Instruction.initSetLocal(1),
+        // Evaluate body
+        Instruction.initGetLocal(0),
+        Instruction.initGetLocal(1),
+        Instruction.initSquash(2),
+    }, &vm, "(let ((x y) (y 20)) x y)");
+}
+
+test "compile nested let expressions" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try expectInstructions(&[_]Instruction{
+        // Bind outer x
+        Instruction.initLoad(Val.init(10)),
+        Instruction.initSetLocal(0),
+        // Bind inner y
+        Instruction.initLoad(Val.init(5)),
+        Instruction.initSetLocal(1),
+        // Evaluate inner body
+        Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("+"))),
+        Instruction.initGetLocal(0),
+        Instruction.initGetLocal(1),
+        Instruction.initEvalProcedure(2),
+    }, &vm, "(let ((x 10)) (let ((y 5)) (+ x y)))");
+}
+
+test "compile let with invalid binding format fails" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Test invalid binding with too many elements
+    try testing.expectError(
+        Error.InvalidExpression,
+        compile(&vm, try vm.builder().readOne("(let ((x 1 2)) x)")),
+    );
+
+    // Test invalid binding with no elements
+    try testing.expectError(
+        Error.InvalidExpression,
+        compile(&vm, try vm.builder().readOne("(let (()) x)")),
+    );
+
+    // Test invalid binding with non-symbol name
+    try testing.expectError(
+        Error.InvalidExpression,
+        compile(&vm, try vm.builder().readOne("(let ((42 1)) x)")),
+    );
+}
+
+test "compile let with no body returns nil" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try expectInstructions(&[_]Instruction{
+        Instruction.initLoad(Val.init(1)),
+        Instruction.initSetLocal(0),
+        Instruction.initLoad(Val.init({})),
+    }, &vm, "(let ((x 1)))");
+}
+
+test "compile let with missing bindings fails" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectError(
+        Error.InvalidExpression,
+        compile(&vm, try vm.builder().readOne("(let)")),
+    );
 }

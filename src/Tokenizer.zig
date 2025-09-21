@@ -226,7 +226,7 @@ test "quote within symbol then returns as single token" {
     try testing.expectEqual(null, tokenizer.nextText());
 }
 
-test "quote span positions then returns correct indexes" {
+test "quote span positions then returns correct indices" {
     var tokenizer = init("hello 'world");
     _ = tokenizer.next(); // skip hello
     const quote_span = tokenizer.next().?;

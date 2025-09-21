@@ -39,6 +39,12 @@ pub fn initGetLocal(index: usize) Instruction {
     return Instruction{ .repr = .{ .get_local = index } };
 }
 
+/// Creates a new set_local instruction with the given local variable index.
+/// The index is relative to the current stack frame's starting position.
+pub fn initSetLocal(index: usize) Instruction {
+    return Instruction{ .repr = .{ .set_local = index } };
+}
+
 /// Creates a new return_value instruction.
 pub fn initReturnValue() Instruction {
     return Instruction{ .repr = .return_value };
@@ -78,6 +84,9 @@ pub const Repr = union(enum) {
     /// Instruction to retrieve a local variable value and load it onto the stack.
     /// The associated index specifies which local variable (relative to stack frame start) to retrieve.
     get_local: usize,
+    /// Instruction to set a local variable value from the top of the stack.
+    /// The associated index specifies which local variable (relative to stack frame start) to set.
+    set_local: usize,
     /// Instruction to evaluate a procedure with arguments from the stack.
     /// The arg_count specifies how many arguments to pass to the procedure.
     eval_procedure: usize,
@@ -105,6 +114,7 @@ pub const Repr = union(enum) {
 ///   - load: Pushes a value onto the stack
 ///   - get_global: Retrieves a global variable and pushes its value onto the stack
 ///   - get_local: Retrieves a local variable and pushes its value onto the stack
+///   - set_local: Sets a local variable to the value popped from the stack
 ///   - eval_procedure: Calls a procedure with specified number of arguments
 ///   - return_value: Returns from the current procedure, restoring the previous stack frame
 ///   - raise_error: Pops a value from the stack and sets it as the VM's error state
@@ -125,6 +135,7 @@ pub fn execute(self: Instruction, vm: *Vm) !void {
         .load => |val| return load(vm, val),
         .get_global => |symbol| return getGlobal(vm, symbol),
         .get_local => |idx| return getLocal(vm, idx),
+        .set_local => |idx| return setLocal(vm, idx),
         .eval_procedure => |arg_count| return evalProcedure(vm, arg_count),
         .return_value => return returnValue(vm),
         .raise_error => return raiseError(vm),
@@ -215,6 +226,22 @@ pub fn getLocal(vm: *Vm, idx: usize) !void {
     try load(vm, vm.stack.items[absolute_idx]);
 }
 
+/// Sets a local variable value by popping a value from the stack.
+/// Calculates the absolute stack position by adding the local index to the current
+/// stack frame's starting position, then sets the value at that position.
+///
+/// Args:
+///   vm: Pointer to the virtual machine whose stack will be modified.
+///   idx: The local variable index relative to the current stack frame's start.
+///
+/// Errors:
+///   - May return StackUnderflow if the stack is empty when trying to pop the value.
+pub fn setLocal(vm: *Vm, idx: usize) !void {
+    const val = vm.stack.pop() orelse return error.StackUnderflow;
+    const absolute_idx = vm.current_stack_frame.stack_start + idx;
+    vm.stack.items[absolute_idx] = val;
+}
+
 /// Returns from the current procedure call, restoring the previous execution context.
 /// Places the return value in the correct position for the calling procedure.
 ///
@@ -264,6 +291,12 @@ pub fn evalProcedure(vm: *Vm, arg_count: usize) !void {
                 raiseWithError(vm, Val.init({}));
                 return error.SzlError;
             }
+            if (bytecode.locals_count < bytecode.args) {
+                raiseWithError(vm, Val.init({}));
+                return error.SzlError;
+            }
+            for (0..bytecode.locals_count - bytecode.args) |_|
+                try load(vm, Val.init({}));
             vm.current_stack_frame.instructions = bytecode.instructions;
         },
     }
@@ -421,6 +454,7 @@ test "execute bytecode procedure with arguments sets correct stack start" {
     const proc = Procedure{
         .implementation = .{ .bytecode = .{
             .args = 3,
+            .locals_count = 3,
             .instructions = try vm.allocator.dupe(Instruction, instructions),
         } },
     };
@@ -451,6 +485,7 @@ test "return_value restores previous stack frame and places return value on top"
     const proc = Procedure{
         .implementation = .{ .bytecode = .{
             .args = 2,
+            .locals_count = 2,
             .instructions = try vm.allocator.dupe(Instruction, instructions),
         } },
     };
@@ -942,4 +977,315 @@ test "initJumpIfNot creates instruction with default pop=true" {
     const instruction = Instruction.initJumpIfNot(.{ .steps = 10 });
     try testing.expectEqual(10, instruction.repr.jump_if_not.steps);
     try testing.expectEqual(true, instruction.repr.jump_if_not.pop);
+}
+
+test "execute set_local instruction sets local variable from stack" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Set up a stack frame with local variables
+    vm.current_stack_frame.stack_start = 2;
+    try loadMany(&vm, &.{
+        Val.init(100), // position 0 - before frame
+        Val.init(200), // position 1 - before frame
+        Val.init(42), // position 2 - local variable 0
+        Val.init(99), // position 3 - local variable 1
+    });
+
+    // Push new value to set local variable 0 to
+    try load(&vm, Val.init(777));
+
+    // Execute set_local instruction for local variable 0
+    try execute(Instruction.initSetLocal(0), &vm);
+
+    // Verify the local variable was set and the value was popped from stack
+    try testing.expectFmt(
+        "(100 200 777 99)",
+        "{f}",
+        .{vm.pretty(vm.stack.items)},
+    );
+}
+
+test "execute set_local instruction with multiple local variables" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Set up a stack frame with multiple local variables
+    vm.current_stack_frame.stack_start = 1;
+    try loadMany(&vm, &.{
+        Val.init(999), // position 0 - before frame
+        Val.init(10), // position 1 - local variable 0
+        Val.init(20), // position 2 - local variable 1
+        Val.init(30), // position 3 - local variable 2
+    });
+
+    // Set local variables in different order
+    try load(&vm, Val.init(111));
+    try execute(Instruction.initSetLocal(1), &vm); // Set local var 1 to 111
+
+    try load(&vm, Val.init(222));
+    try execute(Instruction.initSetLocal(0), &vm); // Set local var 0 to 222
+
+    try load(&vm, Val.init(333));
+    try execute(Instruction.initSetLocal(2), &vm); // Set local var 2 to 333
+
+    // Verify all local variables were set correctly
+    try testing.expectFmt(
+        "(999 222 111 333)",
+        "{f}",
+        .{vm.pretty(vm.stack.items)},
+    );
+}
+
+test "execute set_local instruction with zero stack frame start" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Set up a stack frame that starts at position 0
+    vm.current_stack_frame.stack_start = 0;
+    try loadMany(&vm, &.{
+        Val.init(42), // position 0 - local variable 0
+        Val.init(99), // position 1 - local variable 1
+    });
+
+    // Set local variable 1
+    try load(&vm, Val.init(555));
+    try execute(Instruction.initSetLocal(1), &vm);
+
+    // Verify the local variable was set
+    try testing.expectFmt(
+        "(42 555)",
+        "{f}",
+        .{vm.pretty(vm.stack.items)},
+    );
+}
+
+test "set_local instruction works with different value types" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Set up a stack frame with local variables of different types
+    vm.current_stack_frame.stack_start = 0;
+    try loadMany(&vm, &.{
+        Val.init(true), // position 0 - boolean local variable
+        try vm.builder().internVal(Symbol.init("local-symbol")), // position 1 - symbol local variable
+        Val.init(-123), // position 2 - negative integer local variable
+    });
+
+    // Set different types of values
+    try load(&vm, Val.init(false));
+    try execute(Instruction.initSetLocal(0), &vm); // Set boolean to false
+
+    try load(&vm, try vm.builder().internVal(Symbol.init("new-symbol")));
+    try execute(Instruction.initSetLocal(1), &vm); // Set symbol to new-symbol
+
+    try load(&vm, Val.init(456));
+    try execute(Instruction.initSetLocal(2), &vm); // Set integer to 456
+
+    // Verify the values were set correctly
+    try testing.expectFmt(
+        "(#f new-symbol 456)",
+        "{f}",
+        .{vm.pretty(vm.stack.items)},
+    );
+}
+
+test "execute set_local instruction with empty stack returns error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Set up a stack frame but don't add any values to the stack
+    vm.current_stack_frame.stack_start = 0;
+
+    // Attempt to execute set_local with empty stack
+    try testing.expectError(error.StackUnderflow, execute(Instruction.initSetLocal(0), &vm));
+}
+
+test "set_local and get_local work together" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Set up a stack frame with local variables
+    vm.current_stack_frame.stack_start = 1;
+    try loadMany(&vm, &.{
+        Val.init(999), // position 0 - before frame
+        Val.init(42), // position 1 - local variable 0
+        Val.init(99), // position 2 - local variable 1
+    });
+
+    // Set local variable 0 to a new value
+    try load(&vm, Val.init(777));
+    try execute(Instruction.initSetLocal(0), &vm);
+
+    // Get the value back
+    try execute(Instruction.initGetLocal(0), &vm);
+
+    // Verify we got the new value
+    try testing.expectFmt(
+        "(999 777 99 777)",
+        "{f}",
+        .{vm.pretty(vm.stack.items)},
+    );
+}
+
+test "bytecode procedure with locals_count > args allocates additional local variables" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const proc = Procedure{
+        .implementation = .{
+            .bytecode = .{
+                .args = 2,
+                .locals_count = 4, // 2 more locals than args
+                .instructions = try vm.allocator.dupe(Instruction, &.{
+                    Instruction.initGetLocal(0), // Get first argument
+                    Instruction.initGetLocal(1), // Get second argument
+                    Instruction.initGetLocal(2), // Get first additional local (should be {})
+                    Instruction.initGetLocal(3), // Get second additional local (should be {})
+                }),
+            },
+        },
+    };
+    try loadMany(&vm, &.{
+        try vm.toVal(proc),
+        Val.init(10), // first argument
+        Val.init(20), // second argument
+    });
+
+    try execute(Instruction.initEvalProcedure(2), &vm);
+
+    // Execute the get_local instructions to verify local variables
+    try executeNext(&vm); // Get local 0 (arg 0)
+    try executeNext(&vm); // Get local 1 (arg 1)
+    try executeNext(&vm); // Get local 2 (additional local)
+    try executeNext(&vm); // Get local 3 (additional local)
+
+    try testing.expectEqual(.procedure, std.meta.activeTag(vm.stack.items[0].repr));
+    try testing.expectFmt(
+        "(10 20 () () 10 20 () ())",
+        "{f}",
+        .{vm.pretty(vm.stack.items[1..])},
+    );
+}
+
+test "bytecode procedure with locals_count equal to args works correctly" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const proc = Procedure{
+        .implementation = .{
+            .bytecode = .{
+                .args = 2,
+                .locals_count = 2, // same as args
+                .instructions = try vm.allocator.dupe(Instruction, &.{
+                    Instruction.initGetLocal(0),
+                    Instruction.initGetLocal(1),
+                }),
+            },
+        },
+    };
+    try loadMany(&vm, &.{
+        try vm.toVal(proc),
+        Val.init(42),
+        Val.init(99),
+    });
+
+    try execute(Instruction.initEvalProcedure(2), &vm);
+
+    // Should work without allocating additional locals
+    try testing.expectEqual(.procedure, std.meta.activeTag(vm.stack.items[0].repr));
+    try testing.expectFmt(
+        "(42 99)",
+        "{f}",
+        .{vm.pretty(vm.stack.items[1..])},
+    );
+}
+
+test "bytecode procedure with locals_count < args raises error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const proc = Procedure{
+        .implementation = .{
+            .bytecode = .{
+                .args = 3,
+                .locals_count = 2, // less than args - invalid
+                .instructions = try vm.allocator.dupe(
+                    Instruction,
+                    &.{Instruction.initLoad(Val.init(42))},
+                ),
+            },
+        },
+    };
+    try loadMany(&vm, &.{
+        try vm.toVal(proc),
+        Val.init(10),
+        Val.init(20),
+        Val.init(30),
+    });
+
+    try testing.expectError(error.SzlError, execute(Instruction.initEvalProcedure(3), &vm));
+    // Verify error was set
+    try testing.expect(vm.err != null);
+}
+
+test "bytecode procedure with wrong argument count raises error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const proc = Procedure{
+        .implementation = .{ .bytecode = .{
+            .args = 2,
+            .locals_count = 3,
+            .instructions = try vm.allocator.dupe(
+                Instruction,
+                &.{Instruction.initLoad(Val.init(42))},
+            ),
+        } },
+    };
+    try loadMany(&vm, &.{
+        try vm.toVal(proc),
+        Val.init(10), // only 1 argument, but procedure expects 2
+    });
+
+    try testing.expectError(error.SzlError, execute(Instruction.initEvalProcedure(1), &vm));
+    // Verify error was set
+    try testing.expect(vm.err != null);
+}
+
+test "bytecode procedure initializes additional locals to unit values" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const proc = Procedure{
+        .implementation = .{
+            .bytecode = .{
+                .args = 1,
+                .locals_count = 2, // 1 additional local
+                .instructions = try vm.allocator.dupe(Instruction, &.{
+                    Instruction.initSetLocal(1), // Set additional local to value from stack
+                    Instruction.initGetLocal(1), // Get the value back
+                }),
+            },
+        },
+    };
+    try loadMany(&vm, &.{
+        try vm.toVal(proc),
+        Val.init(42), // argument
+    });
+
+    try execute(Instruction.initEvalProcedure(1), &vm);
+
+    // Push a value to set the additional local
+    try load(&vm, Val.init(777));
+    try executeNext(&vm); // set_local 1
+    try executeNext(&vm); // get_local 1
+
+    // Should get back the value we set
+    try testing.expectEqual(.procedure, std.meta.activeTag(vm.stack.items[0].repr));
+    try testing.expectFmt(
+        "(42 777 777)",
+        "{f}",
+        .{vm.pretty(vm.stack.items[1..])},
+    );
 }
