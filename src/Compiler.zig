@@ -262,6 +262,7 @@ fn jumpDistance(start: usize, target: usize) isize {
 
 /// Represents the jump indices needed for a single cond clause.
 const ClauseJumps = struct {
+    jump_if_not_pop: bool,
     jump_if_not_index: usize,
     jump_to_end_index: usize,
 };
@@ -287,21 +288,29 @@ fn compileCondClause(self: *Compiler, clause_val: Val) Error!?ClauseJumps {
     // Compile predicate and add conditional jump
     try self.compileOne(predicate);
     const jump_if_not_index = self.instructions.items.len;
-    try self.addInstruction(Instruction.initJumpIfNot(0)); // Placeholder, will be patched later
+    try self.addInstruction(Instruction.initJumpIfNot(.{ .steps = 0 })); // Placeholder, will be patched later
 
     // Check for arrow syntax (=>)
-    const next_expr = clause_iter.peek() catch {
-        return Error.InvalidExpression;
-    } orelse return Error.InvalidExpression;
-    const uses_arrow_syntax = std.meta.eql(next_expr, Val.init(self.symbols.@"=>"));
+    const next_expr = clause_iter.peek() catch return Error.InvalidExpression;
+    var uses_arrow_syntax = false;
+    if (next_expr) |expr| {
+        uses_arrow_syntax = std.meta.eql(expr, Val.init(self.symbols.@"=>"));
+        if (uses_arrow_syntax)
+            _ = clause_iter.next() catch return Error.InvalidExpression; // Consume the '=>' symbol
+    }
 
-    if (uses_arrow_syntax) {
-        _ = clause_iter.next() catch return Error.InvalidExpression; // Consume the '=>' symbol
+    if (!uses_arrow_syntax and clause_iter.isEmpty()) {
+        try self.addInstruction(Instruction.initJump(0));
+        return ClauseJumps{
+            .jump_if_not_pop = false,
+            .jump_if_not_index = jump_if_not_index,
+            .jump_to_end_index = self.instructions.items.len - 1,
+        };
     }
 
     // Compile the clause body
     const expression_count = try self.compileMany(&clause_iter, .{ .squash = true });
-    if (uses_arrow_syntax and expression_count > 1) {
+    if (uses_arrow_syntax and expression_count != 1) {
         return Error.InvalidExpression;
     }
 
@@ -309,6 +318,7 @@ fn compileCondClause(self: *Compiler, clause_val: Val) Error!?ClauseJumps {
     const jump_to_end_index = self.instructions.items.len;
     try self.addInstruction(Instruction.initJump(0)); // Placeholder, will be patched later
     return ClauseJumps{
+        .jump_if_not_pop = true,
         .jump_if_not_index = jump_if_not_index,
         .jump_to_end_index = jump_to_end_index,
     };
@@ -331,8 +341,7 @@ fn compileCond(self: *Compiler, iter: *Inspector.ListIterator) Error!void {
     }
 
     // Validate that we've processed all clauses
-    if (!iter.isEmpty())
-        return Error.InvalidExpression;
+    if (!iter.isEmpty()) return Error.InvalidExpression;
 
     // Add default fallback if no else clause was provided
     if (!has_else_clause) {
@@ -345,7 +354,10 @@ fn compileCond(self: *Compiler, iter: *Inspector.ListIterator) Error!void {
     for (clause_jumps.items) |jumps| {
         // Patch the conditional jump to skip to next clause
         self.instructions.items[jumps.jump_if_not_index] =
-            Instruction.initJumpIfNot(jumpDistance(jumps.jump_if_not_index, jumps.jump_to_end_index));
+            Instruction.initJumpIfNot(.{
+                .pop = jumps.jump_if_not_pop,
+                .steps = jumpDistance(jumps.jump_if_not_index, jumps.jump_to_end_index),
+            });
         // Patch the unconditional jump to end
         self.instructions.items[jumps.jump_to_end_index] =
             Instruction.initJump(jumpDistance(jumps.jump_to_end_index + 1, final_instruction_index));
@@ -372,7 +384,7 @@ fn compileIf(self: *Compiler, iter: *Inspector.ListIterator) Error!void {
     // Predicate
     try self.compileOne(pred orelse return Error.InvalidExpression);
     const jump_if_not_idx = self.instructions.items.len;
-    try self.addInstruction(Instruction.initJumpIfNot(0));
+    try self.addInstruction(Instruction.initJumpIfNot(.{ .steps = 0 }));
 
     // True branch
     try self.compileOne(true_branch orelse return Error.InvalidExpression);
@@ -386,10 +398,10 @@ fn compileIf(self: *Compiler, iter: *Inspector.ListIterator) Error!void {
         try self.addInstruction(Instruction.initLoad(Val.init({})));
 
     // Fix jump calculations
-    self.instructions.items[jump_if_not_idx] = Instruction.initJumpIfNot(jumpDistance(jump_if_not_idx, jump_idx + 1));
-    self.instructions.items[jump_idx] = Instruction.initJump(
-        jumpDistance(jump_idx + 1, self.instructions.items.len),
-    );
+    self.instructions.items[jump_if_not_idx] =
+        Instruction.initJumpIfNot(.{ .steps = jumpDistance(jump_if_not_idx, jump_idx) });
+    self.instructions.items[jump_idx] =
+        Instruction.initJump(jumpDistance(jump_idx + 1, self.instructions.items.len));
 }
 
 /// Compiles a define expression by pattern matching on the signature.
@@ -610,7 +622,7 @@ test "compile if expression" {
     try testing.expectEqualDeep(
         &[_]Instruction{
             Instruction.initLoad(Val.init(true)),
-            Instruction.initJumpIfNot(6),
+            Instruction.initJumpIfNot(.{ .steps = 5 }),
             // True Branch
             Instruction.initGetGlobal(plus),
             Instruction.initLoad(Val.init(1)),
@@ -639,7 +651,7 @@ test "compile if expression with missing false branch uses nil" {
     try testing.expectEqualDeep(
         &[_]Instruction{
             Instruction.initLoad(Val.init(true)),
-            Instruction.initJumpIfNot(6),
+            Instruction.initJumpIfNot(.{ .steps = 5 }),
             // True Branch
             Instruction.initGetGlobal(plus),
             Instruction.initLoad(Val.init(1)),
@@ -687,7 +699,7 @@ test "if with missing false branch uses nil also branch" {
     try testing.expectEqualDeep(
         &[_]Instruction{
             Instruction.initLoad(Val.init(false)),
-            Instruction.initJumpIfNot(3),
+            Instruction.initJumpIfNot(.{ .steps = 2 }),
             Instruction.initLoad(Val.init(42)),
             Instruction.initJump(1),
             Instruction.initLoad(Val.init({})),
@@ -706,7 +718,7 @@ test "cond with single clause" {
         &[_]Instruction{
             // #t branch
             Instruction.initLoad(Val.init(true)),
-            Instruction.initJumpIfNot(2),
+            Instruction.initJumpIfNot(.{ .steps = 2 }),
             Instruction.initLoad(Val.init(42)),
             Instruction.initJump(1),
             // fallback branch
@@ -716,14 +728,20 @@ test "cond with single clause" {
     );
 }
 
-// TODO: This should actually return the result of the test.
 test "cond clause with single test fails" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(
-        Error.InvalidExpression,
-        compile(&vm, try vm.builder().readOne("(cond (#t))")),
+    const proc_val = try compile(&vm, try vm.builder().readOne("(cond (#t))"));
+    const proc = try vm.fromVal(Procedure, proc_val);
+    try testing.expectEqualDeep(
+        &[_]Instruction{
+            Instruction.initLoad(Val.init(true)),
+            Instruction.initJumpIfNot(.{ .pop = false, .steps = 1 }),
+            Instruction.initJump(1),
+            Instruction.initLoad(Val.init({})),
+        },
+        proc.implementation.bytecode.instructions,
     );
 }
 
@@ -737,7 +755,7 @@ test "cond with => ignores =>" {
         &[_]Instruction{
             // #t branch
             Instruction.initLoad(Val.init(true)),
-            Instruction.initJumpIfNot(2),
+            Instruction.initJumpIfNot(.{ .steps = 2 }),
             Instruction.initLoad(Val.init(42)),
             Instruction.initJump(1),
             // fallback branch
@@ -767,17 +785,17 @@ test "cond with multiple clauses" {
         &[_]Instruction{
             // #t branch
             Instruction.initLoad(Val.init(true)),
-            Instruction.initJumpIfNot(2),
+            Instruction.initJumpIfNot(.{ .steps = 2 }),
             Instruction.initLoad(Val.init(1)),
             Instruction.initJump(11),
             // #f branch
             Instruction.initLoad(Val.init(false)),
-            Instruction.initJumpIfNot(2),
+            Instruction.initJumpIfNot(.{ .steps = 2 }),
             Instruction.initLoad(Val.init(2)),
             Instruction.initJump(7),
             // 3 branch
             Instruction.initLoad(Val.init(3)),
-            Instruction.initJumpIfNot(4),
+            Instruction.initJumpIfNot(.{ .steps = 4 }),
             Instruction.initLoad(Val.init(4)),
             Instruction.initLoad(Val.init(5)),
             Instruction.initSquash(2),
@@ -813,7 +831,7 @@ test "cond with else uses it as fallback" {
         &[_]Instruction{
             // #t branch
             Instruction.initLoad(Val.init(true)),
-            Instruction.initJumpIfNot(2),
+            Instruction.initJumpIfNot(.{ .steps = 2 }),
             Instruction.initLoad(Val.init(42)),
             Instruction.initJump(1),
             // fallback branch

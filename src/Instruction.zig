@@ -49,15 +49,21 @@ pub fn initJump(offset: isize) Instruction {
     return Instruction{ .repr = .{ .jump = offset } };
 }
 
-/// Creates a new jump_if_not instruction with the given offset.
-pub fn initJumpIfNot(offset: isize) Instruction {
-    return Instruction{ .repr = .{ .jump_if_not = offset } };
+/// Creates a new jump_if_not instruction with custom configuration.
+pub fn initJumpIfNot(config: ConditionalJumpParams) Instruction {
+    return Instruction{ .repr = .{ .jump_if_not = config } };
 }
 
 /// Creates a new squash instruction with the given count.
 pub fn initSquash(count: usize) Instruction {
     return Instruction{ .repr = .{ .squash = count } };
 }
+
+/// Configuration for conditional jump instructions.
+pub const ConditionalJumpParams = struct {
+    steps: isize,
+    pop: bool = true,
+};
 
 /// Tagged union representing all possible instruction types in the virtual machine.
 /// Each variant corresponds to a different operation that can be performed
@@ -86,7 +92,7 @@ pub const Repr = union(enum) {
     jump: isize,
     /// Instruction to conditionally jump by a specified offset in the instruction sequence.
     /// Pops a value from the stack and jumps only if the value is falsy.
-    jump_if_not: isize,
+    jump_if_not: ConditionalJumpParams,
     /// Instruction to squash the top n values on the stack, keeping only the topmost value.
     /// Takes n values from the stack and leaves only the top one.
     squash: usize,
@@ -123,7 +129,7 @@ pub fn execute(self: Instruction, vm: *Vm) !void {
         .return_value => return returnValue(vm),
         .raise_error => return raiseError(vm),
         .jump => |offset| return jump(vm, offset),
-        .jump_if_not => |offset| return jumpIfNot(vm, offset),
+        .jump_if_not => |config| return jumpIfNot(vm, config.steps, config.pop),
         .squash => |count| return squash(vm, count),
     }
 }
@@ -295,19 +301,20 @@ pub fn jump(vm: *Vm, offset: isize) void {
 }
 
 /// Conditionally jumps by the specified offset in the instruction sequence.
-/// Pops a value from the stack and jumps only if the value is falsy.
+/// Optionally pops a value from the stack and jumps only if the value is falsy.
 ///
 /// Args:
 ///   vm: Pointer to the virtual machine whose instruction pointer will be modified.
 ///   offset: The offset to add to the current instruction index if jumping.
+///   pop: Whether to pop a value from the stack for the condition check.
 ///
 /// Errors:
 ///   - May return StackUnderflow if the stack is empty when trying to pop the condition value.
-pub fn jumpIfNot(vm: *Vm, offset: isize) !void {
-    const condition = vm.stack.pop() orelse return error.StackUnderflow;
-    if (!condition.isTruthy()) {
-        jump(vm, offset);
-    }
+pub fn jumpIfNot(vm: *Vm, offset: isize, pop: bool) !void {
+    if (vm.stack.items.len == 0) return error.StackUnderflow;
+    const condition = vm.stack.items[vm.stack.items.len - 1];
+    if (!condition.isTruthy()) jump(vm, offset);
+    if (pop) vm.stack.items.len -= 1;
 }
 
 /// Squashes the top n values on the stack, keeping only the topmost value.
@@ -749,7 +756,7 @@ test "execute jump_if_not instruction with falsy value jumps" {
 
     // Push falsy value (false)
     try load(&vm, Val.init(false));
-    try execute(Instruction.initJumpIfNot(3), &vm);
+    try execute(Instruction.initJumpIfNot(.{ .steps = 3 }), &vm);
     try testing.expectEqual(8, vm.current_stack_frame.instruction_idx);
 
     // Verify stack is empty after popping condition
@@ -765,17 +772,17 @@ test "execute jump_if_not instruction with truthy value does not jump" {
 
     // Push truthy value (true)
     try load(&vm, Val.init(true));
-    try execute(Instruction.initJumpIfNot(10), &vm);
+    try execute(Instruction.initJumpIfNot(.{ .steps = 10 }), &vm);
     try testing.expectEqual(5, vm.current_stack_frame.instruction_idx);
 
     // Push truthy value (any integer)
     try load(&vm, Val.init(42));
-    try execute(Instruction.initJumpIfNot(-2), &vm);
+    try execute(Instruction.initJumpIfNot(.{ .steps = -2 }), &vm);
     try testing.expectEqual(5, vm.current_stack_frame.instruction_idx);
 
     // Push truthy value (symbol)
     try load(&vm, try vm.builder().internVal(Symbol.init("test")));
-    try execute(Instruction.initJumpIfNot(1), &vm);
+    try execute(Instruction.initJumpIfNot(.{ .steps = 1 }), &vm);
     try testing.expectEqual(5, vm.current_stack_frame.instruction_idx);
 
     // Verify stack is empty after popping all conditions
@@ -787,7 +794,7 @@ test "execute jump_if_not instruction with empty stack returns error" {
     defer vm.deinit();
 
     // Attempt to execute jump_if_not with empty stack
-    try testing.expectError(error.StackUnderflow, execute(Instruction.initJumpIfNot(5), &vm));
+    try testing.expectError(error.StackUnderflow, execute(Instruction.initJumpIfNot(.{ .steps = 5 }), &vm));
 }
 
 test "execute squash instruction removes specified number of values" {
@@ -851,4 +858,73 @@ test "execute squash instruction with empty stack returns error" {
 
     // Attempt to squash with empty stack
     try testing.expectError(error.StackUnderflow, execute(Instruction.initSquash(1), &vm));
+}
+
+test "execute jump_if_not with pop=false does not remove condition from stack" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Set initial instruction index
+    vm.current_stack_frame.instruction_idx = 5;
+
+    // Push falsy value (false)
+    try load(&vm, Val.init(false));
+    try execute(Instruction.initJumpIfNot(.{ .steps = 3, .pop = false }), &vm);
+    try testing.expectEqual(8, vm.current_stack_frame.instruction_idx);
+
+    // Verify stack still contains the condition value
+    try testing.expectEqual(1, vm.stack.items.len);
+    try testing.expectFmt("(#f)", "{f}", .{vm.pretty(vm.stack.items)});
+}
+
+test "execute jump_if_not with pop=true removes condition from stack" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Set initial instruction index
+    vm.current_stack_frame.instruction_idx = 5;
+
+    // Push falsy value (false)
+    try load(&vm, Val.init(false));
+    try execute(Instruction.initJumpIfNot(.{ .steps = 3, .pop = true }), &vm);
+    try testing.expectEqual(8, vm.current_stack_frame.instruction_idx);
+
+    // Verify stack is empty after popping condition
+    try testing.expectEqual(0, vm.stack.items.len);
+}
+
+test "execute jump_if_not with pop=false and truthy value does not jump" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Set initial instruction index
+    vm.current_stack_frame.instruction_idx = 5;
+
+    // Push truthy value (42)
+    try load(&vm, Val.init(42));
+    try execute(Instruction.initJumpIfNot(.{ .steps = 10, .pop = false }), &vm);
+    try testing.expectEqual(5, vm.current_stack_frame.instruction_idx);
+
+    // Verify stack still contains the condition value
+    try testing.expectEqual(1, vm.stack.items.len);
+    try testing.expectFmt("(42)", "{f}", .{vm.pretty(vm.stack.items)});
+}
+
+test "execute jump_if_not with pop=false and empty stack returns error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Attempt to execute jump_if_not with empty stack and pop=false
+    try testing.expectError(error.StackUnderflow, execute(Instruction.initJumpIfNot(.{ .steps = 5, .pop = false }), &vm));
+}
+
+test "ConditionalJumpParams default pop value is true" {
+    const config = ConditionalJumpParams{ .steps = 5 };
+    try testing.expectEqual(true, config.pop);
+}
+
+test "initJumpIfNot creates instruction with default pop=true" {
+    const instruction = Instruction.initJumpIfNot(.{ .steps = 10 });
+    try testing.expectEqual(10, instruction.repr.jump_if_not.steps);
+    try testing.expectEqual(true, instruction.repr.jump_if_not.pop);
 }
