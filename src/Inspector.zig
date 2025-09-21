@@ -9,6 +9,7 @@ const testing = std.testing;
 
 const object_pool = @import("object_pool.zig");
 const Handle = object_pool.Handle;
+const Char = @import("Char.zig");
 const Pair = @import("Pair.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
 const Procedure = @import("Procedure.zig");
@@ -201,6 +202,11 @@ pub fn to(self: Inspector, T: type, val: Val) !T {
         },
         .f64 => |f| switch (T) {
             f64 => return f,
+            else => return error.TypeMismatch,
+        },
+        .char => |c| switch (T) {
+            Char => return c,
+            u8 => return c.data,
             else => return error.TypeMismatch,
         },
         .symbol => |s| switch (T) {

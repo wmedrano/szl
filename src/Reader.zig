@@ -8,6 +8,7 @@
 const std = @import("std");
 const testing = std.testing;
 
+const Char = @import("Char.zig");
 const Pair = @import("Pair.zig");
 const Symbol = @import("Symbol.zig");
 const Tokenizer = @import("Tokenizer.zig");
@@ -163,11 +164,62 @@ fn nextExpression(self: *Reader) !?Val {
     return error.BadExpression;
 }
 
+/// Parses a character literal token into a character value.
+///
+/// Handles character literals in the forms:
+/// - #\<character> for single characters (e.g., #\a, #\A, #\()
+/// - #\<character name> for named characters (e.g., #\space, #\newline)
+/// - #\x<hex> for hexadecimal character codes (e.g., #\x41 for 'A')
+///
+/// Args:
+///   token: The token text to parse as a character literal.
+///
+/// Returns:
+///   A Char value if the token is a valid character literal, null otherwise.
+///
+/// Errors:
+///   - BadExpression: If the character literal is malformed.
+fn parseChar(token: []const u8) !?Char {
+    if (token.len < 3 or !std.mem.startsWith(u8, token, "#\\")) {
+        return null;
+    }
+
+    const char_part = token[2..];
+
+    // Handle single character literals
+    // TODO: Sanitize this more.
+    if (char_part.len == 1) {
+        return Char.init(char_part[0]);
+    }
+
+    // Handle hex notation #\x<hex>
+    if (std.mem.startsWith(u8, char_part, "x")) {
+        if (char_part.len < 2) return error.BadExpression;
+        const hex_part = char_part[1..];
+        const value = std.fmt.parseInt(u8, hex_part, 16) catch return error.BadExpression;
+        return Char.init(value);
+    }
+
+    // Handle named characters
+    if (std.mem.eql(u8, char_part, "alarm")) return Char.init(0x07);
+    if (std.mem.eql(u8, char_part, "backspace")) return Char.init(0x08);
+    if (std.mem.eql(u8, char_part, "delete")) return Char.init(0x7f);
+    if (std.mem.eql(u8, char_part, "escape")) return Char.init(0x1b);
+    if (std.mem.eql(u8, char_part, "newline")) return Char.init(0x0a);
+    if (std.mem.eql(u8, char_part, "null")) return Char.init(0x00);
+    if (std.mem.eql(u8, char_part, "return")) return Char.init(0x0d);
+    if (std.mem.eql(u8, char_part, "space")) return Char.init(0x20);
+    if (std.mem.eql(u8, char_part, "tab")) return Char.init(0x09);
+
+    // If we get here, it's not a valid character literal
+    return null;
+}
+
 /// Parses a single token into its corresponding value.
 ///
 /// Converts textual token representations into their appropriate value types.
-/// Recognizes boolean literals (#t and #f), integers, floating point numbers,
-/// and treats all other tokens as symbols.
+/// Recognizes boolean literals (#t and #f), character literals (#\<char>),
+/// integers, floating point numbers, and treats all other tokens as symbols.
 /// This function handles the core atomic value parsing for the Scheme reader.
 ///
 /// Args:
@@ -178,12 +230,23 @@ fn nextExpression(self: *Reader) !?Val {
 ///   The parsed value corresponding to the token.
 ///
 /// Errors:
+///   - BadExpression: If a token starting with #\ fails to parse as a character.
 ///   - May return errors from the VM's builder when creating symbol values.
 fn parseToken(self: *Reader, token: []const u8) !Val {
     if (std.mem.eql(u8, token, "#t") or std.mem.eql(u8, token, "#true"))
         return Val.init(true);
     if (std.mem.eql(u8, token, "#f") or std.mem.eql(u8, token, "#false"))
         return Val.init(false);
+
+    // Check if this looks like a character literal
+    if (token.len >= 2 and std.mem.startsWith(u8, token, "#\\")) {
+        if (try parseChar(token)) |ch| {
+            return Val.init(ch);
+        } else {
+            return error.BadExpression;
+        }
+    }
+
     if (std.fmt.parseInt(i64, token, 10) catch null) |x|
         return Val.init(x);
     if (std.fmt.parseFloat(f64, token) catch null) |x|
@@ -768,6 +831,374 @@ test "readOne with mixed integers and quoted list returns proper structure" {
     const result = try readOne(&vm, "(1 2 '(3 4))");
     try testing.expectFmt(
         "(1 2 (quote (3 4)))",
+        "{f}",
+        .{vm.pretty(result)},
+    );
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Character tests
+////////////////////////////////////////////////////////////////////////////////
+
+test "readOne with single character literal returns character value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "#\\a");
+    try testing.expectEqual(
+        Val.init(Char.init('a')),
+        result,
+    );
+}
+
+test "readOne with uppercase character literal returns character value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "#\\A");
+    try testing.expectEqual(
+        Val.init(Char.init('A')),
+        result,
+    );
+}
+
+test "readOne with uppercase character literal x returns #\\x" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "#\\x");
+    try testing.expectEqual(
+        Val.init(Char.init('x')),
+        result,
+    );
+}
+
+test "readOne with parenthesis character literal returns character value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "#\\(");
+    try testing.expectEqual(
+        Val.init(Char.init('(')),
+        result,
+    );
+}
+
+test "readOne with space character name returns character value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "#\\space");
+    try testing.expectEqual(
+        Val.init(Char.init(0x20)),
+        result,
+    );
+}
+
+test "readOne with newline character name returns character value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "#\\newline");
+    try testing.expectEqual(
+        Val.init(Char.init('\n')),
+        result,
+    );
+}
+
+test "readOne with tab character name returns character value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "#\\tab");
+    try testing.expectEqual(
+        Val.init(Char.init('\t')),
+        result,
+    );
+}
+
+test "readOne with alarm character name returns character value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "#\\alarm");
+    try testing.expectEqual(
+        Val.init(Char.init(0x07)),
+        result,
+    );
+}
+
+test "readOne with backspace character name returns character value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "#\\backspace");
+    try testing.expectEqual(
+        Val.init(Char.init(0x08)),
+        result,
+    );
+}
+
+test "readOne with delete character name returns character value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "#\\delete");
+    try testing.expectEqual(
+        Val.init(Char.init(0x7f)),
+        result,
+    );
+}
+
+test "readOne with escape character name returns character value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "#\\escape");
+    try testing.expectEqual(
+        Val.init(Char.init(0x1b)),
+        result,
+    );
+}
+
+test "readOne with null character name returns character value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "#\\null");
+    try testing.expectEqual(
+        Val.init(Char.init(0x00)),
+        result,
+    );
+}
+
+test "readOne with return character name returns character value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "#\\return");
+    try testing.expectEqual(
+        Val.init(Char.init('\r')),
+        result,
+    );
+}
+
+test "readOne with hex character literal returns character value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "#\\x41");
+    try testing.expectEqual(
+        Val.init(Char.init(0x41)),
+        result,
+    );
+}
+
+test "readOne with lowercase hex character literal returns character value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "#\\x7f");
+    try testing.expectEqual(
+        Val.init(Char.init(0x7f)),
+        result,
+    );
+}
+
+test "readOne with uppercase hex character literal returns character value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "#\\xA0");
+    try testing.expectEqual(
+        Val.init(Char.init(0xA0)),
+        result,
+    );
+}
+
+test "readOne with characters in list returns proper list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "(#\\a #\\space #\\newline)");
+    try testing.expectFmt(
+        "(#\\a #\\space #\\newline)",
+        "{f}",
+        .{vm.pretty(result)},
+    );
+}
+
+test "readOne with malformed character literal missing char returns BadExpression error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectError(
+        error.BadExpression,
+        readOne(&vm, "#\\"),
+    );
+}
+
+test "readOne with incomplete character literal returns symbol" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "#");
+    try testing.expectEqual(
+        try vm.toVal(Symbol.init("#")),
+        result,
+    );
+}
+
+test "readOne with malformed character literal with invalid name returns BadExpression error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectError(
+        error.BadExpression,
+        readOne(&vm, "#\\invalidname"),
+    );
+}
+
+test "readOne with empty character name returns BadExpression error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectError(
+        error.BadExpression,
+        readOne(&vm, "#\\"),
+    );
+}
+
+// Invalid hex values and formats tests
+test "readOne with invalid hex character literal returns BadExpression error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectError(
+        error.BadExpression,
+        readOne(&vm, "#\\xGG"),
+    );
+}
+
+test "readOne with incomplete hex character literal returns character x" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "#\\x");
+    try testing.expectEqual(
+        Val.init(Char.init('x')),
+        result,
+    );
+}
+
+test "readOne with hex character literal with invalid characters returns BadExpression error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectError(
+        error.BadExpression,
+        readOne(&vm, "#\\x1Z"),
+    );
+}
+
+test "readOne with hex character literal with too many digits returns BadExpression error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectError(
+        error.BadExpression,
+        readOne(&vm, "#\\x123"),
+    );
+}
+
+// Boundary conditions for hex parsing
+test "readOne with hex character literal 00 returns null character" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "#\\x00");
+    try testing.expectEqual(
+        Val.init(Char.init(0x00)),
+        result,
+    );
+}
+
+test "readOne with hex character literal FF returns max character" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "#\\xFF");
+    try testing.expectEqual(
+        Val.init(Char.init(0xFF)),
+        result,
+    );
+}
+
+test "readOne with hex character literal with single digit returns character" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "#\\x5");
+    try testing.expectEqual(
+        Val.init(Char.init(0x05)),
+        result,
+    );
+}
+
+test "readOne with hex character literal with lowercase returns character" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "#\\xab");
+    try testing.expectEqual(
+        Val.init(Char.init(0xab)),
+        result,
+    );
+}
+
+// Non-printable character handling tests
+test "readOne with control character returns character value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "#\\x01");
+    try testing.expectEqual(
+        Val.init(Char.init(0x01)),
+        result,
+    );
+}
+
+test "readOne with non-printable character in list returns proper list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "(#\\x00 #\\x1F #\\x7F)");
+    try testing.expectFmt(
+        "(#\\null #\\x1F #\\delete)",
+        "{f}",
+        .{vm.pretty(result)},
+    );
+}
+
+test "readOne with all named control characters returns proper list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "(#\\alarm #\\backspace #\\tab #\\newline #\\return #\\escape)");
+    try testing.expectFmt(
+        "(#\\alarm #\\backspace #\\tab #\\newline #\\return #\\escape)",
+        "{f}",
+        .{vm.pretty(result)},
+    );
+}
+
+test "readOne with mixed printable and non-printable characters returns proper list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "(#\\a #\\x00 #\\space #\\x1f #\\z)");
+    try testing.expectFmt(
+        "(#\\a #\\null #\\space #\\x1F #\\z)",
         "{f}",
         .{vm.pretty(result)},
     );

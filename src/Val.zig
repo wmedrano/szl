@@ -10,6 +10,7 @@ const testing = std.testing;
 
 const object_pool = @import("object_pool.zig");
 const Handle = object_pool.Handle;
+const Char = @import("Char.zig");
 const Pair = @import("Pair.zig");
 const Procedure = @import("Procedure.zig");
 const Symbol = @import("Symbol.zig");
@@ -40,6 +41,10 @@ pub const Repr = union(enum) {
     /// Used for floating point numeric computations in Scheme.
     f64: f64,
 
+    /// Represents a character value.
+    /// Characters in Scheme are single byte values represented with #\ notation.
+    char: Char,
+
     /// Represents a symbol value using an interned symbol for efficient comparison.
     /// Symbols in Scheme are identifiers that evaluate to themselves when quoted
     /// or are used for variable/function names when unquoted.
@@ -63,6 +68,7 @@ pub const Repr = union(enum) {
 ///   - bool: Converted to boolean values
 ///   - i64, comptime_int: Converted to integer values
 ///   - f64, comptime_float: Converted to floating point values
+///   - Char: Converted to character values
 ///   - Symbol.Interned: Converted to symbol values
 ///   - Handle(Pair): Converted to pair values
 ///   - Handle(Procedure): Converted to procedure values
@@ -77,6 +83,7 @@ pub fn init(v: anytype) Val {
         bool => return init(Val.Repr{ .boolean = v }),
         i64, comptime_int => return init(Val.Repr{ .i64 = v }),
         f64, comptime_float => return init(Val.Repr{ .f64 = v }),
+        Char => return init(Val.Repr{ .char = v }),
         Symbol.Interned => return init(Val.Repr{ .symbol = v }),
         Handle(Pair) => return init(Val.Repr{ .pair = v }),
         Handle(Procedure) => return init(Val.Repr{ .proc = v }),
@@ -122,6 +129,20 @@ pub fn isPair(self: Val) bool {
 pub fn isProcedure(self: Val) bool {
     return switch (self.repr) {
         .proc => true,
+        else => false,
+    };
+}
+
+/// Determines if a value is a character.
+///
+/// Args:
+///   self: The value to test for character type.
+///
+/// Returns:
+///   true if the value is a character, false otherwise.
+pub fn isChar(self: Val) bool {
+    return switch (self.repr) {
+        .char => true,
         else => false,
     };
 }
@@ -313,4 +334,32 @@ test "isNumber returns false for non-numeric values" {
 
     try testing.expectEqual(false, bool_val.isNumber());
     try testing.expectEqual(false, nil_val.isNumber());
+}
+
+test "isChar returns true for character values" {
+    const char_a = Val.init(Char.init('a'));
+    const char_space = Val.init(Char.init(' '));
+    const char_null = Val.init(Char.init(0));
+
+    try testing.expectEqual(true, char_a.isChar());
+    try testing.expectEqual(true, char_space.isChar());
+    try testing.expectEqual(true, char_null.isChar());
+}
+
+test "isChar returns false for non-character values" {
+    const bool_val = Val.init(true);
+    const int_val = Val.init(42);
+    const nil_val = Val.init({});
+
+    try testing.expectEqual(false, bool_val.isChar());
+    try testing.expectEqual(false, int_val.isChar());
+    try testing.expectEqual(false, nil_val.isChar());
+}
+
+test "character values are truthy" {
+    const char_a = Val.init(Char.init('a'));
+    const char_null = Val.init(Char.init(0));
+
+    try testing.expectEqual(true, char_a.isTruthy());
+    try testing.expectEqual(true, char_null.isTruthy());
 }

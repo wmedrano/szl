@@ -8,6 +8,7 @@
 const std = @import("std");
 const testing = std.testing;
 
+const Char = @import("Char.zig");
 const object_pool = @import("object_pool.zig");
 const Handle = object_pool.Handle;
 const Pair = @import("Pair.zig");
@@ -80,6 +81,28 @@ fn formatValue(self: PrettyPrinter, writer: *std.Io.Writer, val: Val) error{Writ
         },
         .i64 => |n| try writer.print("{d}", .{n}),
         .f64 => |n| try writer.print("{d}", .{n}),
+        .char => |c| {
+            // Format characters with special names appropriately
+            switch (c.data) {
+                0x07 => try writer.writeAll("#\\alarm"),
+                0x08 => try writer.writeAll("#\\backspace"),
+                0x7f => try writer.writeAll("#\\delete"),
+                0x1b => try writer.writeAll("#\\escape"),
+                0x0a => try writer.writeAll("#\\newline"),
+                0x00 => try writer.writeAll("#\\null"),
+                0x0d => try writer.writeAll("#\\return"),
+                0x20 => try writer.writeAll("#\\space"),
+                0x09 => try writer.writeAll("#\\tab"),
+                else => {
+                    // For non-printable characters, use hex format
+                    if (c.data < 0x20 or c.data > 0x7E) {
+                        try writer.print("#\\x{X:0>2}", .{c.data});
+                    } else {
+                        try writer.print("#\\{c}", .{c.data});
+                    }
+                },
+            }
+        },
         .symbol => |sym| {
             const symbol = self.vm.interner.get(sym) catch |err| switch (err) {
                 error.InvalidId => {

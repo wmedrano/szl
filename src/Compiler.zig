@@ -168,7 +168,7 @@ fn compileMany(self: *Compiler, iter: *Inspector.ListIterator, comptime behavior
 ///   An error if the expression cannot be compiled.
 fn compileOne(self: *Compiler, expr: Val) Error!void {
     switch (expr.repr) {
-        .boolean, .i64, .f64, .proc => try self.addInstruction(Instruction.initLoad(expr)),
+        .boolean, .i64, .f64, .char, .proc => try self.addInstruction(Instruction.initLoad(expr)),
         .nil => return error.InvalidExpression,
         .symbol => |s| return self.compileSymbol(s),
         .pair => |p| {

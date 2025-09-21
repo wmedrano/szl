@@ -31,12 +31,19 @@ pub fn init(source: []const u8) Tokenizer {
 
 /// Returns the next token span, or null if no more tokens are available.
 /// Parentheses are treated as individual tokens, while other non-whitespace
-/// characters are grouped into symbols.
+/// characters are grouped into symbols. Special handling for character literals.
 pub fn next(self: *Tokenizer) ?Span {
     self.eatWhitespace();
     const next_char = self.currentChar() orelse return null;
+
     if (isParen(next_char)) return self.eat();
     if (next_char == '\'') return self.eat();
+
+    // Special handling for character literals that start with #\
+    if (next_char == '#' and self.peekCharAt(1) == '\\') {
+        return self.eatCharacterLiteral();
+    }
+
     return self.eatSymbol();
 }
 
@@ -55,6 +62,14 @@ pub fn text(self: Tokenizer, span: Span) []const u8 {
 fn currentChar(self: Tokenizer) ?u8 {
     if (self.idx < self.source.len)
         return self.source[self.idx];
+    return null;
+}
+
+/// Returns the character at the given offset from the current position, or null if out of bounds.
+fn peekCharAt(self: Tokenizer, offset: usize) ?u8 {
+    const peek_idx = self.idx + offset;
+    if (peek_idx < self.source.len)
+        return self.source[peek_idx];
     return null;
 }
 
@@ -96,8 +111,54 @@ fn eatSymbol(self: *Tokenizer) Span {
     return Span{ .start = start, .end = self.idx };
 }
 
+/// Consumes a character literal starting with #\ and returns its span.
+/// After #\, consume everything until whitespace or parenthesis.
+fn eatCharacterLiteral(self: *Tokenizer) Span {
+    const start = self.idx;
+
+    // Consume the '#' and '\'
+    _ = self.eat();
+    _ = self.eat();
+
+    // Consume at least one character, then stop at whitespace or parenthesis
+    if (self.currentChar()) |_| {
+        _ = self.eat();
+    }
+
+    while (self.currentChar()) |ch| {
+        if (isWhitespace(ch) or isParen(ch)) break;
+        _ = self.eat();
+    }
+
+    return Span{ .start = start, .end = self.idx };
+}
+
 test "empty input then returns null" {
     var tokenizer = init("");
+    try testing.expectEqual(null, tokenizer.nextText());
+}
+
+test "character literal with parenthesis" {
+    var tokenizer = init("#\\(");
+    try testing.expectEqualStrings("#\\(", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
+}
+
+test "character literal with letter" {
+    var tokenizer = init("#\\a");
+    try testing.expectEqualStrings("#\\a", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
+}
+
+test "character literal with space name" {
+    var tokenizer = init("#\\space");
+    try testing.expectEqualStrings("#\\space", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
+}
+
+test "character literal with invalid hex" {
+    var tokenizer = init("#\\x123xyz");
+    try testing.expectEqualStrings("#\\x123xyz", tokenizer.nextText().?);
     try testing.expectEqual(null, tokenizer.nextText());
 }
 

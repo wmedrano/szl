@@ -322,7 +322,7 @@ pub fn expectEval(self: *Vm, expected: []const u8, input: []const u8) !void {
     }
     try testing.expectFmt(expected, "{f}", .{self.pretty(actual_val)});
     switch (expected_val.repr) {
-        .nil, .boolean, .i64, .f64, .symbol => try testing.expectEqual(expected_val, actual_val),
+        .nil, .boolean, .i64, .f64, .char, .symbol => try testing.expectEqual(expected_val, actual_val),
         .pair, .proc => {},
     }
 }
