@@ -73,60 +73,42 @@ test "abs with positive integer returns same value" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(42),
-        try vm.evalStr("(abs 42)"),
-    );
+    try vm.expectEval("42", "(abs 42)");
 }
 
 test "abs with negative integer returns positive value" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(42),
-        try vm.evalStr("(abs -42)"),
-    );
+    try vm.expectEval("42", "(abs -42)");
 }
 
 test "abs with zero returns zero" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(0),
-        try vm.evalStr("(abs 0)"),
-    );
+    try vm.expectEval("0", "(abs 0)");
 }
 
 test "abs with positive float returns same value" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(3.14),
-        try vm.evalStr("(abs 3.14)"),
-    );
+    try vm.expectEval("3.14", "(abs 3.14)");
 }
 
 test "abs with negative float returns positive value" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(3.14),
-        try vm.evalStr("(abs -3.14)"),
-    );
+    try vm.expectEval("3.14", "(abs -3.14)");
 }
 
 test "abs with zero float returns zero" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(0.0),
-        try vm.evalStr("(abs 0.0)"),
-    );
+    try vm.expectEval("0.0", "(abs 0.0)");
 }
 
 test "abs with no arguments is error" {

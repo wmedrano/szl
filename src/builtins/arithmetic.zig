@@ -261,50 +261,35 @@ test "+ with no arguments returns 0" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(0),
-        try vm.evalStr("(+)"),
-    );
+    try vm.expectEval("0", "(+)");
 }
 
 test "+ with single argument returns argument" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(42),
-        try vm.evalStr("(+ 42)"),
-    );
+    try vm.expectEval("42", "(+ 42)");
 }
 
 test "+ with two arguments returns sum" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(7),
-        try vm.evalStr("(+ 3 4)"),
-    );
+    try vm.expectEval("7", "(+ 3 4)");
 }
 
 test "+ with multiple arguments sums all" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(15),
-        try vm.evalStr("(+ 1 2 3 4 5)"),
-    );
+    try vm.expectEval("15", "(+ 1 2 3 4 5)");
 }
 
 test "+ with negative numbers" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(-2),
-        try vm.evalStr("(+ -5 3)"),
-    );
+    try vm.expectEval("-2", "(+ -5 3)");
 }
 
 test "+ with non-number is error" {
@@ -321,10 +306,7 @@ test "+ with floating point numbers" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(3.14),
-        try vm.evalStr("(+ 3.14)"),
-    );
+    try vm.expectEval("3.14", "(+ 3.14)");
 }
 
 test "+ with mixed integer and float returns float" {
@@ -341,60 +323,42 @@ test "+ with multiple floats" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(6.28),
-        try vm.evalStr("(+ 3.14 3.14)"),
-    );
+    try vm.expectEval("6.28", "(+ 3.14 3.14)");
 }
 
 test "- with no arguments returns 0" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(0),
-        try vm.evalStr("(-)"),
-    );
+    try vm.expectEval("0", "(-)");
 }
 
 test "- with single argument returns negation" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(-42),
-        try vm.evalStr("(- 42)"),
-    );
+    try vm.expectEval("-42", "(- 42)");
 }
 
 test "- with two arguments returns difference" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(1),
-        try vm.evalStr("(- 5 4)"),
-    );
+    try vm.expectEval("1", "(- 5 4)");
 }
 
 test "- with multiple arguments subtracts all from first" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(-5),
-        try vm.evalStr("(- 10 1 2 3 4 5)"),
-    );
+    try vm.expectEval("-5", "(- 10 1 2 3 4 5)");
 }
 
 test "- with negative numbers" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(-8),
-        try vm.evalStr("(- -5 3)"),
-    );
+    try vm.expectEval("-8", "(- -5 3)");
 }
 
 test "- with non-number is error" {
@@ -411,10 +375,7 @@ test "- with floating point numbers" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(-3.14),
-        try vm.evalStr("(- 3.14)"),
-    );
+    try vm.expectEval("-3.14", "(- 3.14)");
 }
 
 test "- with mixed integer and float returns float" {
@@ -431,70 +392,49 @@ test "- with multiple floats" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(0.0),
-        try vm.evalStr("(- 3.14 3.14)"),
-    );
+    try vm.expectEval("0.0", "(- 3.14 3.14)");
 }
 
 test "* with no arguments returns 1" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(1),
-        try vm.evalStr("(*)"),
-    );
+    try vm.expectEval("1", "(*)");
 }
 
 test "* with single argument returns argument" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(42),
-        try vm.evalStr("(* 42)"),
-    );
+    try vm.expectEval("42", "(* 42)");
 }
 
 test "* with two arguments returns product" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(12),
-        try vm.evalStr("(* 3 4)"),
-    );
+    try vm.expectEval("12", "(* 3 4)");
 }
 
 test "* with multiple arguments multiplies all" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(120),
-        try vm.evalStr("(* 1 2 3 4 5)"),
-    );
+    try vm.expectEval("120", "(* 1 2 3 4 5)");
 }
 
 test "* with negative numbers" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(-15),
-        try vm.evalStr("(* -5 3)"),
-    );
+    try vm.expectEval("-15", "(* -5 3)");
 }
 
 test "* with zero returns zero" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(0),
-        try vm.evalStr("(* 5 0 3)"),
-    );
+    try vm.expectEval("0", "(* 5 0 3)");
 }
 
 test "* with non-number is error" {
@@ -511,10 +451,7 @@ test "* with floating point numbers" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(3.14),
-        try vm.evalStr("(* 3.14)"),
-    );
+    try vm.expectEval("3.14", "(* 3.14)");
 }
 
 test "* with mixed integer and float returns float" {

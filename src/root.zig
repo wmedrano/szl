@@ -14,50 +14,22 @@ test {
 test "define" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
-    try testing.expectFmt(
-        "()",
-        "{f}",
-        .{vm.pretty(try vm.evalStr("(define x 28)"))},
-    );
-    try testing.expectFmt(
-        "28",
-        "{f}",
-        .{vm.pretty(try vm.evalStr("x"))},
-    );
+    try vm.expectEval("()", "(define x 28)");
+    try vm.expectEval("28", "x");
 }
 
 test "quote" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
-    try testing.expectFmt(
-        "a",
-        "{f}",
-        .{vm.pretty(try vm.evalStr("(quote a)"))},
-    );
-    try testing.expectFmt(
-        "(+ 1 2)",
-        "{f}",
-        .{vm.pretty(try vm.evalStr("(quote (+ 1 2))"))},
-    );
+    try vm.expectEval("a", "(quote a)");
+    try vm.expectEval("(+ 1 2)", "(quote (+ 1 2))");
 }
 
 test "if" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectFmt(
-        "yes",
-        "{f}",
-        .{vm.pretty(try vm.evalStr("(if (> 3 2) 'yes 'no)"))},
-    );
-    try testing.expectFmt(
-        "no",
-        "{f}",
-        .{vm.pretty(try vm.evalStr("(if (> 2 3) 'yes 'no)"))},
-    );
-    try testing.expectFmt(
-        "1",
-        "{f}",
-        .{vm.pretty(try vm.evalStr("(if (> 3 2) (- 3 2) (+ 3 2))"))},
-    );
+    try vm.expectEval("yes", "(if (> 3 2) 'yes 'no)");
+    try vm.expectEval("no", "(if (> 2 3) 'yes 'no)");
+    try vm.expectEval("1", "(if (> 3 2) (- 3 2) (+ 3 2))");
 }

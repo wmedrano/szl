@@ -231,18 +231,9 @@ test evalStr {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init({}),
-        try vm.evalStr("(define (foo arg) (+ arg 2))"),
-    );
-    try testing.expectEqual(
-        Val.init({}),
-        try vm.evalStr("(define bar 40)"),
-    );
-    try testing.expectEqual(
-        Val.init(42),
-        try vm.evalStr("(foo bar)"),
-    );
+    try vm.expectEval("()", "(define (foo arg) (+ arg 2))");
+    try vm.expectEval("()", "(define bar 40)");
+    try vm.expectEval("42", "(foo bar)");
 }
 
 /// Evaluates a compiled procedure by executing its bytecode instructions.
@@ -274,36 +265,53 @@ fn evalProc(self: *Vm, proc: Val, args: []const Val) !Val {
     return return_value;
 }
 
+/// Test helper function that evaluates a Scheme expression and compares it to an expected value.
+///
+/// This function is designed for use in test cases to verify that Scheme expressions
+/// evaluate to expected values. It first parses the expected string as a Scheme value
+/// and performs structural equality comparison. If that fails, it falls back to
+/// formatted string comparison for better error messages.
+///
+/// Args:
+///   self: Pointer to the VM instance to use for evaluation.
+///   expected: The expected Scheme value as a string (e.g., "42", "#t", "(a b c)").
+///   input: The Scheme expression string to evaluate.
+///
+/// Errors:
+///   - Any errors from evalStr() during expression evaluation.
+///   - Any errors from parsing the expected value string.
+///   - Test failure if neither structural equality nor formatted output matches.
+pub fn expectEval(self: *Vm, expected: []const u8, input: []const u8) !void {
+    const expected_val = try self.builder().readOne(expected);
+    const actual_val = try self.evalStr(input);
+    if (std.meta.eql(expected_val, actual_val)) {
+        return;
+    }
+    try testing.expectFmt(expected, "{f}", .{self.pretty(actual_val)});
+    switch (expected_val.repr) {
+        .nil, .boolean, .i64, .f64, .symbol => try testing.expectEqual(expected_val, actual_val),
+        .pair, .procedure => {},
+    }
+}
+
 test "evalStr with multiple expressions compiles last expression to procedure" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        try vm.evalStr("#t #f 42"),
-        Val.init(42),
-    );
-    try testing.expectEqual(
-        try vm.evalStr("42 #f #t"),
-        Val.init(true),
-    );
+    try vm.expectEval("42", "#t #f 42");
+    try vm.expectEval("#t", "42 #f #t");
 }
 
 test "evalStr with empty string returns unit value" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init({}),
-        try vm.evalStr(""),
-    );
+    try vm.expectEval("()", "");
 }
 
 test "evalStr with expression evalutes it" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(42),
-        try vm.evalStr("(+ 40 2)"),
-    );
+    try vm.expectEval("42", "(+ 40 2)");
 }

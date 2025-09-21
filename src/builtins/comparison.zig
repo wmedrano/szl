@@ -211,100 +211,70 @@ test "< with no arguments returns #t" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(<)"),
-    );
+    try vm.expectEval("#t", "(<)");
 }
 
 test "< with single argument returns #t" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(< 42)"),
-    );
+    try vm.expectEval("#t", "(< 42)");
 }
 
 test "< with two arguments - true case" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(< 3 4)"),
-    );
+    try vm.expectEval("#t", "(< 3 4)");
 }
 
 test "< with two arguments - false case" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(false),
-        try vm.evalStr("(< 4 3)"),
-    );
+    try vm.expectEval("#f", "(< 4 3)");
 }
 
 test "< with equal arguments returns false" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(false),
-        try vm.evalStr("(< 5 5)"),
-    );
+    try vm.expectEval("#f", "(< 5 5)");
 }
 
 test "< with multiple arguments - all true" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(< 1 2 3 4 5)"),
-    );
+    try vm.expectEval("#t", "(< 1 2 3 4 5)");
 }
 
 test "< with multiple arguments - false case" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(false),
-        try vm.evalStr("(< 1 2 2 4 5)"),
-    );
+    try vm.expectEval("#f", "(< 1 2 2 4 5)");
 }
 
 test "< with negative numbers" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(< -5 -3 0 2)"),
-    );
+    try vm.expectEval("#t", "(< -5 -3 0 2)");
 }
 
 test "< with floating point numbers" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(< 1.5 2.7 3.14)"),
-    );
+    try vm.expectEval("#t", "(< 1.5 2.7 3.14)");
 }
 
 test "< with mixed integer and float" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(< 3 3.14 4)"),
-    );
+    try vm.expectEval("#t", "(< 3 3.14 4)");
 }
 
 test "< with non-number is error" {
@@ -321,100 +291,70 @@ test "> with no arguments returns #t" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(>)"),
-    );
+    try vm.expectEval("#t", "(>)");
 }
 
 test "> with single argument returns #t" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(> 42)"),
-    );
+    try vm.expectEval("#t", "(> 42)");
 }
 
 test "> with two arguments - true case" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(> 4 3)"),
-    );
+    try vm.expectEval("#t", "(> 4 3)");
 }
 
 test "> with two arguments - false case" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(false),
-        try vm.evalStr("(> 3 4)"),
-    );
+    try vm.expectEval("#f", "(> 3 4)");
 }
 
 test "> with equal arguments returns false" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(false),
-        try vm.evalStr("(> 5 5)"),
-    );
+    try vm.expectEval("#f", "(> 5 5)");
 }
 
 test "> with multiple arguments - all true" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(> 5 4 3 2 1)"),
-    );
+    try vm.expectEval("#t", "(> 5 4 3 2 1)");
 }
 
 test "> with multiple arguments - false case" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(false),
-        try vm.evalStr("(> 5 4 4 2 1)"),
-    );
+    try vm.expectEval("#f", "(> 5 4 4 2 1)");
 }
 
 test "> with negative numbers" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(> 2 0 -3 -5)"),
-    );
+    try vm.expectEval("#t", "(> 2 0 -3 -5)");
 }
 
 test "> with floating point numbers" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(> 3.14 2.7 1.5)"),
-    );
+    try vm.expectEval("#t", "(> 3.14 2.7 1.5)");
 }
 
 test "> with mixed integer and float" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(> 4 3.14 3)"),
-    );
+    try vm.expectEval("#t", "(> 4 3.14 3)");
 }
 
 test "> with non-number is error" {
@@ -431,100 +371,70 @@ test "<= with no arguments returns #t" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(<=)"),
-    );
+    try vm.expectEval("#t", "(<=)");
 }
 
 test "<= with single argument returns #t" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(<= 42)"),
-    );
+    try vm.expectEval("#t", "(<= 42)");
 }
 
 test "<= with two arguments - true case" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(<= 3 4)"),
-    );
+    try vm.expectEval("#t", "(<= 3 4)");
 }
 
 test "<= with two arguments - false case" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(false),
-        try vm.evalStr("(<= 4 3)"),
-    );
+    try vm.expectEval("#f", "(<= 4 3)");
 }
 
 test "<= with equal arguments returns true" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(<= 5 5)"),
-    );
+    try vm.expectEval("#t", "(<= 5 5)");
 }
 
 test "<= with multiple arguments - all true" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(<= 1 2 2 3 5)"),
-    );
+    try vm.expectEval("#t", "(<= 1 2 2 3 5)");
 }
 
 test "<= with multiple arguments - false case" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(false),
-        try vm.evalStr("(<= 1 2 3 2 5)"),
-    );
+    try vm.expectEval("#f", "(<= 1 2 3 2 5)");
 }
 
 test "<= with negative numbers" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(<= -5 -3 0 2)"),
-    );
+    try vm.expectEval("#t", "(<= -5 -3 0 2)");
 }
 
 test "<= with floating point numbers" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(<= 1.5 2.7 3.14)"),
-    );
+    try vm.expectEval("#t", "(<= 1.5 2.7 3.14)");
 }
 
 test "<= with mixed integer and float" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(<= 3 3.14 4)"),
-    );
+    try vm.expectEval("#t", "(<= 3 3.14 4)");
 }
 
 test "<= with non-number is error" {
@@ -541,100 +451,70 @@ test ">= with no arguments returns #t" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(>=)"),
-    );
+    try vm.expectEval("#t", "(>=)");
 }
 
 test ">= with single argument returns #t" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(>= 42)"),
-    );
+    try vm.expectEval("#t", "(>= 42)");
 }
 
 test ">= with two arguments - true case" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(>= 4 3)"),
-    );
+    try vm.expectEval("#t", "(>= 4 3)");
 }
 
 test ">= with two arguments - false case" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(false),
-        try vm.evalStr("(>= 3 4)"),
-    );
+    try vm.expectEval("#f", "(>= 3 4)");
 }
 
 test ">= with equal arguments returns true" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(>= 5 5)"),
-    );
+    try vm.expectEval("#t", "(>= 5 5)");
 }
 
 test ">= with multiple arguments - all true" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(>= 5 4 4 3 1)"),
-    );
+    try vm.expectEval("#t", "(>= 5 4 4 3 1)");
 }
 
 test ">= with multiple arguments - false case" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(false),
-        try vm.evalStr("(>= 5 4 3 4 1)"),
-    );
+    try vm.expectEval("#f", "(>= 5 4 3 4 1)");
 }
 
 test ">= with negative numbers" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(>= 2 0 -3 -5)"),
-    );
+    try vm.expectEval("#t", "(>= 2 0 -3 -5)");
 }
 
 test ">= with floating point numbers" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(>= 3.14 2.7 1.5)"),
-    );
+    try vm.expectEval("#t", "(>= 3.14 2.7 1.5)");
 }
 
 test ">= with mixed integer and float" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(>= 4 3.14 3)"),
-    );
+    try vm.expectEval("#t", "(>= 4 3.14 3)");
 }
 
 test ">= with non-number is error" {
@@ -651,110 +531,77 @@ test "= with no arguments returns #t" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(=)"),
-    );
+    try vm.expectEval("#t", "(=)");
 }
 
 test "= with single argument returns #t" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(= 42)"),
-    );
+    try vm.expectEval("#t", "(= 42)");
 }
 
 test "= with two equal arguments returns #t" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(= 5 5)"),
-    );
+    try vm.expectEval("#t", "(= 5 5)");
 }
 
 test "= with two unequal arguments returns #f" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(false),
-        try vm.evalStr("(= 3 4)"),
-    );
+    try vm.expectEval("#f", "(= 3 4)");
 }
 
 test "= with multiple equal arguments returns #t" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(= 5 5 5 5 5)"),
-    );
+    try vm.expectEval("#t", "(= 5 5 5 5 5)");
 }
 
 test "= with multiple arguments - false case" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(false),
-        try vm.evalStr("(= 5 5 5 4 5)"),
-    );
+    try vm.expectEval("#f", "(= 5 5 5 4 5)");
 }
 
 test "= with negative numbers" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(= -5 -5 -5)"),
-    );
+    try vm.expectEval("#t", "(= -5 -5 -5)");
 }
 
 test "= with floating point numbers" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(= 3.14 3.14 3.14)"),
-    );
+    try vm.expectEval("#t", "(= 3.14 3.14 3.14)");
 }
 
 test "= with mixed integer and float - equal values" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(= 3 3.0)"),
-    );
+    try vm.expectEval("#t", "(= 3 3.0)");
 }
 
 test "= with mixed integer and float - unequal values" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(false),
-        try vm.evalStr("(= 3 3.14)"),
-    );
+    try vm.expectEval("#f", "(= 3 3.14)");
 }
 
 test "= with zero values" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init(true),
-        try vm.evalStr("(= 0 0.0 0)"),
-    );
+    try vm.expectEval("#t", "(= 0 0.0 0)");
 }
 
 test "= with non-number is error" {

@@ -61,10 +61,7 @@ test "szl-define defines global variable successfully" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.init({}),
-        try vm.evalStr("(szl-define 'foo 42)"),
-    );
+    try vm.expectEval("()", "(szl-define 'foo 42)");
     try testing.expectEqual(
         Val.init(42),
         vm.inspector().get(Symbol.init("foo")),
@@ -117,20 +114,14 @@ test "szl-define can redefine existing variable with new value" {
     defer vm.deinit();
 
     // Define initial value
-    try testing.expectEqual(
-        Val.init({}),
-        try vm.evalStr("(szl-define 'x 100)"),
-    );
+    try vm.expectEval("()", "(szl-define 'x 100)");
     try testing.expectEqual(
         Val.init(100),
         vm.inspector().get(Symbol.init("x")),
     );
 
     // Redefine with new value
-    try testing.expectEqual(
-        Val.init({}),
-        try vm.evalStr("(szl-define 'x 200)"),
-    );
+    try vm.expectEval("()", "(szl-define 'x 200)");
     try testing.expectEqual(
         Val.init(200),
         vm.inspector().get(Symbol.init("x")),
@@ -142,30 +133,21 @@ test "szl-define can redefine variable with different type" {
     defer vm.deinit();
 
     // Define as integer
-    try testing.expectEqual(
-        Val.init({}),
-        try vm.evalStr("(szl-define 'var 42)"),
-    );
+    try vm.expectEval("()", "(szl-define 'var 42)");
     try testing.expectEqual(
         Val.init(42),
         vm.inspector().get(Symbol.init("var")),
     );
 
     // Redefine as boolean
-    try testing.expectEqual(
-        Val.init({}),
-        try vm.evalStr("(szl-define 'var #t)"),
-    );
+    try vm.expectEval("()", "(szl-define 'var #t)");
     try testing.expectEqual(
         Val.init(true),
         vm.inspector().get(Symbol.init("var")),
     );
 
     // Redefine as different integer
-    try testing.expectEqual(
-        Val.init({}),
-        try vm.evalStr("(szl-define 'var -5)"),
-    );
+    try vm.expectEval("()", "(szl-define 'var -5)");
     try testing.expectEqual(
         Val.init(-5),
         vm.inspector().get(Symbol.init("var")),
@@ -177,24 +159,12 @@ test "szl-define multiple redefinitions preserve only latest value" {
     defer vm.deinit();
 
     // Define initial value
-    try testing.expectEqual(
-        Val.init({}),
-        try vm.evalStr("(szl-define 'counter 1)"),
-    );
+    try vm.expectEval("()", "(szl-define 'counter 1)");
 
     // Multiple redefinitions
-    try testing.expectEqual(
-        Val.init({}),
-        try vm.evalStr("(szl-define 'counter 2)"),
-    );
-    try testing.expectEqual(
-        Val.init({}),
-        try vm.evalStr("(szl-define 'counter 3)"),
-    );
-    try testing.expectEqual(
-        Val.init({}),
-        try vm.evalStr("(szl-define 'counter 4)"),
-    );
+    try vm.expectEval("()", "(szl-define 'counter 2)");
+    try vm.expectEval("()", "(szl-define 'counter 3)");
+    try vm.expectEval("()", "(szl-define 'counter 4)");
 
     // Only the latest value should be preserved
     try testing.expectEqual(

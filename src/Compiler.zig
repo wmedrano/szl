@@ -82,6 +82,28 @@ pub fn compile(vm: *Vm, expr: Val) Error!Val {
     return try vm.builder().build(proc);
 }
 
+/// Test helper for verifying compiled instruction sequences.
+/// Compiles an expression and compares the resulting instructions to expected instructions.
+///
+/// Args:
+///   expected_instructions: The expected instruction sequence.
+///   vm: The virtual machine instance to use for compilation.
+///   source: The Scheme source code to compile.
+///
+/// Errors:
+///   - Any errors from compilation.
+///   - Test failure if the instructions don't match the expected sequence.
+pub fn expectInstructions(expected_instructions: []const Instruction, vm: *Vm, source: []const u8) !void {
+    const expr = try vm.builder().readOne(source);
+    const proc_val = try compile(vm, expr);
+    const proc = try vm.fromVal(Procedure, proc_val);
+
+    try testing.expectEqualDeep(
+        expected_instructions,
+        proc.implementation.bytecode.instructions,
+    );
+}
+
 /// Deallocates resources used by the compiler.
 /// Cleans up the instruction list and lexical bindings.
 ///
@@ -533,56 +555,38 @@ fn compileBegin(self: *Compiler, iter: *Inspector.ListIterator) Error!void {
 test "compile with expression is function call" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
-    const expr = try vm.builder().readOne("(+ 1 2)");
-    const proc = try vm.fromVal(Procedure, try compile(&vm, expr));
-
-    try testing.expectEqualDeep(
-        &[_]Instruction{
-            Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("+"))),
-            Instruction.initLoad(Val.init(1)),
-            Instruction.initLoad(Val.init(2)),
-            Instruction.initEvalProcedure(2),
-        },
-        proc.implementation.bytecode.instructions,
-    );
+    try expectInstructions(&[_]Instruction{
+        Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("+"))),
+        Instruction.initLoad(Val.init(1)),
+        Instruction.initLoad(Val.init(2)),
+        Instruction.initEvalProcedure(2),
+    }, &vm, "(+ 1 2)");
 }
 
 test "compile with nested expression is multiple function calls" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
-    const expr = try vm.builder().readOne("(foo 1 2 (bar 3 4))");
-    const proc = try vm.fromVal(Procedure, try compile(&vm, expr));
-
-    try testing.expectEqualDeep(
-        &[_]Instruction{
-            Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("foo"))),
-            Instruction.initLoad(Val.init(1)),
-            Instruction.initLoad(Val.init(2)),
-            Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("bar"))),
-            Instruction.initLoad(Val.init(3)),
-            Instruction.initLoad(Val.init(4)),
-            Instruction.initEvalProcedure(2),
-            Instruction.initEvalProcedure(3),
-        },
-        proc.implementation.bytecode.instructions,
-    );
+    try expectInstructions(&[_]Instruction{
+        Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("foo"))),
+        Instruction.initLoad(Val.init(1)),
+        Instruction.initLoad(Val.init(2)),
+        Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("bar"))),
+        Instruction.initLoad(Val.init(3)),
+        Instruction.initLoad(Val.init(4)),
+        Instruction.initEvalProcedure(2),
+        Instruction.initEvalProcedure(3),
+    }, &vm, "(foo 1 2 (bar 3 4))");
 }
 
 test "compile define expression" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
-    const expr = try vm.builder().readOne("(define x 42)");
-    const proc = try vm.fromVal(Procedure, try compile(&vm, expr));
-
-    try testing.expectEqualDeep(
-        &[_]Instruction{
-            Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("szl-define"))),
-            Instruction.initLoad(try vm.builder().internStaticVal(Symbol.init("x"))),
-            Instruction.initLoad(Val.init(42)),
-            Instruction.initEvalProcedure(2),
-        },
-        proc.implementation.bytecode.instructions,
-    );
+    try expectInstructions(&[_]Instruction{
+        Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("szl-define"))),
+        Instruction.initLoad(try vm.builder().internStaticVal(Symbol.init("x"))),
+        Instruction.initLoad(Val.init(42)),
+        Instruction.initEvalProcedure(2),
+    }, &vm, "(define x 42)");
 }
 
 test "compile define procedure expression" {
@@ -616,75 +620,56 @@ test "compile if expression" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
     const plus = try vm.builder().internStatic(Symbol.init("+"));
-    const expr = try vm.builder().readOne("(if #t (+ 1 2) (+ 3 4 5 6))");
-    const proc = try vm.fromVal(Procedure, try compile(&vm, expr));
 
-    try testing.expectEqualDeep(
-        &[_]Instruction{
-            Instruction.initLoad(Val.init(true)),
-            Instruction.initJumpIfNot(.{ .steps = 5 }),
-            // True Branch
-            Instruction.initGetGlobal(plus),
-            Instruction.initLoad(Val.init(1)),
-            Instruction.initLoad(Val.init(2)),
-            Instruction.initEvalProcedure(2),
-            Instruction.initJump(6),
-            // False branch
-            Instruction.initGetGlobal(plus),
-            Instruction.initLoad(Val.init(3)),
-            Instruction.initLoad(Val.init(4)),
-            Instruction.initLoad(Val.init(5)),
-            Instruction.initLoad(Val.init(6)),
-            Instruction.initEvalProcedure(4),
-        },
-        proc.implementation.bytecode.instructions,
-    );
+    try expectInstructions(&[_]Instruction{
+        Instruction.initLoad(Val.init(true)),
+        Instruction.initJumpIfNot(.{ .steps = 5 }),
+        // True Branch
+        Instruction.initGetGlobal(plus),
+        Instruction.initLoad(Val.init(1)),
+        Instruction.initLoad(Val.init(2)),
+        Instruction.initEvalProcedure(2),
+        Instruction.initJump(6),
+        // False branch
+        Instruction.initGetGlobal(plus),
+        Instruction.initLoad(Val.init(3)),
+        Instruction.initLoad(Val.init(4)),
+        Instruction.initLoad(Val.init(5)),
+        Instruction.initLoad(Val.init(6)),
+        Instruction.initEvalProcedure(4),
+    }, &vm, "(if #t (+ 1 2) (+ 3 4 5 6))");
 }
 
 test "compile if expression with missing false branch uses nil" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
     const plus = try vm.builder().internStatic(Symbol.init("+"));
-    const expr = try vm.builder().readOne("(if #t (+ 1 2))");
-    const proc = try vm.fromVal(Procedure, try compile(&vm, expr));
 
-    try testing.expectEqualDeep(
-        &[_]Instruction{
-            Instruction.initLoad(Val.init(true)),
-            Instruction.initJumpIfNot(.{ .steps = 5 }),
-            // True Branch
-            Instruction.initGetGlobal(plus),
-            Instruction.initLoad(Val.init(1)),
-            Instruction.initLoad(Val.init(2)),
-            Instruction.initEvalProcedure(2),
-            Instruction.initJump(1),
-            // False branch (nil)
-            Instruction.initLoad(Val.init({})),
-        },
-        proc.implementation.bytecode.instructions,
-    );
+    try expectInstructions(&[_]Instruction{
+        Instruction.initLoad(Val.init(true)),
+        Instruction.initJumpIfNot(.{ .steps = 5 }),
+        // True Branch
+        Instruction.initGetGlobal(plus),
+        Instruction.initLoad(Val.init(1)),
+        Instruction.initLoad(Val.init(2)),
+        Instruction.initEvalProcedure(2),
+        Instruction.initJump(1),
+        // False branch (nil)
+        Instruction.initLoad(Val.init({})),
+    }, &vm, "(if #t (+ 1 2))");
 }
 
 test "if with true predicate evaluates true branch" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
-    try testing.expectEqual(
-        try vm.evalStr("(if #t (+ 1 2 3 4) (+ 1 2))"),
-        Val.init(10),
-    );
-    try testing.expectEqual(
-        try vm.evalStr("(if #t (+ 1 2 3 4))"),
-        Val.init(10),
-    );
+    try vm.expectEval("10", "(if #t (+ 1 2 3 4) (+ 1 2))");
+    try vm.expectEval("10", "(if #t (+ 1 2 3 4))");
 }
 
 test "if with false predicate evaluates false branch" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
-    try testing.expectEqual(
-        try vm.evalStr("(if #t (+ 1 2 3 4) (+ 1 2))"),
-        Val.init(10),
-    );
+    try vm.expectEval("10", "(if #t (+ 1 2 3 4) (+ 1 2))");
 }
 
 test "if with missing false branch uses nil also branch" {
@@ -692,77 +677,55 @@ test "if with missing false branch uses nil also branch" {
     defer vm.deinit();
 
     // Verify the compilation generates the right instructions with jump_if_not
-    const expr = try vm.builder().readOne("(if #f 42)");
-    const proc_val = try compile(&vm, expr);
-    const proc = try vm.fromVal(Procedure, proc_val);
-
-    try testing.expectEqualDeep(
-        &[_]Instruction{
-            Instruction.initLoad(Val.init(false)),
-            Instruction.initJumpIfNot(.{ .steps = 2 }),
-            Instruction.initLoad(Val.init(42)),
-            Instruction.initJump(1),
-            Instruction.initLoad(Val.init({})),
-        },
-        proc.implementation.bytecode.instructions,
-    );
+    try expectInstructions(&[_]Instruction{
+        Instruction.initLoad(Val.init(false)),
+        Instruction.initJumpIfNot(.{ .steps = 2 }),
+        Instruction.initLoad(Val.init(42)),
+        Instruction.initJump(1),
+        Instruction.initLoad(Val.init({})),
+    }, &vm, "(if #f 42)");
 }
 
 test "cond with single clause" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const proc_val = try compile(&vm, try vm.builder().readOne("(cond (#t 42))"));
-    const proc = try vm.fromVal(Procedure, proc_val);
-    try testing.expectEqualDeep(
-        &[_]Instruction{
-            // #t branch
-            Instruction.initLoad(Val.init(true)),
-            Instruction.initJumpIfNot(.{ .steps = 2 }),
-            Instruction.initLoad(Val.init(42)),
-            Instruction.initJump(1),
-            // fallback branch
-            Instruction.initLoad(Val.init({})),
-        },
-        proc.implementation.bytecode.instructions,
-    );
+    try expectInstructions(&[_]Instruction{
+        // #t branch
+        Instruction.initLoad(Val.init(true)),
+        Instruction.initJumpIfNot(.{ .steps = 2 }),
+        Instruction.initLoad(Val.init(42)),
+        Instruction.initJump(1),
+        // fallback branch
+        Instruction.initLoad(Val.init({})),
+    }, &vm, "(cond (#t 42))");
 }
 
 test "cond clause with single test fails" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const proc_val = try compile(&vm, try vm.builder().readOne("(cond (#t))"));
-    const proc = try vm.fromVal(Procedure, proc_val);
-    try testing.expectEqualDeep(
-        &[_]Instruction{
-            Instruction.initLoad(Val.init(true)),
-            Instruction.initJumpIfNot(.{ .pop = false, .steps = 1 }),
-            Instruction.initJump(1),
-            Instruction.initLoad(Val.init({})),
-        },
-        proc.implementation.bytecode.instructions,
-    );
+    try expectInstructions(&[_]Instruction{
+        Instruction.initLoad(Val.init(true)),
+        Instruction.initJumpIfNot(.{ .pop = false, .steps = 1 }),
+        Instruction.initJump(1),
+        Instruction.initLoad(Val.init({})),
+    }, &vm, "(cond (#t))");
 }
 
 test "cond with => ignores =>" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const proc_val = try compile(&vm, try vm.builder().readOne("(cond (#t => 42))"));
-    const proc = try vm.fromVal(Procedure, proc_val);
-    try testing.expectEqualDeep(
-        &[_]Instruction{
-            // #t branch
-            Instruction.initLoad(Val.init(true)),
-            Instruction.initJumpIfNot(.{ .steps = 2 }),
-            Instruction.initLoad(Val.init(42)),
-            Instruction.initJump(1),
-            // fallback branch
-            Instruction.initLoad(Val.init({})),
-        },
-        proc.implementation.bytecode.instructions,
-    );
+    try expectInstructions(&[_]Instruction{
+        // #t branch
+        Instruction.initLoad(Val.init(true)),
+        Instruction.initJumpIfNot(.{ .steps = 2 }),
+        Instruction.initLoad(Val.init(42)),
+        Instruction.initJump(1),
+        // fallback branch
+        Instruction.initLoad(Val.init({})),
+    }, &vm, "(cond (#t => 42))");
 }
 
 test "cond with => fails if more than one expression fails" {
@@ -771,7 +734,10 @@ test "cond with => fails if more than one expression fails" {
 
     try testing.expectError(
         Error.InvalidExpression,
-        compile(&vm, try vm.builder().readOne("(cond (#t => 42 43))")),
+        compile(
+            &vm,
+            try vm.builder().readOne("(cond (#t => 42 43))"),
+        ),
     );
 }
 
@@ -779,32 +745,27 @@ test "cond with multiple clauses" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const proc_val = try compile(&vm, try vm.builder().readOne("(cond (#t 1) (#f 2) (3 4 5))"));
-    const proc = try vm.fromVal(Procedure, proc_val);
-    try testing.expectEqualDeep(
-        &[_]Instruction{
-            // #t branch
-            Instruction.initLoad(Val.init(true)),
-            Instruction.initJumpIfNot(.{ .steps = 2 }),
-            Instruction.initLoad(Val.init(1)),
-            Instruction.initJump(11),
-            // #f branch
-            Instruction.initLoad(Val.init(false)),
-            Instruction.initJumpIfNot(.{ .steps = 2 }),
-            Instruction.initLoad(Val.init(2)),
-            Instruction.initJump(7),
-            // 3 branch
-            Instruction.initLoad(Val.init(3)),
-            Instruction.initJumpIfNot(.{ .steps = 4 }),
-            Instruction.initLoad(Val.init(4)),
-            Instruction.initLoad(Val.init(5)),
-            Instruction.initSquash(2),
-            Instruction.initJump(1),
-            // fallback
-            Instruction.initLoad(Val.init({})),
-        },
-        proc.implementation.bytecode.instructions,
-    );
+    try expectInstructions(&[_]Instruction{
+        // #t branch
+        Instruction.initLoad(Val.init(true)),
+        Instruction.initJumpIfNot(.{ .steps = 2 }),
+        Instruction.initLoad(Val.init(1)),
+        Instruction.initJump(11),
+        // #f branch
+        Instruction.initLoad(Val.init(false)),
+        Instruction.initJumpIfNot(.{ .steps = 2 }),
+        Instruction.initLoad(Val.init(2)),
+        Instruction.initJump(7),
+        // 3 branch
+        Instruction.initLoad(Val.init(3)),
+        Instruction.initJumpIfNot(.{ .steps = 4 }),
+        Instruction.initLoad(Val.init(4)),
+        Instruction.initLoad(Val.init(5)),
+        Instruction.initSquash(2),
+        Instruction.initJump(1),
+        // fallback
+        Instruction.initLoad(Val.init({})),
+    }, &vm, "(cond (#t 1) (#f 2) (3 4 5))");
 }
 
 test "cond without clauses is error" {
@@ -825,34 +786,24 @@ test "cond with else uses it as fallback" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const proc_val = try compile(&vm, try vm.builder().readOne("(cond (#t => 42) (else 43))"));
-    const proc = try vm.fromVal(Procedure, proc_val);
-    try testing.expectEqualDeep(
-        &[_]Instruction{
-            // #t branch
-            Instruction.initLoad(Val.init(true)),
-            Instruction.initJumpIfNot(.{ .steps = 2 }),
-            Instruction.initLoad(Val.init(42)),
-            Instruction.initJump(1),
-            // fallback branch
-            Instruction.initLoad(Val.init(43)),
-        },
-        proc.implementation.bytecode.instructions,
-    );
+    try expectInstructions(&[_]Instruction{
+        // #t branch
+        Instruction.initLoad(Val.init(true)),
+        Instruction.initJumpIfNot(.{ .steps = 2 }),
+        Instruction.initLoad(Val.init(42)),
+        Instruction.initJump(1),
+        // fallback branch
+        Instruction.initLoad(Val.init(43)),
+    }, &vm, "(cond (#t => 42) (else 43))");
 }
 
 test "cond with only else expression is expression" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const proc_val = try compile(&vm, try vm.builder().readOne("(cond (else 43))"));
-    const proc = try vm.fromVal(Procedure, proc_val);
-    try testing.expectEqualDeep(
-        &[_]Instruction{
-            Instruction.initLoad(Val.init(43)),
-        },
-        proc.implementation.bytecode.instructions,
-    );
+    try expectInstructions(&[_]Instruction{
+        Instruction.initLoad(Val.init(43)),
+    }, &vm, "(cond (else 43))");
 }
 
 test "compile quote with integer" {
@@ -872,35 +823,22 @@ test "compile quote with integer" {
 test "compile quote with symbol" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
-
-    const proc_val = try compile(&vm, try vm.builder().readOne("'foo"));
-    const proc = try vm.fromVal(Procedure, proc_val);
-
-    try testing.expectEqual(1, proc.implementation.bytecode.instructions.len);
-    const instruction = proc.implementation.bytecode.instructions[0];
-    try testing.expectEqual(.load, std.meta.activeTag(instruction.repr));
-
-    // Check that the loaded value is the symbol 'foo'
-    const loaded_val = instruction.repr.load;
-    try testing.expectEqual(.symbol, std.meta.activeTag(loaded_val.repr));
-    try testing.expectFmt(
-        "foo",
-        "{f}",
-        .{vm.pretty(loaded_val)},
+    try expectInstructions(
+        &[_]Instruction{
+            Instruction.initLoad(try vm.builder().internStaticVal(Symbol.init("foo"))),
+        },
+        &vm,
+        "'foo",
     );
 }
 
 test "compile quote with boolean" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
-
-    const proc_val = try compile(&vm, try vm.builder().readOne("#t"));
-    const proc = try vm.fromVal(Procedure, proc_val);
-
-    try testing.expectEqual(1, proc.implementation.bytecode.instructions.len);
-    try testing.expectEqual(
-        Instruction.initLoad(Val.init(true)),
-        proc.implementation.bytecode.instructions[0],
+    try expectInstructions(
+        &[_]Instruction{Instruction.initLoad(Val.init(true))},
+        &vm,
+        "'#t",
     );
 }
 
@@ -927,20 +865,10 @@ test "compile quote with list" {
 test "compile quote with empty list" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
-
-    const proc_val = try compile(&vm, try vm.builder().readOne("'()"));
-    const proc = try vm.fromVal(Procedure, proc_val);
-
-    try testing.expectEqual(1, proc.implementation.bytecode.instructions.len);
-    const instruction = proc.implementation.bytecode.instructions[0];
-    try testing.expectEqual(.load, std.meta.activeTag(instruction.repr));
-
-    // Check that the loaded value is nil (empty list)
-    const loaded_val = instruction.repr.load;
-    try testing.expectFmt(
-        "()",
-        "{f}",
-        .{vm.pretty(loaded_val)},
+    try expectInstructions(
+        &[_]Instruction{Instruction.initLoad(Val.init({}))},
+        &vm,
+        "'()",
     );
 }
 
@@ -972,69 +900,45 @@ test "compile begin with no arguments returns nil" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const proc_val = try compile(&vm, try vm.builder().readOne("(begin)"));
-    const proc = try vm.fromVal(Procedure, proc_val);
-
-    try testing.expectEqualDeep(
-        &[_]Instruction{
-            Instruction.initLoad(Val.init({})),
-        },
-        proc.implementation.bytecode.instructions,
-    );
+    try expectInstructions(&[_]Instruction{
+        Instruction.initLoad(Val.init({})),
+    }, &vm, "(begin)");
 }
 
 test "compile begin with single expression" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const proc_val = try compile(&vm, try vm.builder().readOne("(begin 42)"));
-    const proc = try vm.fromVal(Procedure, proc_val);
-
-    try testing.expectEqualDeep(
-        &[_]Instruction{
-            Instruction.initLoad(Val.init(42)),
-        },
-        proc.implementation.bytecode.instructions,
-    );
+    try expectInstructions(&[_]Instruction{
+        Instruction.initLoad(Val.init(42)),
+    }, &vm, "(begin 42)");
 }
 
 test "compile begin with multiple expressions" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const proc_val = try compile(&vm, try vm.builder().readOne("(begin 1 2 3)"));
-    const proc = try vm.fromVal(Procedure, proc_val);
-
-    try testing.expectEqualDeep(
-        &[_]Instruction{
-            Instruction.initLoad(Val.init(1)),
-            Instruction.initLoad(Val.init(2)),
-            Instruction.initLoad(Val.init(3)),
-            Instruction.initSquash(3),
-        },
-        proc.implementation.bytecode.instructions,
-    );
+    try expectInstructions(&[_]Instruction{
+        Instruction.initLoad(Val.init(1)),
+        Instruction.initLoad(Val.init(2)),
+        Instruction.initLoad(Val.init(3)),
+        Instruction.initSquash(3),
+    }, &vm, "(begin 1 2 3)");
 }
 
 test "compile begin with function calls" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const proc_val = try compile(&vm, try vm.builder().readOne("(begin (+ 1 2) (+ 3 4))"));
-    const proc = try vm.fromVal(Procedure, proc_val);
-
-    try testing.expectEqualDeep(
-        &[_]Instruction{
-            Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("+"))),
-            Instruction.initLoad(Val.init(1)),
-            Instruction.initLoad(Val.init(2)),
-            Instruction.initEvalProcedure(2),
-            Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("+"))),
-            Instruction.initLoad(Val.init(3)),
-            Instruction.initLoad(Val.init(4)),
-            Instruction.initEvalProcedure(2),
-            Instruction.initSquash(2),
-        },
-        proc.implementation.bytecode.instructions,
-    );
+    try expectInstructions(&[_]Instruction{
+        Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("+"))),
+        Instruction.initLoad(Val.init(1)),
+        Instruction.initLoad(Val.init(2)),
+        Instruction.initEvalProcedure(2),
+        Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("+"))),
+        Instruction.initLoad(Val.init(3)),
+        Instruction.initLoad(Val.init(4)),
+        Instruction.initEvalProcedure(2),
+        Instruction.initSquash(2),
+    }, &vm, "(begin (+ 1 2) (+ 3 4))");
 }
