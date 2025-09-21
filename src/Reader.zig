@@ -76,10 +76,42 @@ pub fn init(vm: *Vm, source: []const u8) Reader {
 ///   - Other errors from parseToken or nextExpression functions.
 pub fn next(self: *Reader) Error!?Val {
     const token = self.tokenizer.nextText() orelse return null;
-    if (std.mem.eql(u8, token, "(")) return self.nextExpression();
-    if (std.mem.eql(u8, token, ")")) return error.BadExpression;
-    if (std.mem.eql(u8, token, "'")) return try self.nextQuoted();
-    return try self.parseToken(token);
+    const result = try self.parseTokenValue(token);
+    return switch (result) {
+        .value => |val| val,
+        .end_expression => error.BadExpression, // Unexpected ) at top level
+    };
+}
+
+const ParseResult = union(enum) {
+    value: Val,
+    end_expression: void,
+};
+
+/// Parses a token into a value or signals end of expression.
+///
+/// Args:
+///   self: Pointer to the Reader instance.
+///   token: The token to parse.
+///
+/// Returns:
+///   ParseResult indicating either a parsed value or end of expression.
+///
+/// Errors:
+///   - BadExpression: If malformed expressions are encountered.
+///   - Other errors from parseToken, nextExpression, or nextQuoted functions.
+fn parseTokenValue(self: *Reader, token: []const u8) Error!ParseResult {
+    if (std.mem.eql(u8, token, "(")) {
+        const expr = try self.nextExpression() orelse return error.BadExpression;
+        return ParseResult{ .value = expr };
+    }
+    if (std.mem.eql(u8, token, ")")) return ParseResult{ .end_expression = {} };
+    if (std.mem.eql(u8, token, "'")) {
+        const quoted = try self.nextQuoted();
+        return ParseResult{ .value = quoted };
+    }
+    const val = try self.parseToken(token);
+    return ParseResult{ .value = val };
 }
 
 /// Parses a quoted expression (quote syntax sugar).
@@ -123,14 +155,9 @@ fn nextExpression(self: *Reader) !?Val {
     var expressions = std.ArrayList(Val){};
     defer expressions.deinit(self.vm.allocator);
     while (self.tokenizer.nextText()) |token| {
-        if (std.mem.eql(u8, token, "(")) {
-            const expr = (try self.nextExpression()) orelse return error.BadExpression;
-            try expressions.append(self.vm.allocator, expr);
-        } else if (std.mem.eql(u8, token, ")")) {
-            return try self.vm.toVal(expressions.items);
-        } else {
-            const expr = try self.parseToken(token);
-            try expressions.append(self.vm.allocator, expr);
+        switch (try self.parseTokenValue(token)) {
+            .value => |val| try expressions.append(self.vm.allocator, val),
+            .end_expression => return try self.vm.toVal(expressions.items),
         }
     }
     return error.BadExpression;
@@ -729,6 +756,18 @@ test "readOne with nested quotes returns nested quote expressions" {
     const result = try readOne(&vm, "''hello");
     try testing.expectFmt(
         "(quote (quote hello))",
+        "{f}",
+        .{vm.pretty(result)},
+    );
+}
+
+test "readOne with mixed integers and quoted list returns proper structure" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "(1 2 '(3 4))");
+    try testing.expectFmt(
+        "(1 2 (quote (3 4)))",
         "{f}",
         .{vm.pretty(result)},
     );
