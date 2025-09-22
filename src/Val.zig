@@ -8,6 +8,7 @@
 const std = @import("std");
 const testing = std.testing;
 
+const ByteVector = @import("ByteVector.zig");
 const Char = @import("Char.zig");
 const object_pool = @import("object_pool.zig");
 const Handle = object_pool.Handle;
@@ -68,6 +69,10 @@ pub const Repr = union(enum) {
     /// Represents a vector using a handle to an object pool.
     /// Vectors in Scheme are sequences of values that can be accessed by index.
     vector: Handle(Vector),
+
+    /// Represents a bytevector using a handle to an object pool.
+    /// Bytevectors in Scheme are sequences of bytes that can be accessed by index.
+    bytevector: Handle(ByteVector),
 };
 
 /// Create a new `Val` for a supported type.
@@ -84,8 +89,9 @@ pub const Repr = union(enum) {
 ///   - Handle(Pair): Converted to pair values
 ///   - Handle(Procedure): Converted to procedure values
 ///   - Handle(Vector): Converted to vector values
+///   - Handle(ByteVector): Converted to bytevector values
 ///
-/// For more complex types like Symbol, Pair, Procedure, or Vector structs, use `Vm.builder()`.
+/// For more complex types like Symbol, Pair, Procedure, Vector, or ByteVector structs, use `Vm.builder()`.
 pub fn init(v: anytype) Val {
     const type_info = @TypeOf(v);
     switch (type_info) {
@@ -101,6 +107,7 @@ pub fn init(v: anytype) Val {
         Handle(Pair) => return init(Val.Repr{ .pair = v }),
         Handle(Procedure) => return init(Val.Repr{ .proc = v }),
         Handle(Vector) => return init(Val.Repr{ .vector = v }),
+        Handle(ByteVector) => return init(Val.Repr{ .bytevector = v }),
         else => @compileError("type " ++ @typeName(type_info) ++ " not supported for Val.init."),
     }
 }
@@ -200,6 +207,20 @@ pub fn isNumber(self: Val) bool {
 pub fn isVector(self: Val) bool {
     return switch (self.repr) {
         .vector => true,
+        else => false,
+    };
+}
+
+/// Determines if a value is a bytevector.
+///
+/// Args:
+///   self: The value to test for bytevector type.
+///
+/// Returns:
+///   true if the value is a bytevector, false otherwise.
+pub fn isBytevector(self: Val) bool {
+    return switch (self.repr) {
+        .bytevector => true,
         else => false,
     };
 }
@@ -466,4 +487,35 @@ test "vector values are truthy" {
     const filled_vector = try Vector.initFromSlice(testing.allocator, &values);
     const filled_vector_val = try vm.toVal(filled_vector);
     try testing.expectEqual(true, filled_vector_val.isTruthy());
+}
+
+test "isBytevector returns true for bytevector values" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const bytevector_val = try vm.toVal(ByteVector.init());
+    try testing.expectEqual(true, bytevector_val.isBytevector());
+}
+
+test "isBytevector returns false for non-bytevector values" {
+    const bool_val = Val.init(true);
+    const int_val = Val.init(42);
+    const nil_val = Val.init({});
+
+    try testing.expectEqual(false, bool_val.isBytevector());
+    try testing.expectEqual(false, int_val.isBytevector());
+    try testing.expectEqual(false, nil_val.isBytevector());
+}
+
+test "bytevector values are truthy" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const bytevector_val = try vm.toVal(ByteVector.init());
+    try testing.expectEqual(true, bytevector_val.isTruthy());
+
+    const bytes = [_]u8{ 0x01, 0x02 };
+    const filled_bytevector = try ByteVector.initFromSlice(testing.allocator, &bytes);
+    const filled_bytevector_val = try vm.toVal(filled_bytevector);
+    try testing.expectEqual(true, filled_bytevector_val.isTruthy());
 }

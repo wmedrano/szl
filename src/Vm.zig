@@ -10,6 +10,7 @@ const testing = std.testing;
 
 const Builder = @import("Builder.zig");
 const builtins = @import("builtins/builtins.zig");
+const ByteVector = @import("ByteVector.zig");
 const Compiler = @import("Compiler.zig");
 const Handle = @import("object_pool.zig").Handle;
 const Inspector = @import("Inspector.zig");
@@ -96,6 +97,10 @@ strings: ObjectPool(String),
 /// Provides efficient allocation and deallocation of vector values.
 vectors: ObjectPool(Vector),
 
+/// Object pool for managing ByteVector objects with automatic memory recycling.
+/// Provides efficient allocation and deallocation of bytevector values.
+bytevectors: ObjectPool(ByteVector),
+
 /// Error state for the virtual machine. When set, indicates that an error
 /// has occurred during execution and should be handled or propagated.
 err: ?Val = null,
@@ -141,6 +146,7 @@ pub fn init(options: Options) !Vm {
         .procedures = ObjectPool(Procedure).init(),
         .strings = ObjectPool(String).init(),
         .vectors = ObjectPool(Vector).init(),
+        .bytevectors = ObjectPool(ByteVector).init(),
         .common_symbols = undefined,
     };
     vm.common_symbols = try vm.builder().symbolTable(CommonSymbolTable);
@@ -174,6 +180,12 @@ pub fn deinit(self: *Vm) void {
         mutable_vector.deinit(self.allocator);
     }
     self.vectors.deinit(self.allocator);
+    var bytevector_iter = self.bytevectors.iterator();
+    while (bytevector_iter.next()) |bytevector| {
+        var mutable_bytevector = bytevector;
+        mutable_bytevector.deinit(self.allocator);
+    }
+    self.bytevectors.deinit(self.allocator);
 }
 
 fn PrettyReturnType(comptime T: type) type {
@@ -348,7 +360,7 @@ pub fn expectEval(self: *Vm, expected: []const u8, input: []const u8) !void {
     try testing.expectFmt(expected, "{f}", .{self.pretty(actual_val)});
     switch (expected_val.repr) {
         .nil, .boolean, .i64, .f64, .char, .symbol => try testing.expectEqual(expected_val, actual_val),
-        .string, .pair, .proc, .vector => {},
+        .string, .pair, .proc, .vector, .bytevector => {},
     }
 }
 

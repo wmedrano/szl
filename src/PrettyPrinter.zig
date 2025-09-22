@@ -17,6 +17,7 @@ const String = @import("String.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 const Vector = @import("Vector.zig");
+const ByteVector = @import("ByteVector.zig");
 const Vm = @import("Vm.zig");
 
 const PrettyPrinter = @This();
@@ -149,6 +150,18 @@ fn formatValue(self: PrettyPrinter, writer: *std.Io.Writer, val: Val) error{Writ
             for (vector.slice(), 0..) |value, i| {
                 if (i > 0) try writer.writeByte(' ');
                 try self.formatValue(writer, value);
+            }
+            try writer.writeByte(')');
+        },
+        .bytevector => |v| {
+            const bytevector = self.vm.inspector().resolve(ByteVector, v) catch {
+                try writer.writeAll("#<invalid-bytevector>");
+                return;
+            };
+            try writer.writeAll("#u8(");
+            for (bytevector.slice(), 0..) |byte, i| {
+                if (i > 0) try writer.writeByte(' ');
+                try writer.print("{}", .{byte});
             }
             try writer.writeByte(')');
         },
@@ -580,6 +593,52 @@ test "vector with mixed types formats correctly" {
 
     try testing.expectFmt(
         "#(42 #t () \"hello\")",
+        "{f}",
+        .{PrettyPrinter{ .vm = &vm, .val = val }},
+    );
+}
+
+test "bytevector formats with #u8() syntax" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const bytes = [_]u8{ 0x01, 0x02, 0x03 };
+    const bytevector = try ByteVector.initFromSlice(testing.allocator, &bytes);
+    const val = Val.init(try vm.bytevectors.put(testing.allocator, bytevector));
+
+    try testing.expectFmt(
+        "#u8(1 2 3)",
+        "{f}",
+        .{PrettyPrinter{ .vm = &vm, .val = val }},
+    );
+}
+
+test "empty bytevector formats correctly" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const bytevector = ByteVector.init();
+    const bytevector_handle = try vm.bytevectors.put(testing.allocator, bytevector);
+    const val = Val{ .repr = .{ .bytevector = bytevector_handle } };
+
+    try testing.expectFmt(
+        "#u8()",
+        "{f}",
+        .{PrettyPrinter{ .vm = &vm, .val = val }},
+    );
+}
+
+test "bytevector with various values formats correctly" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const bytes = [_]u8{ 0, 42, 128, 255 };
+    const bytevector = try ByteVector.initFromSlice(testing.allocator, &bytes);
+    const bytevector_handle = try vm.bytevectors.put(testing.allocator, bytevector);
+    const val = Val{ .repr = .{ .bytevector = bytevector_handle } };
+
+    try testing.expectFmt(
+        "#u8(0 42 128 255)",
         "{f}",
         .{PrettyPrinter{ .vm = &vm, .val = val }},
     );

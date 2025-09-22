@@ -15,6 +15,7 @@ const String = @import("String.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 const Vector = @import("Vector.zig");
+const ByteVector = @import("ByteVector.zig");
 const Vm = @import("Vm.zig");
 
 const Builder = @This();
@@ -40,6 +41,8 @@ const Error = error{OutOfMemory};
 ///   - Handle(Procedure): Direct procedure handles
 ///   - Handle(Vector): Direct vector handles
 ///   - Vector: Stored in object pool and converted to vector values
+///   - Handle(ByteVector): Direct bytevector handles
+///   - ByteVector: Stored in object pool and converted to bytevector values
 ///   - Procedure: Stored in object pool and converted to procedure values
 ///   - []const Val, []Val: Converted to proper Scheme lists
 ///
@@ -63,12 +66,14 @@ pub fn build(self: Builder, v: anytype) Error!Val {
         Handle(Pair),
         Handle(Procedure),
         Handle(Vector),
+        Handle(ByteVector),
         => return Val.init(v),
         Symbol => return self.internVal(v),
         String => return Val.init(try self.vm.strings.put(self.vm.allocator, v)),
         Pair => return Val.init(try self.vm.pairs.put(self.vm.allocator, v)),
         Procedure => return Val.init(try self.vm.procedures.put(self.vm.allocator, v)),
         Vector => return Val.init(try self.vm.vectors.put(self.vm.allocator, v)),
+        ByteVector => return Val.init(try self.vm.bytevectors.put(self.vm.allocator, v)),
         []const Val, []Val => {
             if (v.len == 0) return self.build({});
             var val = try self.build({});
@@ -629,4 +634,33 @@ test "build with Handle(Vector) creates vector val" {
 
     try testing.expectEqual(.vector, std.meta.activeTag(result.repr));
     try testing.expectEqual(vector_handle, result.repr.vector);
+}
+
+test "build with ByteVector creates bytevector val" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const bytes = [_]u8{ 0x01, 0x02, 0x03 };
+    const test_bytevector = try ByteVector.initFromSlice(testing.allocator, &bytes);
+    const result = try vm.builder().build(test_bytevector);
+
+    try testing.expectEqual(.bytevector, std.meta.activeTag(result.repr));
+    try testing.expectFmt(
+        "#u8(1 2 3)",
+        "{f}",
+        .{vm.inspector().pretty(result)},
+    );
+}
+
+test "build with Handle(ByteVector) creates bytevector val" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const bytes = [_]u8{ 0x42, 0xFF };
+    const test_bytevector = try ByteVector.initFromSlice(testing.allocator, &bytes);
+    const bytevector_handle = try vm.bytevectors.put(testing.allocator, test_bytevector);
+    const result = try vm.builder().build(bytevector_handle);
+
+    try testing.expectEqual(.bytevector, std.meta.activeTag(result.repr));
+    try testing.expectEqual(bytevector_handle, result.repr.bytevector);
 }

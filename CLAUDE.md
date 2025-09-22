@@ -26,16 +26,19 @@ The interpreter follows a pipeline architecture:
 ### Value System
 
 - **Val** (`src/Val.zig`) - Core value representation using tagged unions for dynamic typing
-- Supports: nil, booleans, i64/f64 numbers, characters, symbols, pairs, and procedures
+- Supports: nil, booleans, i64/f64 numbers, characters, symbols, pairs, procedures, strings, and vectors
 - **Symbol** (`src/Symbol.zig`) - Interned symbols for efficient comparison
 - **Pair** (`src/Pair.zig`) - Cons cells for list structures
 - **Char** (`src/Char.zig`) - Character values with #\ notation
+- **String** (`src/String.zig`) - Dynamic string values with escape sequence support
+- **Vector** (`src/Vector.zig`) - Dynamic arrays of values with #(...) syntax
 
 ### Memory Management
 
-- **ObjectPool** (`src/object_pool.zig`) - Handle-based object management
-- **Builder** (`src/Builder.zig`) - Value construction utilities
-- All heap objects use handle-based references for memory safety
+- **ObjectPool** (`src/object_pool.zig`) - Handle-based object management for Pair, Procedure, String, and Vector types
+- **Builder** (`src/Builder.zig`) - Value construction utilities that handle object pool allocation
+- **Inspector** (`src/Inspector.zig`) - Type conversion and object pool resolution utilities
+- All heap objects (strings, pairs, procedures, vectors) use handle-based references for memory safety
 
 ### Compilation System
 
@@ -62,23 +65,41 @@ Located in `src/builtins/`:
 The project uses Zig's built-in testing framework. Tests are embedded within modules using `test` blocks. Key testing patterns:
 
 - `vm.expectEval(expected, expression)` - Test expression evaluation
+- `vm.expectReadOne(expected_tag, expected_format, input)` - Test token parsing with type validation
 - Integration tests in `src/root.zig` demonstrate language features
 - Unit tests in individual modules test specific functionality
+- Memory management tests ensure proper cleanup and no double-free errors
 
 ## Language Features
 
 Currently implemented Scheme features:
-- Basic data types (numbers, booleans, symbols, characters, lists)
+- Basic data types (numbers, booleans, symbols, characters, strings, lists, vectors)
 - Special forms: `define`, `quote`, `if`, `let`, `begin`, `cond`
 - Arithmetic and comparison operations
 - Lexical scoping with proper variable binding
 - Bytecode compilation and execution
+- Vector syntax: `#(element1 element2 ...)` with support for nested vectors and mixed types
 
 ## Common Development Patterns
 
-When adding new functionality:
-1. Add value types to `Val.zig` if needed
-2. Extend the compiler in `Compiler.zig` for new syntax
-3. Add built-in functions to appropriate files in `src/builtins/`
-4. Update `CommonSymbolTable` in `Vm.zig` for new special forms
-5. Add comprehensive tests using the `expectEval` pattern
+When adding new data types (like vectors, strings):
+1. Create the data structure module (e.g., `Vector.zig`)
+2. Add the type variant to `Val.Repr` union in `Val.zig`
+3. Add object pool to `Vm.zig` if the type needs heap allocation
+4. Update `Builder.zig` to support construction of the new type
+5. Update `Inspector.zig` for type conversion and resolution
+6. Update `PrettyPrinter.zig` for display formatting
+7. Update `Compiler.zig` if the type needs compilation support
+8. Update tokenizer/reader for new syntax (if applicable)
+9. Add comprehensive tests including edge cases and memory management
+
+When adding new syntax:
+1. Update `Tokenizer.zig` for token recognition
+2. Update `Reader.zig` for parsing logic
+3. Update `Compiler.zig` for compilation support
+4. Add tests for all parsing scenarios
+
+When adding built-in functions:
+1. Add to appropriate file in `src/builtins/`
+2. Update `CommonSymbolTable` in `Vm.zig` for new special forms
+3. Add comprehensive tests using the `expectEval` pattern
