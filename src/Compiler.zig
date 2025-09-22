@@ -227,6 +227,8 @@ fn compileExpression(self: *Compiler, leading: Val, args_iter: *Inspector.ListIt
             return self.compileCond(args_iter);
         if (self.vm.common_symbols.define.eql(sym))
             return self.compileDefine(args_iter);
+        if (self.vm.common_symbols.lambda.eql(sym))
+            return self.compileLambda(args_iter);
         if (self.vm.common_symbols.let.eql(sym))
             return self.compileLet(args_iter);
         if (self.vm.common_symbols.quote.eql(sym))
@@ -502,6 +504,59 @@ fn compileDefineProc(self: *Compiler, signature: *Inspector.ListIterator, body: 
     try self.addInstruction(Instruction.initLoad(name));
     try self.addInstruction(Instruction.initLoad(proc_val));
     try self.addInstruction(Instruction.initEvalProcedure(2));
+}
+
+/// Compiles a lambda expression into bytecode.
+/// Creates a sub-compiler with lexical bindings for parameters,
+/// compiles the lambda body, then wraps it in a Procedure value.
+/// Unlike define procedures, lambdas create anonymous procedures that
+/// are loaded directly onto the stack as values.
+///
+/// Args:
+///   self: The compiler instance.
+///   iter: Iterator over the lambda arguments (parameter list and body expressions).
+///
+/// Returns:
+///   An error if the arguments are invalid or compilation fails.
+fn compileLambda(self: *Compiler, iter: *Inspector.ListIterator) Error!void {
+    // Extract the parameter list
+    const params_val = iter.next() catch {
+        return Error.InvalidExpression;
+    } orelse return Error.InvalidExpression;
+
+    // Create sub-compiler for the lambda body
+    var sub_compiler = Compiler{
+        .vm = self.vm,
+    };
+    defer sub_compiler.deinit();
+
+    // Parse parameter list and add bindings
+    var params = self.vm.inspector().iterList(params_val) catch
+        return Error.InvalidExpression;
+    var arg_count: usize = 0;
+    while (params.next() catch return Error.InvalidExpression) |param_val| {
+        const param = self.vm.fromVal(Symbol.Interned, param_val) catch
+            return Error.InvalidExpression;
+        _ = try sub_compiler.scope.addBinding(
+            self.vm.allocator,
+            LexicalScope.Binding{
+                .name = param,
+                .index = arg_count,
+                .type = .argument,
+            },
+        );
+        arg_count += 1;
+    }
+
+    // Compile the lambda body
+    _ = try sub_compiler.compileMany(iter, .{ .allow_zero = true, .squash = true });
+
+    // Create the procedure (anonymous, so name is null)
+    const proc = try sub_compiler.toProcedure(null);
+    const proc_val = self.vm.builder().build(proc) catch return Error.InvalidExpression;
+
+    // Load the procedure value onto the stack
+    try self.addInstruction(Instruction.initLoad(proc_val));
 }
 
 /// Compiles a single let binding (name expression) pair.
@@ -1190,4 +1245,118 @@ test "compile let with missing bindings fails" {
         Error.InvalidExpression,
         compile(&vm, try vm.builder().readOne("(let)")),
     );
+}
+
+test "compile lambda with single parameter" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const proc_val = try compile(&vm, try vm.builder().readOne("(lambda (x) x)"));
+    const proc = try vm.fromVal(Procedure, proc_val);
+
+    // Should generate one Load instruction containing a procedure
+    try testing.expectEqual(1, proc.implementation.bytecode.instructions.len);
+    try testing.expectEqual(.load, std.meta.activeTag(proc.implementation.bytecode.instructions[0]));
+    try testing.expectEqual(.proc, std.meta.activeTag(proc.implementation.bytecode.instructions[0].load.repr));
+}
+
+test "compile lambda with multiple parameters" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const proc_val = try compile(&vm, try vm.builder().readOne("(lambda (x y) (+ x y))"));
+    const proc = try vm.fromVal(Procedure, proc_val);
+
+    // Should generate one Load instruction containing a procedure
+    try testing.expectEqual(1, proc.implementation.bytecode.instructions.len);
+    try testing.expectEqual(.load, std.meta.activeTag(proc.implementation.bytecode.instructions[0]));
+    try testing.expectEqual(.proc, std.meta.activeTag(proc.implementation.bytecode.instructions[0].load.repr));
+
+    // Check the loaded procedure has correct properties
+    const loaded_proc = try vm.fromVal(Procedure, proc.implementation.bytecode.instructions[0].load);
+    try testing.expectEqual(@as(usize, 2), loaded_proc.implementation.bytecode.args);
+    try testing.expectEqual(@as(usize, 2), loaded_proc.implementation.bytecode.locals_count);
+}
+
+test "compile lambda with no parameters" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const proc_val = try compile(&vm, try vm.builder().readOne("(lambda () 42)"));
+    const proc = try vm.fromVal(Procedure, proc_val);
+
+    // Should have one instruction that loads the procedure
+    try testing.expectEqual(1, proc.implementation.bytecode.instructions.len);
+    try testing.expectEqual(.load, std.meta.activeTag(proc.implementation.bytecode.instructions[0]));
+}
+
+test "compile lambda used in function position" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const proc_val = try compile(&vm, try vm.builder().readOne("((lambda (x) (+ x 1)) 5)"));
+    const proc = try vm.fromVal(Procedure, proc_val);
+
+    // Should compile the lambda, load 5, then evaluate
+    try testing.expect(proc.implementation.bytecode.instructions.len > 2);
+    const last_instruction = proc.implementation.bytecode.instructions[proc.implementation.bytecode.instructions.len - 1];
+    try testing.expectEqual(.eval_procedure, std.meta.activeTag(last_instruction));
+    try testing.expectEqual(@as(usize, 1), last_instruction.eval_procedure);
+}
+
+test "compile lambda with multiple body expressions" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const proc_val = try compile(&vm, try vm.builder().readOne("(lambda (x) x (+ x 1))"));
+    const proc = try vm.fromVal(Procedure, proc_val);
+
+    try testing.expectEqual(1, proc.implementation.bytecode.instructions.len);
+    try testing.expectEqual(.load, std.meta.activeTag(proc.implementation.bytecode.instructions[0]));
+}
+
+test "compile lambda with invalid parameter list fails" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Test lambda with non-symbol parameter
+    try testing.expectError(
+        Error.InvalidExpression,
+        compile(&vm, try vm.builder().readOne("(lambda (42) x)")),
+    );
+}
+
+test "compile lambda with missing parameter list fails" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectError(
+        Error.InvalidExpression,
+        compile(&vm, try vm.builder().readOne("(lambda)")),
+    );
+}
+
+test "compile lambda with missing body returns nil" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const proc_val = try compile(&vm, try vm.builder().readOne("(lambda (x))"));
+    const proc = try vm.fromVal(Procedure, proc_val);
+
+    try testing.expectEqual(1, proc.implementation.bytecode.instructions.len);
+    try testing.expectEqual(.load, std.meta.activeTag(proc.implementation.bytecode.instructions[0]));
+}
+
+test "lambda expressions integrate with evaluation" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Test simple lambda evaluation
+    try vm.expectEval("6", "((lambda (x) (+ x 1)) 5)");
+
+    // Test lambda with multiple parameters
+    try vm.expectEval("11", "((lambda (x y) (+ x y)) 5 6)");
+
+    // Test lambda with no parameters
+    try vm.expectEval("42", "((lambda () 42))");
 }

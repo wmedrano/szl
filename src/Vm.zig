@@ -44,6 +44,7 @@ const CommonSymbolTable = struct {
     begin: Symbol.Interned,
     cond: Symbol.Interned,
     define: Symbol.Interned,
+    lambda: Symbol.Interned,
     let: Symbol.Interned,
     quote: Symbol.Interned,
 
