@@ -351,7 +351,7 @@ fn evalProc(self: *Vm, proc: Val, args: []const Val) !Val {
     try instruction.load(self, proc);
     try instruction.loadMany(self, args);
     const initial_call_stack_size = self.stack_frames.items.len;
-    try instruction.evalProcedure(self, args.len);
+    try instruction.evalProc(self, args.len);
     while (self.stack_frames.items.len > initial_call_stack_size) {
         try instruction.executeNext(self);
     }

@@ -179,7 +179,7 @@ fn compileOne(self: *Compiler, expr: Val) Error!void {
         .record,
         .record_type_descriptor,
         => try self.addInstruction(Instruction.initLoad(expr)),
-        .nil => return error.InvalidExpression,
+        .nil => return Error.InvalidExpression,
         .symbol => |s| return self.compileSymbol(s),
         .pair => |p| {
             const pair = self.vm.inspector().resolve(Pair, p) catch return Error.InvalidExpression;
@@ -236,7 +236,7 @@ fn compileExpression(self: *Compiler, leading: Val, args_iter: *Inspector.ListIt
     }
     try self.compileOne(leading);
     const arg_count = try self.compileMany(args_iter, .{ .allow_zero = true });
-    try self.addInstruction(Instruction.initEvalProcedure(arg_count));
+    try self.addInstruction(Instruction.initEvalProc(arg_count));
 }
 
 /// Compiles a begin expression into bytecode.
@@ -411,10 +411,10 @@ fn compileIf(self: *Compiler, iter: *Inspector.ListIterator) Error!void {
         Instruction.initJump(jumpDistance(jump_idx + 1, self.instructions.items.len));
 }
 
-/// Compiles a define expression by pattern matching on the signature.
+/// Compiles a define expression by pattern matching on the parameters.
 /// Handles both variable definitions (define symbol value) and
 /// procedure definitions (define (name args...) body...).
-/// Dispatches to appropriate compilation method based on signature type.
+/// Dispatches to appropriate compilation method based on parameters type.
 ///
 /// Args:
 ///   self: The compiler instance.
@@ -423,15 +423,15 @@ fn compileIf(self: *Compiler, iter: *Inspector.ListIterator) Error!void {
 /// Returns:
 ///   An error if the arguments are invalid or compilation fails.
 fn compileDefine(self: *Compiler, iter: *Inspector.ListIterator) Error!void {
-    const signature_val = iter.next() catch {
+    const parameters_val = iter.next() catch {
         return Error.InvalidExpression;
     } orelse return Error.InvalidExpression;
-    switch (signature_val.repr) {
+    switch (parameters_val.repr) {
         .symbol => |sym| return self.compileDefineVal(sym, iter),
         .pair => {
-            var signature = self.vm.inspector().iterList(signature_val) catch
+            var parameters = self.vm.inspector().iterList(parameters_val) catch
                 return Error.InvalidExpression;
-            return self.compileDefineProc(&signature, iter);
+            return self.compileDefineProc(&parameters, iter);
         },
         else => return Error.InvalidExpression,
     }
@@ -456,7 +456,7 @@ fn compileDefineVal(self: *Compiler, symbol: Symbol.Interned, body: *Inspector.L
     try self.addInstruction(Instruction.initGetGlobal(self.vm.common_symbols.@"szl-define"));
     try self.addInstruction(Instruction.initLoad(Val.init(symbol)));
     try self.compileOne(expr);
-    try self.addInstruction(Instruction.initEvalProcedure(2));
+    try self.addInstruction(Instruction.initEvalProc(2));
 }
 
 /// Compiles a procedure definition into bytecode.
@@ -466,44 +466,75 @@ fn compileDefineVal(self: *Compiler, symbol: Symbol.Interned, body: *Inspector.L
 ///
 /// Args:
 ///   self: The compiler instance.
-///   signature: Iterator over the procedure signature (name and parameters).
+///   parameters: Iterator over the procedure parameters (name and parameters).
 ///   body: Iterator over the procedure body expressions.
 ///
 /// Returns:
 ///   An error if the arguments are invalid or compilation fails.
-fn compileDefineProc(self: *Compiler, signature: *Inspector.ListIterator, body: *Inspector.ListIterator) Error!void {
-    var sub_compiler = Compiler{
-        .vm = self.vm,
-    };
+fn compileDefineProc(self: *Compiler, parameters: *Inspector.ListIterator, body: *Inspector.ListIterator) Error!void {
+    var sub_compiler = Compiler{ .vm = self.vm };
     defer sub_compiler.deinit();
-    const name = signature.next() catch {
+    const name = parameters.next() catch {
         return Error.InvalidExpression;
     } orelse return Error.InvalidExpression;
     const name_sym = self.vm.fromVal(Symbol.Interned, name) catch
         return Error.InvalidExpression;
-    var arg_count: usize = 0;
-    while (signature.next() catch return Error.InvalidExpression) |arg_val| {
+    _ = try sub_compiler.scope.addBinding(self.vm.allocator, LexicalScope.Binding{
+        .name = name_sym,
+        .index = -1,
+        .type = .proc,
+    });
+    try self.addInstruction(Instruction.initGetGlobal(self.vm.common_symbols.@"szl-define"));
+    try self.addInstruction(Instruction.initLoad(Val.init(name)));
+    try self.compileProc(name_sym, parameters, body);
+    try self.addInstruction(Instruction.initEvalProc(2));
+}
+
+/// Compiles a procedure expression into bytecode.
+///
+/// This function sets up a new compiler instance with its own lexical scope.
+/// It adds each parameter in the parameters as a local argument binding,
+/// compiles the body expressions, then converts the result into a `Procedure`.
+/// The procedure is then built and loaded as a value for further use.
+///
+/// This function is used both for compiling `lambda` expressions and named
+/// procedures in `define`.
+///
+/// Args:
+///   self: The compiler instance.
+///   name: Optional symbol for the procedure name (used in `define`, nil for `lambda`).
+///   parameters: Iterator over the procedure’s formal parameters.
+///   body: Iterator over the procedure body expressions.
+///
+/// Returns:
+///   An error if parameters or body expressions are invalid or compilation fails.
+fn compileProc(self: *Compiler, name: ?Symbol.Interned, parameters: *Inspector.ListIterator, body: *Inspector.ListIterator) Error!void {
+    var sub_compiler = Compiler{ .vm = self.vm };
+    defer sub_compiler.deinit();
+    if (name) |n| {
+        _ = try sub_compiler.scope.addBinding(self.vm.allocator, LexicalScope.Binding{
+            .name = n,
+            .index = -1,
+            .type = .proc,
+        });
+    }
+    var arg_count: isize = 0;
+    while (parameters.next() catch return Error.InvalidExpression) |arg_val| {
         const arg = self.vm.fromVal(Symbol.Interned, arg_val) catch
             return Error.InvalidExpression;
-        _ = try sub_compiler.scope.addBinding(
-            self.vm.allocator,
-            LexicalScope.Binding{
-                .name = arg,
-                .index = arg_count,
-                .type = .argument,
-            },
-        );
+        _ = try sub_compiler.scope.addBinding(self.vm.allocator, LexicalScope.Binding{
+            .name = arg,
+            .index = arg_count,
+            .type = .argument,
+        });
         arg_count += 1;
     }
 
     _ = try sub_compiler.compileMany(body, .{});
-    const proc = try sub_compiler.toProcedure(name_sym);
+    const proc = try sub_compiler.toProcedure(name);
     const proc_val = self.vm.builder().build(proc) catch return Error.InvalidExpression;
 
-    try self.addInstruction(Instruction.initGetGlobal(self.vm.common_symbols.@"szl-define"));
-    try self.addInstruction(Instruction.initLoad(name));
     try self.addInstruction(Instruction.initLoad(proc_val));
-    try self.addInstruction(Instruction.initEvalProcedure(2));
 }
 
 /// Compiles a lambda expression into bytecode.
@@ -519,44 +550,15 @@ fn compileDefineProc(self: *Compiler, signature: *Inspector.ListIterator, body: 
 /// Returns:
 ///   An error if the arguments are invalid or compilation fails.
 fn compileLambda(self: *Compiler, iter: *Inspector.ListIterator) Error!void {
-    // Extract the parameter list
-    const params_val = iter.next() catch {
+    var sub_compiler = Compiler{ .vm = self.vm };
+    defer sub_compiler.deinit();
+    const args = iter.next() catch {
         return Error.InvalidExpression;
     } orelse return Error.InvalidExpression;
 
-    // Create sub-compiler for the lambda body
-    var sub_compiler = Compiler{
-        .vm = self.vm,
-    };
-    defer sub_compiler.deinit();
-
-    // Parse parameter list and add bindings
-    var params = self.vm.inspector().iterList(params_val) catch
+    var parameters = self.vm.inspector().iterList(args) catch
         return Error.InvalidExpression;
-    var arg_count: usize = 0;
-    while (params.next() catch return Error.InvalidExpression) |param_val| {
-        const param = self.vm.fromVal(Symbol.Interned, param_val) catch
-            return Error.InvalidExpression;
-        _ = try sub_compiler.scope.addBinding(
-            self.vm.allocator,
-            LexicalScope.Binding{
-                .name = param,
-                .index = arg_count,
-                .type = .argument,
-            },
-        );
-        arg_count += 1;
-    }
-
-    // Compile the lambda body
-    _ = try sub_compiler.compileMany(iter, .{ .allow_zero = true, .squash = true });
-
-    // Create the procedure (anonymous, so name is null)
-    const proc = try sub_compiler.toProcedure(null);
-    const proc_val = self.vm.builder().build(proc) catch return Error.InvalidExpression;
-
-    // Load the procedure value onto the stack
-    try self.addInstruction(Instruction.initLoad(proc_val));
+    try self.compileProc(null, &parameters, iter);
 }
 
 /// Compiles a single let binding (name expression) pair.
@@ -697,7 +699,7 @@ test "compile with expression is function call" {
         Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("+"))),
         Instruction.initLoad(Val.init(1)),
         Instruction.initLoad(Val.init(2)),
-        Instruction.initEvalProcedure(2),
+        Instruction.initEvalProc(2),
     }, &vm, "(+ 1 2)");
 }
 
@@ -711,10 +713,14 @@ test "compile with nested expression is multiple function calls" {
         Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("bar"))),
         Instruction.initLoad(Val.init(3)),
         Instruction.initLoad(Val.init(4)),
-        Instruction.initEvalProcedure(2),
-        Instruction.initEvalProcedure(3),
+        Instruction.initEvalProc(2),
+        Instruction.initEvalProc(3),
     }, &vm, "(foo 1 2 (bar 3 4))");
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// Define
+////////////////////////////////////////////////////////////////////////////////
 
 test "compile define expression" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
@@ -723,7 +729,7 @@ test "compile define expression" {
         Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("szl-define"))),
         Instruction.initLoad(try vm.builder().internStaticVal(Symbol.init("x"))),
         Instruction.initLoad(Val.init(42)),
-        Instruction.initEvalProcedure(2),
+        Instruction.initEvalProc(2),
     }, &vm, "(define x 42)");
 }
 
@@ -749,10 +755,46 @@ test "compile define procedure expression" {
         std.meta.activeTag(instructions[2].load.repr),
     );
     try testing.expectEqual(
-        Instruction.initEvalProcedure(2),
+        Instruction.initEvalProc(2),
         instructions[3],
     );
 }
+
+test "compile define procedure with recursive call" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+    const expr = try vm.builder().readOne("(define (foo x) (foo x))");
+    const proc = try vm.fromVal(Procedure, try compile(&vm, expr));
+
+    const instructions = proc.implementation.bytecode.instructions;
+
+    try testing.expectEqual(4, instructions.len);
+    try testing.expectEqual(
+        Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("szl-define"))),
+        instructions[0],
+    );
+    try testing.expectEqual(
+        Instruction.initLoad(try vm.builder().internStaticVal(Symbol.init("foo"))),
+        instructions[1],
+    );
+    const foo_proc = try vm.fromVal(Procedure, proc.implementation.bytecode.instructions[2].load);
+    try testing.expectEqualDeep(
+        &.{
+            Instruction.initGetLocal(-1),
+            Instruction.initGetLocal(0),
+            Instruction.initEvalProc(1),
+        },
+        foo_proc.implementation.bytecode.instructions,
+    );
+    try testing.expectEqual(
+        Instruction.initEvalProc(2),
+        instructions[3],
+    );
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// If
+////////////////////////////////////////////////////////////////////////////////
 
 test "compile if expression" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
@@ -766,7 +808,7 @@ test "compile if expression" {
         Instruction.initGetGlobal(plus),
         Instruction.initLoad(Val.init(1)),
         Instruction.initLoad(Val.init(2)),
-        Instruction.initEvalProcedure(2),
+        Instruction.initEvalProc(2),
         Instruction.initJump(6),
         // False branch
         Instruction.initGetGlobal(plus),
@@ -774,7 +816,7 @@ test "compile if expression" {
         Instruction.initLoad(Val.init(4)),
         Instruction.initLoad(Val.init(5)),
         Instruction.initLoad(Val.init(6)),
-        Instruction.initEvalProcedure(4),
+        Instruction.initEvalProc(4),
     }, &vm, "(if #t (+ 1 2) (+ 3 4 5 6))");
 }
 
@@ -790,7 +832,7 @@ test "compile if expression with missing false branch uses nil" {
         Instruction.initGetGlobal(plus),
         Instruction.initLoad(Val.init(1)),
         Instruction.initLoad(Val.init(2)),
-        Instruction.initEvalProcedure(2),
+        Instruction.initEvalProc(2),
         Instruction.initJump(1),
         // False branch (nil)
         Instruction.initLoad(Val.init({})),
@@ -823,6 +865,10 @@ test "if with missing false branch uses nil also branch" {
         Instruction.initLoad(Val.init({})),
     }, &vm, "(if #f 42)");
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// Cond
+////////////////////////////////////////////////////////////////////////////////
 
 test "cond with single clause" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
@@ -911,11 +957,11 @@ test "cond without clauses is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.InvalidExpression,
+        Error.InvalidExpression,
         compile(&vm, try vm.builder().readOne("(cond)")),
     );
     try testing.expectError(
-        error.InvalidExpression,
+        Error.InvalidExpression,
         compile(&vm, try vm.builder().readOne("(cond #t)")),
     );
 }
@@ -943,6 +989,10 @@ test "cond with only else expression is expression" {
         Instruction.initLoad(Val.init(43)),
     }, &vm, "(cond (else 43))");
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// Quote
+////////////////////////////////////////////////////////////////////////////////
 
 test "compile quote with integer" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
@@ -1034,6 +1084,10 @@ test "compile quote with multiple arguments fails" {
     );
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// Begin
+////////////////////////////////////////////////////////////////////////////////
+
 test "compile begin with no arguments returns nil" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
@@ -1072,14 +1126,18 @@ test "compile begin with function calls" {
         Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("+"))),
         Instruction.initLoad(Val.init(1)),
         Instruction.initLoad(Val.init(2)),
-        Instruction.initEvalProcedure(2),
+        Instruction.initEvalProc(2),
         Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("+"))),
         Instruction.initLoad(Val.init(3)),
         Instruction.initLoad(Val.init(4)),
-        Instruction.initEvalProcedure(2),
+        Instruction.initEvalProc(2),
         Instruction.initSquash(2),
     }, &vm, "(begin (+ 1 2) (+ 3 4))");
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// Let
+////////////////////////////////////////////////////////////////////////////////
 
 test "compile let with single binding" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
@@ -1112,7 +1170,7 @@ test "compile let with multiple bindings" {
         Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("+"))),
         Instruction.initGetLocal(0),
         Instruction.initGetLocal(1),
-        Instruction.initEvalProcedure(2),
+        Instruction.initEvalProc(2),
     }, &vm, src);
 }
 
@@ -1139,7 +1197,7 @@ test "compile let with multiple body expressions returns last" {
         Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("+"))),
         Instruction.initGetLocal(0),
         Instruction.initLoad(Val.init(1)),
-        Instruction.initEvalProcedure(2),
+        Instruction.initEvalProc(2),
         // Keep only the last value
         Instruction.initSquash(2),
     }, &vm, "(let ((x 5)) x (+ x 1))");
@@ -1154,13 +1212,13 @@ test "compile let with expression in binding" {
         Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("+"))),
         Instruction.initLoad(Val.init(3)),
         Instruction.initLoad(Val.init(4)),
-        Instruction.initEvalProcedure(2),
+        Instruction.initEvalProc(2),
         Instruction.initSetLocal(0),
         // Evaluate body
         Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("*"))),
         Instruction.initGetLocal(0),
         Instruction.initLoad(Val.init(2)),
-        Instruction.initEvalProcedure(2),
+        Instruction.initEvalProc(2),
     }, &vm, "(let ((x (+ 3 4))) (* x 2))");
 }
 
@@ -1199,7 +1257,7 @@ test "compile nested let expressions" {
         Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("+"))),
         Instruction.initGetLocal(0),
         Instruction.initGetLocal(1),
-        Instruction.initEvalProcedure(2),
+        Instruction.initEvalProc(2),
     }, &vm, "(let ((x 10)) (let ((y 5)) (+ x y)))");
 }
 
@@ -1246,6 +1304,10 @@ test "compile let with missing bindings fails" {
         compile(&vm, try vm.builder().readOne("(let)")),
     );
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// Lambda
+////////////////////////////////////////////////////////////////////////////////
 
 test "compile lambda with single parameter" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
@@ -1300,8 +1362,8 @@ test "compile lambda used in function position" {
     // Should compile the lambda, load 5, then evaluate
     try testing.expect(proc.implementation.bytecode.instructions.len > 2);
     const last_instruction = proc.implementation.bytecode.instructions[proc.implementation.bytecode.instructions.len - 1];
-    try testing.expectEqual(.eval_procedure, std.meta.activeTag(last_instruction));
-    try testing.expectEqual(@as(usize, 1), last_instruction.eval_procedure);
+    try testing.expectEqual(.eval_proc, std.meta.activeTag(last_instruction));
+    try testing.expectEqual(@as(usize, 1), last_instruction.eval_proc);
 }
 
 test "compile lambda with multiple body expressions" {
@@ -1336,15 +1398,14 @@ test "compile lambda with missing parameter list fails" {
     );
 }
 
-test "compile lambda with missing body returns nil" {
+test "compile lambda with missing body returns InvalidExpression" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const proc_val = try compile(&vm, try vm.builder().readOne("(lambda (x))"));
-    const proc = try vm.fromVal(Procedure, proc_val);
-
-    try testing.expectEqual(1, proc.implementation.bytecode.instructions.len);
-    try testing.expectEqual(.load, std.meta.activeTag(proc.implementation.bytecode.instructions[0]));
+    try testing.expectError(
+        Error.InvalidExpression,
+        compile(&vm, try vm.builder().readOne("(lambda (x))")),
+    );
 }
 
 test "lambda expressions integrate with evaluation" {

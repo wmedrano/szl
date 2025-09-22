@@ -26,13 +26,13 @@ pub const Instruction = union(enum) {
     get_global: Symbol.Interned,
     /// Instruction to retrieve a local variable value and load it onto the stack.
     /// The associated index specifies which local variable (relative to stack frame start) to retrieve.
-    get_local: usize,
+    get_local: isize,
     /// Instruction to set a local variable value from the top of the stack.
     /// The associated index specifies which local variable (relative to stack frame start) to set.
-    set_local: usize,
+    set_local: isize,
     /// Instruction to evaluate a procedure with arguments from the stack.
     /// The arg_count specifies how many arguments to pass to the procedure.
-    eval_procedure: usize,
+    eval_proc: usize,
     /// Instruction to return from the current procedure.
     /// Restores the previous stack frame and places the return value at the correct position.
     return_value,
@@ -55,8 +55,8 @@ pub const Instruction = union(enum) {
     }
 
     /// Creates a new eval_procedure instruction with the given argument count.
-    pub fn initEvalProcedure(arg_count: usize) Instruction {
-        return Instruction{ .eval_procedure = arg_count };
+    pub fn initEvalProc(arg_count: usize) Instruction {
+        return Instruction{ .eval_proc = arg_count };
     }
 
     /// Creates a new get_global instruction with the given symbol.
@@ -66,13 +66,13 @@ pub const Instruction = union(enum) {
 
     /// Creates a new get_local instruction with the given local variable index.
     /// The index is relative to the current stack frame's starting position.
-    pub fn initGetLocal(index: usize) Instruction {
+    pub fn initGetLocal(index: isize) Instruction {
         return Instruction{ .get_local = index };
     }
 
     /// Creates a new set_local instruction with the given local variable index.
     /// The index is relative to the current stack frame's starting position.
-    pub fn initSetLocal(index: usize) Instruction {
+    pub fn initSetLocal(index: isize) Instruction {
         return Instruction{ .set_local = index };
     }
 
@@ -125,7 +125,7 @@ pub const Instruction = union(enum) {
             .get_global => |symbol| return getGlobal(vm, symbol),
             .get_local => |idx| return getLocal(vm, idx),
             .set_local => |idx| return setLocal(vm, idx),
-            .eval_procedure => |arg_count| return evalProcedure(vm, arg_count),
+            .eval_proc => |arg_count| return evalProc(vm, arg_count),
             .return_value => return returnValue(vm),
             .raise_error => return raiseError(vm),
             .jump => |offset| return jump(vm, offset),
@@ -211,9 +211,9 @@ pub fn getGlobal(vm: *Vm, symbol: Symbol.Interned) !void {
 ///
 /// Errors:
 ///   - May return memory allocation errors if the stack cannot be expanded.
-pub fn getLocal(vm: *Vm, idx: usize) !void {
-    const absolute_idx = vm.current_stack_frame.stack_start + idx;
-    try load(vm, vm.stack.items[absolute_idx]);
+pub fn getLocal(vm: *Vm, idx: isize) !void {
+    const absolute_idx = @as(isize, @intCast(vm.current_stack_frame.stack_start)) + idx;
+    try load(vm, vm.stack.items[@intCast(absolute_idx)]);
 }
 
 /// Sets a local variable value by popping a value from the stack.
@@ -226,10 +226,10 @@ pub fn getLocal(vm: *Vm, idx: usize) !void {
 ///
 /// Errors:
 ///   - May return StackUnderflow if the stack is empty when trying to pop the value.
-pub fn setLocal(vm: *Vm, idx: usize) !void {
+pub fn setLocal(vm: *Vm, idx: isize) !void {
     const val = vm.stack.pop() orelse return error.StackUnderflow;
-    const absolute_idx = vm.current_stack_frame.stack_start + idx;
-    vm.stack.items[absolute_idx] = val;
+    const absolute_idx = @as(isize, @intCast(vm.current_stack_frame.stack_start)) + idx;
+    vm.stack.items[@intCast(absolute_idx)] = val;
 }
 
 /// Returns from the current procedure call, restoring the previous execution context.
@@ -263,13 +263,13 @@ pub fn returnValue(vm: *Vm) !void {
 /// Errors:
 ///   - May return memory allocation errors if stack frame operations fail.
 ///   - May return StackUnderflow if there are no stack frames to restore.
-pub fn evalProcedure(vm: *Vm, arg_count: usize) !void {
+pub fn evalProc(vm: *Vm, arg_count: usize) !void {
+    const stack_start = vm.stack.items.len - arg_count;
+    const proc_idx = stack_start - 1;
+    const proc_val = vm.stack.items[proc_idx];
+    const proc = try vm.fromVal(Procedure, proc_val);
     try vm.stack_frames.append(vm.allocator, vm.current_stack_frame);
-    vm.current_stack_frame = Vm.StackFrame{
-        .stack_start = vm.stack.items.len - arg_count,
-    };
-    const proc_idx = vm.current_stack_frame.stack_start - 1;
-    const proc = try vm.fromVal(Procedure, vm.stack.items[proc_idx]);
+    vm.current_stack_frame = Vm.StackFrame{ .stack_start = stack_start };
     switch (proc.implementation) {
         .native => |native| {
             const return_val = native.func(Procedure.Context{ .vm = vm });
@@ -285,8 +285,8 @@ pub fn evalProcedure(vm: *Vm, arg_count: usize) !void {
                 raiseWithError(vm, Val.init(vm.common_symbols.@"invalid-procedure"));
                 return error.SzlError;
             }
-            for (0..bytecode.locals_count - bytecode.args) |_|
-                try load(vm, Val.init({}));
+            const placeholder_count = bytecode.locals_count - bytecode.args;
+            try vm.stack.appendNTimes(vm.allocator, Val.init({}), placeholder_count);
             vm.current_stack_frame.instructions = bytecode.instructions;
         },
     }
@@ -402,7 +402,7 @@ test "execute eval_procedure instruction calls procedure with arguments" {
         Val.init(20),
     });
 
-    try Instruction.execute(Instruction.initEvalProcedure(2), &vm);
+    try Instruction.execute(Instruction.initEvalProc(2), &vm);
     try testing.expectFmt(
         "(30)",
         "{f}",
@@ -425,7 +425,7 @@ test "execute bytecode procedure loads instructions into stack frame" {
     try load(&vm, proc);
 
     // Call procedure with 0 arguments - should set up new stack frame with the bytecode instructions
-    try Instruction.execute(Instruction.initEvalProcedure(0), &vm);
+    try Instruction.execute(Instruction.initEvalProc(0), &vm);
     try testing.expectEqualDeep(
         Vm.StackFrame{
             .stack_start = 1,
@@ -459,7 +459,7 @@ test "execute bytecode procedure with arguments sets correct stack start" {
         Val.init(30),
     });
 
-    try Instruction.execute(Instruction.initEvalProcedure(3), &vm);
+    try Instruction.execute(Instruction.initEvalProc(3), &vm);
     try testing.expectEqualDeep(
         Vm.StackFrame{
             .stack_start = 1,
@@ -492,7 +492,7 @@ test "return_value restores previous stack frame and places return value on top"
         Val.init(10),
         Val.init(20),
     });
-    try evalProcedure(&vm, 2);
+    try evalProc(&vm, 2);
     try load(&vm, Val.init(999)); // This becomes the return value
     try testing.expectEqual(1, vm.stack_frames.items.len);
     try testing.expectEqualDeep(
@@ -1146,7 +1146,7 @@ test "bytecode procedure with locals_count > args allocates additional local var
         Val.init(20), // second argument
     });
 
-    try Instruction.execute(Instruction.initEvalProcedure(2), &vm);
+    try Instruction.execute(Instruction.initEvalProc(2), &vm);
 
     // Execute the get_local instructions to verify local variables
     try executeNext(&vm); // Get local 0 (arg 0)
@@ -1184,7 +1184,7 @@ test "bytecode procedure with locals_count equal to args works correctly" {
         Val.init(99),
     });
 
-    try Instruction.execute(Instruction.initEvalProcedure(2), &vm);
+    try Instruction.execute(Instruction.initEvalProc(2), &vm);
 
     // Should work without allocating additional locals
     try testing.expectEqual(.proc, std.meta.activeTag(vm.stack.items[0].repr));
@@ -1218,7 +1218,7 @@ test "bytecode procedure with locals_count < args raises error" {
         Val.init(30),
     });
 
-    try testing.expectError(error.SzlError, Instruction.execute(Instruction.initEvalProcedure(3), &vm));
+    try testing.expectError(error.SzlError, Instruction.execute(Instruction.initEvalProc(3), &vm));
     // Verify error was set
     try testing.expect(vm.err != null);
 }
@@ -1242,7 +1242,7 @@ test "bytecode procedure with wrong argument count raises error" {
         Val.init(10), // only 1 argument, but procedure expects 2
     });
 
-    try testing.expectError(error.SzlError, Instruction.execute(Instruction.initEvalProcedure(1), &vm));
+    try testing.expectError(error.SzlError, Instruction.execute(Instruction.initEvalProc(1), &vm));
     // Verify error was set
     try testing.expect(vm.err != null);
 }
@@ -1268,7 +1268,7 @@ test "bytecode procedure initializes additional locals to unit values" {
         Val.init(42), // argument
     });
 
-    try Instruction.execute(Instruction.initEvalProcedure(1), &vm);
+    try Instruction.execute(Instruction.initEvalProc(1), &vm);
 
     // Push a value to set the additional local
     try load(&vm, Val.init(777));

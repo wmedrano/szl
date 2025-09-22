@@ -35,11 +35,13 @@ pub const Id = struct {
 ///
 /// Binding types represent different states and scopes of variable bindings:
 /// - `argument`: Procedure parameter, available from function start
+/// - `proc`: The current procedure, available from function start
 /// - `local`: Local variable, available for normal resolution
 /// - `hidden`: Temporary state for bindings not yet available (used in let expressions)
 /// - `free`: Cleared binding, slot can be reused
 pub const BindingType = enum {
     argument,
+    proc,
     local,
     hidden,
     free,
@@ -51,7 +53,7 @@ pub const Binding = struct {
     /// The interned symbol name for this binding.
     name: Symbol.Interned,
     /// The local variable index in the stack frame where this binding's value is stored.
-    index: usize,
+    index: isize,
     /// The type of this binding.
     type: BindingType,
 };
@@ -149,7 +151,7 @@ pub fn clear(self: *LexicalScope, id: Id) void {
 ///
 /// Returns:
 ///   The lowest available slot index that can be used for a new binding.
-fn reserveSlot(self: LexicalScope) usize {
+fn reserveSlot(self: LexicalScope) isize {
     for (0..self.bindings.items.len + 1) |idx| {
         var ok = true;
         for (self.bindings.items) |b| {
@@ -158,7 +160,7 @@ fn reserveSlot(self: LexicalScope) usize {
                 break;
             }
         }
-        if (ok) return idx;
+        if (ok) return @intCast(idx);
     }
     unreachable;
 }
@@ -194,13 +196,13 @@ pub fn addVariable(self: *LexicalScope, allocator: std.mem.Allocator, symbol: Sy
 /// Returns:
 ///   The number of procedure arguments (largest procedure_arg index + 1).
 pub fn procedureArgCount(self: *LexicalScope) usize {
-    var arg_count: usize = 0;
+    var arg_count: isize = 0;
     for (self.bindings.items) |binding| {
         if (binding.type == .argument) {
             if (binding.index + 1 > arg_count) arg_count = binding.index + 1;
         }
     }
-    return arg_count;
+    return @intCast(arg_count);
 }
 
 /// Returns the total number of local variable slots used in the current lexical scope.
@@ -213,9 +215,9 @@ pub fn procedureArgCount(self: *LexicalScope) usize {
 /// Returns:
 ///   The total number of local variable slots (largest binding index + 1).
 pub fn count(self: *LexicalScope) usize {
-    var arg_count: usize = 0;
+    var arg_count: isize = 0;
     for (self.bindings.items) |binding| {
         if (binding.index + 1 > arg_count) arg_count = binding.index + 1;
     }
-    return arg_count;
+    return @intCast(arg_count);
 }
