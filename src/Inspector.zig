@@ -16,6 +16,7 @@ const Procedure = @import("Procedure.zig");
 const String = @import("String.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
+const Vector = @import("Vector.zig");
 const Vm = @import("Vm.zig");
 
 const Inspector = @This();
@@ -215,6 +216,11 @@ pub fn to(self: Inspector, T: type, val: Val) !T {
             String => return self.vm.strings.get(s),
             else => return error.TypeMismatch,
         },
+        .vector => |v| switch (T) {
+            Handle(Vector) => return v,
+            Vector => return self.resolve(Vector, v),
+            else => return error.TypeMismatch,
+        },
         .symbol => |s| switch (T) {
             Symbol.Interned => return s,
             Symbol => return self.vm.interner.get(s),
@@ -247,7 +253,8 @@ pub fn resolve(self: Inspector, T: type, handle: Handle(T)) !T {
         Pair => self.vm.pairs.get(handle) orelse error.ObjectNotFound,
         Procedure => self.vm.procedures.get(handle) orelse error.ObjectNotFound,
         String => self.vm.strings.get(handle) orelse return error.ObjectNotFound,
-        else => @compileError("resolve() only supports Pair, Procedure, and String, got " ++ @typeName(T)),
+        Vector => self.vm.vectors.get(handle) orelse return error.ObjectNotFound,
+        else => @compileError("resolve() only supports Pair, Procedure, String, and Vector, got " ++ @typeName(T)),
     };
 }
 

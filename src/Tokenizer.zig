@@ -39,6 +39,7 @@ pub fn next(self: *Tokenizer) ?Span {
     if (isParen(next_char)) return self.eat();
     if (next_char == '\'') return self.eat();
     if (std.mem.startsWith(u8, self.rest(), "#\\")) return self.eatCharacterLiteral();
+    if (std.mem.startsWith(u8, self.rest(), "#(")) return self.eatVectorStart();
     if (next_char == '"') return self.eatStringLiteral();
     return self.eatSymbol();
 }
@@ -144,6 +145,42 @@ fn eatStringLiteral(self: *Tokenizer) Span {
     }
 
     return Span{ .start = start, .end = self.idx };
+}
+
+/// Consumes a vector start token "#(" and returns its span.
+fn eatVectorStart(self: *Tokenizer) Span {
+    const start = self.idx;
+    // Consume "#("
+    _ = self.eat(); // consume '#'
+    _ = self.eat(); // consume '('
+    return Span{ .start = start, .end = self.idx };
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Vector Tokenization Tests
+////////////////////////////////////////////////////////////////////////////////
+
+test "vector start token #(" {
+    var tokenizer = init("#(");
+    try testing.expectEqualStrings("#(", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
+}
+
+test "vector with elements" {
+    var tokenizer = init("#(1 2 3)");
+    try testing.expectEqualStrings("#(", tokenizer.nextText().?);
+    try testing.expectEqualStrings("1", tokenizer.nextText().?);
+    try testing.expectEqualStrings("2", tokenizer.nextText().?);
+    try testing.expectEqualStrings("3", tokenizer.nextText().?);
+    try testing.expectEqualStrings(")", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
+}
+
+test "empty vector" {
+    var tokenizer = init("#()");
+    try testing.expectEqualStrings("#(", tokenizer.nextText().?);
+    try testing.expectEqualStrings(")", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
 }
 
 ////////////////////////////////////////////////////////////////////////////////

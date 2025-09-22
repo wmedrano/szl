@@ -16,6 +16,7 @@ const Procedure = @import("Procedure.zig");
 const String = @import("String.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
+const Vector = @import("Vector.zig");
 const Vm = @import("Vm.zig");
 
 const PrettyPrinter = @This();
@@ -138,6 +139,18 @@ fn formatValue(self: PrettyPrinter, writer: *std.Io.Writer, val: Val) error{Writ
                 }
             }
             try writer.writeByte('"');
+        },
+        .vector => |v| {
+            const vector = self.vm.inspector().resolve(Vector, v) catch {
+                try writer.writeAll("#<invalid-vector>");
+                return;
+            };
+            try writer.writeAll("#(");
+            for (vector.slice(), 0..) |value, i| {
+                if (i > 0) try writer.writeByte(' ');
+                try self.formatValue(writer, value);
+            }
+            try writer.writeByte(')');
         },
         .symbol => |sym| {
             const symbol = self.vm.interner.get(sym) catch |err| switch (err) {
@@ -521,6 +534,52 @@ test "string with control characters formats with hex escapes" {
 
     try testing.expectFmt(
         "\"hi\\x01\\x1F!\"",
+        "{f}",
+        .{PrettyPrinter{ .vm = &vm, .val = val }},
+    );
+}
+
+test "vector formats with #() syntax" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const values = [_]Val{ Val.init(1), Val.init(2), Val.init(3) };
+    const vector = try Vector.initFromSlice(testing.allocator, &values);
+    const val = Val.init(try vm.vectors.put(testing.allocator, vector));
+
+    try testing.expectFmt(
+        "#(1 2 3)",
+        "{f}",
+        .{PrettyPrinter{ .vm = &vm, .val = val }},
+    );
+}
+
+test "empty vector formats correctly" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const vector = Vector.init();
+    const vector_handle = try vm.vectors.put(testing.allocator, vector);
+    const val = Val{ .repr = .{ .vector = vector_handle } };
+
+    try testing.expectFmt(
+        "#()",
+        "{f}",
+        .{PrettyPrinter{ .vm = &vm, .val = val }},
+    );
+}
+
+test "vector with mixed types formats correctly" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const values = [_]Val{ Val.init(42), Val.init(true), Val.init({}), try vm.toVal(String.initStatic("hello")) };
+    const vector = try Vector.initFromSlice(testing.allocator, &values);
+    const vector_handle = try vm.vectors.put(testing.allocator, vector);
+    const val = Val{ .repr = .{ .vector = vector_handle } };
+
+    try testing.expectFmt(
+        "#(42 #t () \"hello\")",
         "{f}",
         .{PrettyPrinter{ .vm = &vm, .val = val }},
     );

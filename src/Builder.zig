@@ -14,6 +14,7 @@ const Reader = @import("Reader.zig");
 const String = @import("String.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
+const Vector = @import("Vector.zig");
 const Vm = @import("Vm.zig");
 
 const Builder = @This();
@@ -37,6 +38,8 @@ const Error = error{OutOfMemory};
 ///   - Handle(Pair): Direct pair handles
 ///   - Pair: Stored in object pool and converted to pair values
 ///   - Handle(Procedure): Direct procedure handles
+///   - Handle(Vector): Direct vector handles
+///   - Vector: Stored in object pool and converted to vector values
 ///   - Procedure: Stored in object pool and converted to procedure values
 ///   - []const Val, []Val: Converted to proper Scheme lists
 ///
@@ -59,11 +62,13 @@ pub fn build(self: Builder, v: anytype) Error!Val {
         Handle(String),
         Handle(Pair),
         Handle(Procedure),
+        Handle(Vector),
         => return Val.init(v),
         Symbol => return self.internVal(v),
         String => return Val.init(try self.vm.strings.put(self.vm.allocator, v)),
         Pair => return Val.init(try self.vm.pairs.put(self.vm.allocator, v)),
         Procedure => return Val.init(try self.vm.procedures.put(self.vm.allocator, v)),
+        Vector => return Val.init(try self.vm.vectors.put(self.vm.allocator, v)),
         []const Val, []Val => {
             if (v.len == 0) return self.build({});
             var val = try self.build({});
@@ -595,4 +600,33 @@ test "build with Handle(String) creates string val" {
 
     try testing.expectEqual(.string, std.meta.activeTag(result.repr));
     try testing.expectEqual(string_handle, result.repr.string);
+}
+
+test "build with Vector creates vector val" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const values = [_]Val{ Val.init(1), Val.init(2), Val.init(3) };
+    const test_vector = try Vector.initFromSlice(testing.allocator, &values);
+    const result = try vm.builder().build(test_vector);
+
+    try testing.expectEqual(.vector, std.meta.activeTag(result.repr));
+    try testing.expectFmt(
+        "#(1 2 3)",
+        "{f}",
+        .{vm.inspector().pretty(result)},
+    );
+}
+
+test "build with Handle(Vector) creates vector val" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const values = [_]Val{ Val.init(42), Val.init(true) };
+    const test_vector = try Vector.initFromSlice(testing.allocator, &values);
+    const vector_handle = try vm.vectors.put(testing.allocator, test_vector);
+    const result = try vm.builder().build(vector_handle);
+
+    try testing.expectEqual(.vector, std.meta.activeTag(result.repr));
+    try testing.expectEqual(vector_handle, result.repr.vector);
 }

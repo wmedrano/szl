@@ -22,6 +22,7 @@ const Procedure = @import("Procedure.zig");
 const String = @import("String.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
+const Vector = @import("Vector.zig");
 
 const Vm = @This();
 
@@ -91,6 +92,10 @@ procedures: ObjectPool(Procedure),
 /// Provides efficient allocation and deallocation of string values.
 strings: ObjectPool(String),
 
+/// Object pool for managing Vector objects with automatic memory recycling.
+/// Provides efficient allocation and deallocation of vector values.
+vectors: ObjectPool(Vector),
+
 /// Error state for the virtual machine. When set, indicates that an error
 /// has occurred during execution and should be handled or propagated.
 err: ?Val = null,
@@ -135,6 +140,7 @@ pub fn init(options: Options) !Vm {
         .pairs = ObjectPool(Pair).init(),
         .procedures = ObjectPool(Procedure).init(),
         .strings = ObjectPool(String).init(),
+        .vectors = ObjectPool(Vector).init(),
         .common_symbols = undefined,
     };
     vm.common_symbols = try vm.builder().symbolTable(CommonSymbolTable);
@@ -162,6 +168,12 @@ pub fn deinit(self: *Vm) void {
         mutable_string.deinit(self.allocator);
     }
     self.strings.deinit(self.allocator);
+    var vector_iter = self.vectors.iterator();
+    while (vector_iter.next()) |vector| {
+        var mutable_vector = vector;
+        mutable_vector.deinit(self.allocator);
+    }
+    self.vectors.deinit(self.allocator);
 }
 
 fn PrettyReturnType(comptime T: type) type {
@@ -336,7 +348,7 @@ pub fn expectEval(self: *Vm, expected: []const u8, input: []const u8) !void {
     try testing.expectFmt(expected, "{f}", .{self.pretty(actual_val)});
     switch (expected_val.repr) {
         .nil, .boolean, .i64, .f64, .char, .symbol => try testing.expectEqual(expected_val, actual_val),
-        .string, .pair, .proc => {},
+        .string, .pair, .proc, .vector => {},
     }
 }
 

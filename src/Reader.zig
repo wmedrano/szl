@@ -14,6 +14,7 @@ const String = @import("String.zig");
 const Symbol = @import("Symbol.zig");
 const Tokenizer = @import("Tokenizer.zig");
 const Val = @import("Val.zig");
+const Vector = @import("Vector.zig");
 const Vm = @import("Vm.zig");
 
 const Reader = @This();
@@ -112,6 +113,10 @@ fn parseTokenValue(self: *Reader, token: []const u8) Error!ParseResult {
         const quoted = try self.nextQuoted();
         return ParseResult{ .value = quoted };
     }
+    if (std.mem.eql(u8, token, "#(")) {
+        const vector = try self.nextVector();
+        return ParseResult{ .value = vector };
+    }
     const val = try self.parseToken(token);
     return ParseResult{ .value = val };
 }
@@ -160,6 +165,34 @@ fn nextExpression(self: *Reader) !?Val {
         switch (try self.parseTokenValue(token)) {
             .value => |val| try expressions.append(self.vm.allocator, val),
             .end_expression => return try self.vm.toVal(expressions.items),
+        }
+    }
+    return error.BadExpression;
+}
+
+/// Parses a vector literal starting with "#(" and ending with ")".
+///
+/// Reads elements from the tokenizer until a closing parenthesis is encountered,
+/// then creates a vector containing all the parsed elements.
+///
+/// Args:
+///   self: Pointer to the Reader instance.
+///
+/// Returns:
+///   A parsed vector value containing all elements.
+///
+/// Errors:
+///   - BadExpression: If the vector is malformed or unclosed.
+fn nextVector(self: *Reader) !Val {
+    var elements = std.ArrayList(Val){};
+    defer elements.deinit(self.vm.allocator);
+    while (self.tokenizer.nextText()) |token| {
+        switch (try self.parseTokenValue(token)) {
+            .value => |val| try elements.append(self.vm.allocator, val),
+            .end_expression => {
+                const vector = try Vector.initFromSlice(self.vm.allocator, elements.items);
+                return try self.vm.toVal(vector);
+            },
         }
     }
     return error.BadExpression;
@@ -1396,4 +1429,76 @@ test "readOne with string containing unicode characters returns string value" {
     defer vm.deinit();
 
     try vm.expectReadOne(.string, "\"héllo 🤖\"", "\"héllo 🤖\"");
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Vector tests
+////////////////////////////////////////////////////////////////////////////////
+
+test "readOne with empty vector returns vector value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectReadOne(.vector, "#()", "#()");
+}
+
+test "readOne with simple vector returns vector value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectReadOne(.vector, "#(1 2 3)", "#(1 2 3)");
+}
+
+test "readOne with mixed type vector returns vector value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectReadOne(.vector, "#(42 #t () \"hello\")", "#(42 #t () \"hello\")");
+}
+
+test "readOne with nested vectors returns vector value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectReadOne(.vector, "#(#(1 2) #(3 4))", "#(#(1 2) #(3 4))");
+}
+
+test "readOne with vector containing lists returns vector value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectReadOne(.vector, "#((a b) (c d))", "#((a b) (c d))");
+}
+
+test "readOne with single element vector returns vector value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectReadOne(.vector, "#(42)", "#(42)");
+}
+
+test "readOne with unclosed vector returns BadExpression error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectError(
+        error.BadExpression,
+        readOne(&vm, "#(1 2 3"),
+    );
+}
+
+test "readOne evaluates vector elements correctly" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "#(1 #t \"hello\")");
+    try testing.expectEqual(.vector, std.meta.activeTag(result.repr));
+
+    const vector = try vm.inspector().to(Vector, result);
+    try testing.expectEqual(3, vector.len());
+
+    try testing.expectEqual(Val.init(1), try vector.get(0));
+    try testing.expectEqual(Val.init(true), try vector.get(1));
+    const string_val = try vector.get(2);
+    try testing.expectEqual(.string, std.meta.activeTag(string_val.repr));
 }

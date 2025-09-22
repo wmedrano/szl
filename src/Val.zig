@@ -15,6 +15,7 @@ const Pair = @import("Pair.zig");
 const Procedure = @import("Procedure.zig");
 const String = @import("String.zig");
 const Symbol = @import("Symbol.zig");
+const Vector = @import("Vector.zig");
 const Vm = @import("Vm.zig");
 
 const Val = @This();
@@ -63,6 +64,10 @@ pub const Repr = union(enum) {
     /// Represents a procedure (function) that can be called in the interpreter.
     /// Procedures include both built-in functions and user-defined functions.
     proc: Handle(Procedure),
+
+    /// Represents a vector using a handle to an object pool.
+    /// Vectors in Scheme are sequences of values that can be accessed by index.
+    vector: Handle(Vector),
 };
 
 /// Create a new `Val` for a supported type.
@@ -78,8 +83,9 @@ pub const Repr = union(enum) {
 ///   - Handle(String): Converted to string values
 ///   - Handle(Pair): Converted to pair values
 ///   - Handle(Procedure): Converted to procedure values
+///   - Handle(Vector): Converted to vector values
 ///
-/// For more complex types like Symbol, Pair, or Procedure structs, use `Vm.builder()`.
+/// For more complex types like Symbol, Pair, Procedure, or Vector structs, use `Vm.builder()`.
 pub fn init(v: anytype) Val {
     const type_info = @TypeOf(v);
     switch (type_info) {
@@ -94,6 +100,7 @@ pub fn init(v: anytype) Val {
         Handle(String) => return init(Val.Repr{ .string = v }),
         Handle(Pair) => return init(Val.Repr{ .pair = v }),
         Handle(Procedure) => return init(Val.Repr{ .proc = v }),
+        Handle(Vector) => return init(Val.Repr{ .vector = v }),
         else => @compileError("type " ++ @typeName(type_info) ++ " not supported for Val.init."),
     }
 }
@@ -179,6 +186,20 @@ pub fn isString(self: Val) bool {
 pub fn isNumber(self: Val) bool {
     return switch (self.repr) {
         .i64, .f64 => true,
+        else => false,
+    };
+}
+
+/// Determines if a value is a vector.
+///
+/// Args:
+///   self: The value to test for vector type.
+///
+/// Returns:
+///   true if the value is a vector, false otherwise.
+pub fn isVector(self: Val) bool {
+    return switch (self.repr) {
+        .vector => true,
         else => false,
     };
 }
@@ -414,4 +435,35 @@ test "string values are truthy" {
 
     const empty_val = try vm.toVal(String.init());
     try testing.expectEqual(true, empty_val.isTruthy());
+}
+
+test "isVector returns true for vector values" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const vector_val = try vm.toVal(Vector.init());
+    try testing.expectEqual(true, vector_val.isVector());
+}
+
+test "isVector returns false for non-vector values" {
+    const bool_val = Val.init(true);
+    const int_val = Val.init(42);
+    const nil_val = Val.init({});
+
+    try testing.expectEqual(false, bool_val.isVector());
+    try testing.expectEqual(false, int_val.isVector());
+    try testing.expectEqual(false, nil_val.isVector());
+}
+
+test "vector values are truthy" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const vector_val = try vm.toVal(Vector.init());
+    try testing.expectEqual(true, vector_val.isTruthy());
+
+    const values = [_]Val{ Val.init(1), Val.init(2) };
+    const filled_vector = try Vector.initFromSlice(testing.allocator, &values);
+    const filled_vector_val = try vm.toVal(filled_vector);
+    try testing.expectEqual(true, filled_vector_val.isTruthy());
 }
