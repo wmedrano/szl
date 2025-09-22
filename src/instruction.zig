@@ -48,6 +48,7 @@ pub const Instruction = union(enum) {
     /// Instruction to squash the top n values on the stack, keeping only the topmost value.
     /// Takes n values from the stack and leaves only the top one.
     squash: usize,
+    swap,
 
     /// Creates a new load instruction with the given value.
     pub fn initLoad(val: Val) Instruction {
@@ -96,6 +97,10 @@ pub const Instruction = union(enum) {
         return Instruction{ .squash = count };
     }
 
+    pub fn initSwap() Instruction {
+        return Instruction{ .swap = {} };
+    }
+
     /// Executes this instruction on the given virtual machine.
     /// Dispatches to the appropriate instruction handler based on the instruction type.
     ///
@@ -132,6 +137,7 @@ pub const Instruction = union(enum) {
             .jump => |offset| return jump(vm, offset),
             .jump_if_not => |params| return jumpIfNot(vm, params.steps, params.pop),
             .squash => |count| return squash(vm, count),
+            .swap => return swap(vm),
         }
     }
 };
@@ -359,6 +365,12 @@ pub fn squash(vm: *Vm, count: usize) !void {
     const new_len = vm.stack.items.len - count + 1;
     vm.stack.items[new_len - 1] = top_value;
     try vm.stack.resize(vm.allocator, new_len);
+}
+
+pub fn swap(vm: *Vm) void {
+    const a_idx = vm.stack.items.len - 1;
+    const b_idx = vm.stack.items.len - 2;
+    std.mem.swap(Val, &vm.stack.items[a_idx], &vm.stack.items[b_idx]);
 }
 
 test "Instruction size is 24 bytes" {

@@ -269,108 +269,108 @@ fn jumpDistance(start: usize, target: usize) isize {
     return @as(isize, @intCast(target)) - @as(isize, @intCast(start));
 }
 
-/// Represents the jump indices needed for a single cond clause.
-const ClauseJumps = struct {
-    jump_if_not_pop: bool,
-    jump_if_not_index: usize,
-    jump_to_end_index: usize,
-};
-
-/// Compiles a single clause in a cond expression, returning jump indices for
-/// later patching.
-///
-/// Returns null if this is an 'else' clause that should terminate clause processing.
-fn compileCondClause(self: *Compiler, clause_val: Val) Error!?ClauseJumps {
-    var clause_iter = self.vm.inspector().iterList(clause_val) catch return Error.InvalidExpression;
-
-    // Extract and compile the predicate
-    const predicate = clause_iter.next() catch {
-        return Error.InvalidExpression;
-    } orelse return Error.InvalidExpression;
-
-    // Handle 'else' clause specially
-    if (std.meta.eql(predicate, Val.init(self.vm.common_symbols.@"else"))) {
-        _ = try self.compileMany(&clause_iter, .{ .squash = true });
-        return null; // Signal that this was an else clause
+/// Backpatches all jumps with correct distances
+fn backpatchJumps(
+    self: *Compiler,
+    end_jumps: []const usize,
+    conditional_jumps: []const usize,
+    pop_flags: []const bool,
+) void {
+    // Backpatch all jump-to-end instructions
+    for (end_jumps) |jump_idx| {
+        self.instructions.items[jump_idx] =
+            Instruction.initJump(jumpDistance(jump_idx + 1, self.instructions.items.len));
     }
 
-    // Compile predicate and add conditional jump
-    try self.compileOne(predicate);
-    const jump_if_not_index = self.instructions.items.len;
-    try self.addInstruction(Instruction.initJumpIfNot(.{ .steps = 0 })); // Placeholder, will be patched later
-
-    // Check for arrow syntax (=>)
-    const next_expr = clause_iter.peek() catch return Error.InvalidExpression;
-    var uses_arrow_syntax = false;
-    if (next_expr) |expr| {
-        uses_arrow_syntax = std.meta.eql(expr, Val.init(self.vm.common_symbols.@"=>"));
-        if (uses_arrow_syntax)
-            _ = clause_iter.next() catch return Error.InvalidExpression; // Consume the '=>' symbol
+    // Backpatch all conditional jumps
+    for (conditional_jumps, 0..) |conditional_jump_idx, i| {
+        if (i < end_jumps.len and i < pop_flags.len) {
+            const target_jump_idx = end_jumps[i];
+            const pop_flag = pop_flags[i];
+            self.instructions.items[conditional_jump_idx] =
+                Instruction.initJumpIfNot(.{ .steps = jumpDistance(conditional_jump_idx, target_jump_idx), .pop = pop_flag });
+        }
     }
-
-    if (!uses_arrow_syntax and clause_iter.isEmpty()) {
-        try self.addInstruction(Instruction.initJump(0));
-        return ClauseJumps{
-            .jump_if_not_pop = false,
-            .jump_if_not_index = jump_if_not_index,
-            .jump_to_end_index = self.instructions.items.len - 1,
-        };
-    }
-
-    // Compile the clause body
-    const expression_count = try self.compileMany(&clause_iter, .{ .squash = true });
-    if (uses_arrow_syntax and expression_count != 1) {
-        return Error.InvalidExpression;
-    }
-
-    // Add jump to end after successful clause execution
-    const jump_to_end_index = self.instructions.items.len;
-    try self.addInstruction(Instruction.initJump(0)); // Placeholder, will be patched later
-    return ClauseJumps{
-        .jump_if_not_pop = true,
-        .jump_if_not_index = jump_if_not_index,
-        .jump_to_end_index = jump_to_end_index,
-    };
 }
 
 fn compileCond(self: *Compiler, iter: *Inspector.ListIterator) Error!void {
-    var clause_jumps = std.ArrayList(ClauseJumps){};
-    defer clause_jumps.deinit(self.vm.allocator);
-    var has_else_clause = false;
+    if (iter.isEmpty()) return Error.InvalidExpression;
 
-    // Process each clause in the cond expression
-    while (iter.next() catch return Error.InvalidExpression) |clause_val| {
-        if (try self.compileCondClause(clause_val)) |jump| {
-            try clause_jumps.append(self.vm.allocator, jump);
+    // Track jump locations for backpatching
+    var end_jumps = std.ArrayList(usize){};
+    defer end_jumps.deinit(self.vm.allocator);
+    var conditional_jumps = std.ArrayList(usize){};
+    defer conditional_jumps.deinit(self.vm.allocator);
+    var pop_flags = std.ArrayList(bool){};
+    defer pop_flags.deinit(self.vm.allocator);
+    var has_else = false;
+
+    while (iter.next() catch return Error.InvalidExpression) |clause| {
+        var clause_iter = self.vm.inspector().iterList(clause) catch return Error.InvalidExpression;
+        const test_expr = (clause_iter.next() catch return Error.InvalidExpression) orelse return Error.InvalidExpression;
+
+        // Handle else clause
+        if (self.vm.fromVal(Symbol.Interned, test_expr) catch null) |sym| {
+            if (self.vm.common_symbols.@"else".eql(sym)) {
+                has_else = true;
+                _ = try self.compileMany(&clause_iter, .{ .squash = true });
+                break;
+            }
+        }
+
+        // Compile test expression
+        try self.compileOne(test_expr);
+
+        // Check for arrow syntax: (test => proc)
+        const preview_next = clause_iter.peek() catch {
+            return Error.InvalidExpression;
+        } orelse Val.init({});
+        const is_arrow = if (self.vm.fromVal(Symbol.Interned, preview_next) catch null) |sym|
+            self.vm.common_symbols.@"=>".eql(sym)
+        else
+            false;
+        if (is_arrow) {
+            _ = clause_iter.next() catch unreachable orelse unreachable;
+            const proc_expr = (clause_iter.next() catch return Error.InvalidExpression) orelse return Error.InvalidExpression;
+            if (!clause_iter.isEmpty()) return Error.InvalidExpression;
+
+            const jump_if_not_idx = self.instructions.items.len;
+            try conditional_jumps.append(self.vm.allocator, jump_if_not_idx);
+            try pop_flags.append(self.vm.allocator, false);
+            try self.addInstruction(Instruction.initJumpIfNot(.{ .steps = 0, .pop = false }));
+
+            // Compile procedure and apply to test result
+            try self.compileOne(proc_expr);
+            try self.addInstruction(Instruction.initSwap());
+            try self.addInstruction(Instruction.initEvalProc(1));
+
+            try end_jumps.append(self.vm.allocator, self.instructions.items.len);
+            try self.addInstruction(Instruction.initJump(0));
         } else {
-            // This was an 'else' clause
-            has_else_clause = true;
-            break;
+            const jump_if_not_idx = self.instructions.items.len;
+            try conditional_jumps.append(self.vm.allocator, jump_if_not_idx);
+            const eval_to_predicate = clause_iter.isEmpty();
+            try pop_flags.append(self.vm.allocator, !eval_to_predicate);
+            try self.addInstruction(Instruction.initJumpIfNot(.{ .steps = 0 }));
+
+            // Compile body expressions
+            if (!eval_to_predicate) {
+                _ = try self.compileMany(&clause_iter, .{ .allow_zero = false, .squash = true });
+            }
+
+            try end_jumps.append(self.vm.allocator, self.instructions.items.len);
+            try self.addInstruction(Instruction.initJump(0));
         }
     }
-
-    // Validate that we've processed all clauses
     if (!iter.isEmpty()) return Error.InvalidExpression;
 
-    // Add default fallback if no else clause was provided
-    if (!has_else_clause) {
-        if (clause_jumps.items.len == 0) return Error.InvalidExpression;
-        try self.addInstruction(Instruction.initLoad(Val.init({})));
+    // Add fallback when no clause matches (only if no else clause)
+    if (!has_else) {
+        try self.addInstruction(Instruction.initLoad(Val.init(self.vm.common_symbols.@"*unspecified*")));
     }
 
-    // Patch all jump instructions with correct offsets
-    const final_instruction_index = self.instructions.items.len;
-    for (clause_jumps.items) |jumps| {
-        // Patch the conditional jump to skip to next clause
-        self.instructions.items[jumps.jump_if_not_index] =
-            Instruction.initJumpIfNot(.{
-                .pop = jumps.jump_if_not_pop,
-                .steps = jumpDistance(jumps.jump_if_not_index, jumps.jump_to_end_index),
-            });
-        // Patch the unconditional jump to end
-        self.instructions.items[jumps.jump_to_end_index] =
-            Instruction.initJump(jumpDistance(jumps.jump_to_end_index + 1, final_instruction_index));
-    }
+    // Backpatch all jumps
+    self.backpatchJumps(end_jumps.items, conditional_jumps.items, pop_flags.items);
 }
 
 /// Compiles an if expression into bytecode with conditional jumps.
@@ -647,7 +647,7 @@ fn compileLet(self: *Compiler, star: bool, iter: *Inspector.ListIterator) Error!
     for (let_binding_ids.items) |id| self.scope.getBinding(id).?.type = .local;
 
     // Compile body expressions with activated bindings available
-    _ = try self.compileMany(iter, .{ .allow_zero = true, .squash = true });
+    _ = try self.compileMany(iter, .{ .squash = true });
 }
 
 /// Compiles a quote expression into bytecode.
@@ -843,92 +843,6 @@ test "if with missing false branch uses nil also branch" {
     }, &vm, "(if #f 42)");
 }
 
-////////////////////////////////////////////////////////////////////////////////
-// Cond
-////////////////////////////////////////////////////////////////////////////////
-
-test "cond with single clause" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    try expectInstructions(&[_]Instruction{
-        // #t branch
-        Instruction.initLoad(Val.init(true)),
-        Instruction.initJumpIfNot(.{ .steps = 2 }),
-        Instruction.initLoad(Val.init(42)),
-        Instruction.initJump(1),
-        // fallback branch
-        Instruction.initLoad(Val.init({})),
-    }, &vm, "(cond (#t 42))");
-}
-
-test "cond clause with single test fails" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    try expectInstructions(&[_]Instruction{
-        Instruction.initLoad(Val.init(true)),
-        Instruction.initJumpIfNot(.{ .pop = false, .steps = 1 }),
-        Instruction.initJump(1),
-        Instruction.initLoad(Val.init({})),
-    }, &vm, "(cond (#t))");
-}
-
-test "cond with => ignores =>" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    try expectInstructions(&[_]Instruction{
-        // #t branch
-        Instruction.initLoad(Val.init(true)),
-        Instruction.initJumpIfNot(.{ .steps = 2 }),
-        Instruction.initLoad(Val.init(42)),
-        Instruction.initJump(1),
-        // fallback branch
-        Instruction.initLoad(Val.init({})),
-    }, &vm, "(cond (#t => 42))");
-}
-
-test "cond with => fails if more than one expression fails" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    try testing.expectError(
-        Error.InvalidExpression,
-        compile(
-            &vm,
-            try vm.builder().readOne("(cond (#t => 42 43))"),
-        ),
-    );
-}
-
-test "cond with multiple clauses" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    try expectInstructions(&[_]Instruction{
-        // #t branch
-        Instruction.initLoad(Val.init(true)),
-        Instruction.initJumpIfNot(.{ .steps = 2 }),
-        Instruction.initLoad(Val.init(1)),
-        Instruction.initJump(11),
-        // #f branch
-        Instruction.initLoad(Val.init(false)),
-        Instruction.initJumpIfNot(.{ .steps = 2 }),
-        Instruction.initLoad(Val.init(2)),
-        Instruction.initJump(7),
-        // 3 branch
-        Instruction.initLoad(Val.init(3)),
-        Instruction.initJumpIfNot(.{ .steps = 4 }),
-        Instruction.initLoad(Val.init(4)),
-        Instruction.initLoad(Val.init(5)),
-        Instruction.initSquash(2),
-        Instruction.initJump(1),
-        // fallback
-        Instruction.initLoad(Val.init({})),
-    }, &vm, "(cond (#t 1) (#f 2) (3 4 5))");
-}
-
 test "cond without clauses is error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
@@ -955,7 +869,7 @@ test "cond with else uses it as fallback" {
         Instruction.initJump(1),
         // fallback branch
         Instruction.initLoad(Val.init(43)),
-    }, &vm, "(cond (#t => 42) (else 43))");
+    }, &vm, "(cond (#t 42) (else 43))");
 }
 
 test "cond with only else expression is expression" {
@@ -1261,15 +1175,14 @@ test "compile let with invalid binding format fails" {
     );
 }
 
-test "compile let with no body returns nil" {
+test "compile let with no body is error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try expectInstructions(&[_]Instruction{
-        Instruction.initLoad(Val.init(1)),
-        Instruction.initSetLocal(0),
-        Instruction.initLoad(Val.init({})),
-    }, &vm, "(let ((x 1)))");
+    try testing.expectError(
+        Error.InvalidExpression,
+        compile(&vm, try vm.builder().readOne("(let ((x 1)))")),
+    );
 }
 
 test "compile let with missing bindings fails" {
@@ -1425,12 +1338,26 @@ test "if" {
     try vm.expectEval("1", "(if (> 3 2) (- 3 2) (+ 3 2))");
 }
 
+test "cond" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("1", "(cond ((> 3 2) 1) ((< 3 2) 2))");
+    try vm.expectEval("2", "(cond ((< 3 2) 1) ((> 3 2) 2))");
+    try vm.expectEval("else-branch", "(cond ((< 3 2) 'no) (else 'else-branch))");
+    try vm.expectEval("*unspecified*", "(cond ((< 1 0) 'no))");
+    try vm.expectEval("ok", "(cond ((> 3 2) 'not-ok 'ok) (else 'fail))");
+    try vm.expectEval("GT", "(cond ((> 5 3) => (lambda (x) 'GT)) (else 'fail))");
+    try vm.expectEval("inner", "(cond ((= 1 1) (cond ((= 2 2) 'inner))))");
+    try vm.expectEval("8", "(cond ((+ 3 5) => (lambda (val) val)))");
+    try vm.expectEval("test", "(cond ('test))");
+}
+
 test "let" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     try vm.expectEvalErr("undefined-variable", "(let ((x 1) (y x)) y)");
-    try vm.expectEval("()", "(let ((x 1) (y 2)))");
     try vm.expectEval("3", "(let ((x 1) (y 2)) (+ x y))"); // 1 + 2 = 3
     try vm.expectEval("x", "(let ((x 'x)) x)"); // Symbol x
     try vm.expectEval("3", "(let ((x 2)) (let ((x 3)) x))"); // inner x = 3
@@ -1441,6 +1368,7 @@ test "let*" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
+    try vm.expectEvalErr("undefined-variable", "(let* ((x z)) x)");
     try vm.expectEval("3", "(let* ((x 1) (y (+ x 2))) y)"); // y = 1 + 2 = 3
     try vm.expectEval("6", "(let* ((a 1) (b 2) (c (+ a b)) (d (* c 2))) d)"); // d = (1+2)*2 = 6
     try vm.expectEval("x", "(let* ((x 'x)) x)"); // symbol x
