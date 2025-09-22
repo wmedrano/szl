@@ -40,6 +40,7 @@ const CommonSymbolTable = struct {
     @"=>": Symbol.Interned,
     @"else": Symbol.Interned,
     @"if": Symbol.Interned,
+    @"let*": Symbol.Interned,
     @"szl-define": Symbol.Interned,
     begin: Symbol.Interned,
     cond: Symbol.Interned,
@@ -297,6 +298,13 @@ pub fn inspector(self: *const Vm) Inspector {
     return Inspector{ .vm = self };
 }
 
+pub fn reset(self: *Vm) void {
+    self.err = null;
+    self.stack.clearRetainingCapacity();
+    self.stack_frames.clearRetainingCapacity();
+    self.current_stack_frame = StackFrame{};
+}
+
 /// Compiles a string of Scheme source code and returns the result.
 /// Parses the source string into expressions using the Reader and compiles
 /// each expression to bytecode, returning a procedure for the last expression.
@@ -376,6 +384,7 @@ fn evalProc(self: *Vm, proc: Val, args: []const Val) !Val {
 ///   - Any errors from parsing the expected value string.
 ///   - Test failure if neither structural equality nor formatted output matches.
 pub fn expectEval(self: *Vm, expected: []const u8, input: []const u8) !void {
+    self.reset();
     const expected_val = try self.builder().readOne(expected);
     const actual_val = try self.evalStr(input);
     if (std.meta.eql(expected_val, actual_val)) {
@@ -384,6 +393,39 @@ pub fn expectEval(self: *Vm, expected: []const u8, input: []const u8) !void {
     try testing.expectFmt(expected, "{f}", .{self.pretty(actual_val)});
     switch (expected_val.repr) {
         .nil, .boolean, .i64, .f64, .char, .symbol => try testing.expectEqual(expected_val, actual_val),
+        .string, .pair, .proc, .vector, .bytevector, .record, .record_type_descriptor => {},
+    }
+}
+
+/// Asserts that evaluating the given Scheme source results in an error,
+/// and that the VM's error state matches the expected error value.
+///
+/// This function is used in tests to verify that evaluation of invalid
+/// Scheme code fails as expected. It ensures:
+///   - `evalStr` returns an error,
+///   - `vm.err` is set (i.e., the VM recorded an error),
+///   - `vm.err` equals the expected error `Val` (typically a symbol like
+///     `vm.common_symbols.@"undefined-variable"`).
+///
+/// After the check, the VM's error state is cleared to avoid affecting other tests.
+///
+/// Args:
+///   vm: The virtual machine instance to evaluate code with.
+///   source: The Scheme expression string to evaluate.
+///   expected_err: A `Val` representing the expected error (usually an interned symbol).
+///
+/// Errors:
+///   - Returns a test failure if the evaluation succeeds unexpectedly,
+///     or if the VM's error state doesn't match `expected_err`.
+pub fn expectEvalErr(self: *Vm, expected: []const u8, source: []const u8) !void {
+    self.reset();
+    try testing.expectError(error.SzlError, self.evalStr(source));
+    const expected_err = try self.builder().readOne(expected);
+    const actual_err = self.err orelse return error.ErrorNotFound;
+    if (std.meta.eql(expected_err, actual_err)) return;
+    try testing.expectFmt(expected, "{f}", .{self.pretty(actual_err)});
+    switch (expected_err.repr) {
+        .nil, .boolean, .i64, .f64, .char, .symbol => try testing.expectEqual(expected_err, actual_err),
         .string, .pair, .proc, .vector, .bytevector, .record, .record_type_descriptor => {},
     }
 }

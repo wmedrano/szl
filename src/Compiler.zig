@@ -221,6 +221,8 @@ fn compileExpression(self: *Compiler, leading: Val, args_iter: *Inspector.ListIt
     if (self.vm.fromVal(Symbol.Interned, leading) catch null) |sym| {
         if (self.vm.common_symbols.@"if".eql(sym))
             return self.compileIf(args_iter);
+        if (self.vm.common_symbols.@"let*".eql(sym))
+            return self.compileLet(true, args_iter);
         if (self.vm.common_symbols.begin.eql(sym))
             return self.compileBegin(args_iter);
         if (self.vm.common_symbols.cond.eql(sym))
@@ -230,7 +232,7 @@ fn compileExpression(self: *Compiler, leading: Val, args_iter: *Inspector.ListIt
         if (self.vm.common_symbols.lambda.eql(sym))
             return self.compileLambda(args_iter);
         if (self.vm.common_symbols.let.eql(sym))
-            return self.compileLet(args_iter);
+            return self.compileLet(false, args_iter);
         if (self.vm.common_symbols.quote.eql(sym))
             return self.compileQuote(args_iter);
     }
@@ -603,39 +605,6 @@ fn compileLetBinding(self: *Compiler, binding: Val) Error!LexicalScope.Id {
     return id;
 }
 
-/// Compiles all let bindings in sequence, collecting their IDs.
-/// Each binding is compiled, but remains hidden until activation.
-///
-/// Args:
-///   self: The compiler instance.
-///   bindings_expr: The list of binding pairs.
-///
-/// Returns:
-///   ArrayList of binding IDs for later activation.
-fn compileLetBindings(self: *Compiler, bindings_expr: Val) Error!std.ArrayList(LexicalScope.Id) {
-    var ids = std.ArrayList(LexicalScope.Id){};
-    const inspector = self.vm.inspector();
-    var bindings = inspector.iterList(bindings_expr) catch return Error.InvalidExpression;
-
-    while (bindings.next() catch return Error.InvalidExpression) |binding| {
-        const id = try self.compileLetBinding(binding);
-        try ids.append(self.vm.allocator, id);
-    }
-
-    return ids;
-}
-
-/// Activates hidden let bindings by changing their type to local variables.
-/// This makes the bindings available for use in the let body.
-///
-/// Args:
-///   self: The compiler instance.
-///   ids: List of binding IDs to activate.
-fn activateLetBindings(self: *Compiler, ids: []const LexicalScope.Id) void {
-    for (ids) |id|
-        self.scope.getBinding(id).?.type = .local;
-}
-
 /// Compiles a let expression into bytecode.
 ///
 /// Let expressions bind variables locally and evaluate expressions in that scope.
@@ -652,22 +621,30 @@ fn activateLetBindings(self: *Compiler, ids: []const LexicalScope.Id) void {
 ///
 /// Returns:
 ///   An error if compilation fails.
-fn compileLet(self: *Compiler, iter: *Inspector.ListIterator) Error!void {
+fn compileLet(self: *Compiler, star: bool, iter: *Inspector.ListIterator) Error!void {
     // Extract the bindings list from the let expression
     const bindings_expr = iter.next() catch {
         return Error.InvalidExpression;
     } orelse return Error.InvalidExpression;
 
-    // Phase 1: Compile all binding expressions while bindings are hidden
-    var let_binding_ids = try self.compileLetBindings(bindings_expr);
+    var let_binding_ids = std.ArrayList(LexicalScope.Id){};
     defer {
         // Clean up bindings when exiting let scope to prevent variable leakage
         for (let_binding_ids.items) |id| self.scope.clear(id);
         let_binding_ids.deinit(self.vm.allocator);
     }
 
+    // Phase 1: Compile all binding expressions while bindings are hidden
+    var bindings = self.vm.inspector().iterList(bindings_expr) catch
+        return Error.InvalidExpression;
+    while (bindings.next() catch return Error.InvalidExpression) |binding| {
+        const id = try self.compileLetBinding(binding);
+        try let_binding_ids.append(self.vm.allocator, id);
+        if (star) self.scope.getBinding(id).?.type = .local;
+    }
+
     // Phase 2: Activate bindings (convert hidden -> local) before evaluating body
-    self.activateLetBindings(let_binding_ids.items);
+    for (let_binding_ids.items) |id| self.scope.getBinding(id).?.type = .local;
 
     // Compile body expressions with activated bindings available
     _ = try self.compileMany(iter, .{ .allow_zero = true, .squash = true });
@@ -1420,4 +1397,51 @@ test "lambda expressions integrate with evaluation" {
 
     // Test lambda with no parameters
     try vm.expectEval("42", "((lambda () 42))");
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// E2E
+////////////////////////////////////////////////////////////////////////////////
+test "define" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+    try vm.expectEval("*unspecified*", "(define x 28)");
+    try vm.expectEval("28", "x");
+}
+
+test "quote" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+    try vm.expectEval("a", "(quote a)");
+    try vm.expectEval("(+ 1 2)", "(quote (+ 1 2))");
+}
+
+test "if" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("yes", "(if (> 3 2) 'yes 'no)");
+    try vm.expectEval("no", "(if (> 2 3) 'yes 'no)");
+    try vm.expectEval("1", "(if (> 3 2) (- 3 2) (+ 3 2))");
+}
+
+test "let" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEvalErr("undefined-variable", "(let ((x 1) (y x)) y)");
+    try vm.expectEval("()", "(let ((x 1) (y 2)))");
+    try vm.expectEval("3", "(let ((x 1) (y 2)) (+ x y))"); // 1 + 2 = 3
+    try vm.expectEval("x", "(let ((x 'x)) x)"); // Symbol x
+    try vm.expectEval("3", "(let ((x 2)) (let ((x 3)) x))"); // inner x = 3
+    try vm.expectEval("5", "(let ((x 2) (y 3)) (+ x y))");
+}
+
+test "let*" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("3", "(let* ((x 1) (y (+ x 2))) y)"); // y = 1 + 2 = 3
+    try vm.expectEval("6", "(let* ((a 1) (b 2) (c (+ a b)) (d (* c 2))) d)"); // d = (1+2)*2 = 6
+    try vm.expectEval("x", "(let* ((x 'x)) x)"); // symbol x
 }

@@ -120,6 +120,7 @@ pub const Instruction = union(enum) {
     ///   - May return memory allocation errors if stack operations fail.
     ///   - May return StackUnderflow if stack frame operations fail.
     pub fn execute(self: Instruction, vm: *Vm) !void {
+        if (vm.err) |_| return error.SzlError;
         switch (self) {
             .load => |val| return load(vm, val),
             .get_global => |symbol| return getGlobal(vm, symbol),
@@ -242,9 +243,6 @@ pub fn setLocal(vm: *Vm, idx: isize) !void {
 ///   - May return memory allocation errors if stack resizing fails.
 ///   - May return StackUnderflow if there are no stack frames to restore.
 pub fn returnValue(vm: *Vm) !void {
-    if (vm.err) |_| {
-        return error.SzlError;
-    }
     const new_stack_len = vm.current_stack_frame.stack_start;
     const dst_idx = new_stack_len - 1;
     const src_idx = vm.stack.items.len - 1;
