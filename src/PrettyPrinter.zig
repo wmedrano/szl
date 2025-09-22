@@ -8,16 +8,17 @@
 const std = @import("std");
 const testing = std.testing;
 
+const ByteVector = @import("ByteVector.zig");
 const Char = @import("Char.zig");
 const object_pool = @import("object_pool.zig");
 const Handle = object_pool.Handle;
 const Pair = @import("Pair.zig");
 const Procedure = @import("Procedure.zig");
+const Record = @import("Record.zig");
 const String = @import("String.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 const Vector = @import("Vector.zig");
-const ByteVector = @import("ByteVector.zig");
 const Vm = @import("Vm.zig");
 
 const PrettyPrinter = @This();
@@ -164,6 +165,56 @@ fn formatValue(self: PrettyPrinter, writer: *std.Io.Writer, val: Val) error{Writ
                 try writer.print("{}", .{byte});
             }
             try writer.writeByte(')');
+        },
+        .record => |v| {
+            const record = self.vm.inspector().resolve(Record, v) catch {
+                try writer.writeAll("#<invalid-record>");
+                return;
+            };
+            const type_descriptor = self.vm.record_type_descriptors.get(record.type_descriptor_handle) orelse {
+                try writer.writeAll("#<record-with-invalid-type-descriptor>");
+                return;
+            };
+            const type_name_symbol = self.vm.interner.get(type_descriptor.name) catch {
+                try writer.writeAll("#<record-with-invalid-type>");
+                return;
+            };
+            try writer.print("#<{s}", .{type_name_symbol.data});
+            for (0..record.fieldCount()) |i| {
+                try writer.writeByte(' ');
+                const field_value = record.getField(i) catch {
+                    try writer.writeAll("#<invalid-field>");
+                    continue;
+                };
+                try self.formatValue(writer, field_value);
+            }
+            try writer.writeAll(">");
+        },
+        .record_type_descriptor => |v| {
+            const descriptor = self.vm.inspector().resolve(Record.RecordTypeDescriptor, v) catch {
+                try writer.writeAll("#<invalid-record-type-descriptor>");
+                return;
+            };
+            const type_name_symbol = self.vm.interner.get(descriptor.name) catch {
+                try writer.writeAll("#<record-type-descriptor-with-invalid-name>");
+                return;
+            };
+            try writer.print("#<record-type:{s}", .{type_name_symbol.data});
+            if (descriptor.fieldCount() > 0) {
+                try writer.writeAll(" fields:");
+                for (0..descriptor.fieldCount()) |i| {
+                    const field_name = descriptor.getFieldName(i) catch {
+                        try writer.writeAll(" #<invalid-field-name>");
+                        continue;
+                    };
+                    const field_name_symbol = self.vm.interner.get(field_name) catch {
+                        try writer.writeAll(" #<invalid-field-name>");
+                        continue;
+                    };
+                    try writer.print(" {s}", .{field_name_symbol.data});
+                }
+            }
+            try writer.writeAll(">");
         },
         .symbol => |sym| {
             const symbol = self.vm.interner.get(sym) catch |err| switch (err) {
@@ -639,6 +690,89 @@ test "bytevector with various values formats correctly" {
 
     try testing.expectFmt(
         "#u8(0 42 128 255)",
+        "{f}",
+        .{PrettyPrinter{ .vm = &vm, .val = val }},
+    );
+}
+
+test "record formats with type name and field values" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const type_name = try vm.interner.internStatic(Symbol.init("person"));
+    const first_name = try vm.interner.internStatic(Symbol.init("first-name"));
+    const age = try vm.interner.internStatic(Symbol.init("age"));
+    const field_names = [_]Symbol.Interned{ first_name, age };
+    const descriptor = try Record.RecordTypeDescriptor.init(testing.allocator, type_name, &field_names);
+    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+
+    const values = [_]Val{ Val.init(42), Val.init(true) };
+    const record = try Record.initWithValues(testing.allocator, &vm, descriptor_handle, &values);
+
+    const record_handle = try vm.records.put(testing.allocator, record);
+    const val = Val{ .repr = .{ .record = record_handle } };
+
+    try testing.expectFmt(
+        "#<person 42 #t>",
+        "{f}",
+        .{PrettyPrinter{ .vm = &vm, .val = val }},
+    );
+}
+
+test "empty record formats correctly" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const type_name = try vm.interner.internStatic(Symbol.init("empty"));
+    const field_names = [_]Symbol.Interned{};
+    const descriptor = try Record.RecordTypeDescriptor.init(testing.allocator, type_name, &field_names);
+    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+
+    const record = try Record.init(testing.allocator, &vm, descriptor_handle);
+
+    const record_handle = try vm.records.put(testing.allocator, record);
+    const val = Val{ .repr = .{ .record = record_handle } };
+
+    try testing.expectFmt(
+        "#<empty>",
+        "{f}",
+        .{PrettyPrinter{ .vm = &vm, .val = val }},
+    );
+}
+
+test "record type descriptor formats with type name and field names" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const type_name = try vm.interner.internStatic(Symbol.init("person"));
+    const first_name = try vm.interner.internStatic(Symbol.init("first-name"));
+    const age = try vm.interner.internStatic(Symbol.init("age"));
+    const field_names = [_]Symbol.Interned{ first_name, age };
+    const descriptor = try Record.RecordTypeDescriptor.init(testing.allocator, type_name, &field_names);
+    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+
+    const val = Val{ .repr = .{ .record_type_descriptor = descriptor_handle } };
+
+    try testing.expectFmt(
+        "#<record-type:person fields: first-name age>",
+        "{f}",
+        .{PrettyPrinter{ .vm = &vm, .val = val }},
+    );
+}
+
+test "empty record type descriptor formats correctly" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const type_name = try vm.interner.internStatic(Symbol.init("empty"));
+    const field_names = [_]Symbol.Interned{};
+    const descriptor = try Record.RecordTypeDescriptor.init(testing.allocator, type_name, &field_names);
+    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+
+    const val = Val{ .repr = .{ .record_type_descriptor = descriptor_handle } };
+
+    try testing.expectFmt(
+        "#<record-type:empty>",
         "{f}",
         .{PrettyPrinter{ .vm = &vm, .val = val }},
     );

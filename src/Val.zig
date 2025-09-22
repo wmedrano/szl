@@ -14,6 +14,7 @@ const object_pool = @import("object_pool.zig");
 const Handle = object_pool.Handle;
 const Pair = @import("Pair.zig");
 const Procedure = @import("Procedure.zig");
+const Record = @import("Record.zig");
 const String = @import("String.zig");
 const Symbol = @import("Symbol.zig");
 const Vector = @import("Vector.zig");
@@ -73,6 +74,14 @@ pub const Repr = union(enum) {
     /// Represents a bytevector using a handle to an object pool.
     /// Bytevectors in Scheme are sequences of bytes that can be accessed by index.
     bytevector: Handle(ByteVector),
+
+    /// Represents a record using a handle to an object pool.
+    /// Records in Scheme are user-defined data types with named fields.
+    record: Handle(Record),
+
+    /// Represents a record type descriptor using a handle to an object pool.
+    /// Record type descriptors define the structure and behavior of record types.
+    record_type_descriptor: Handle(Record.RecordTypeDescriptor),
 };
 
 /// Create a new `Val` for a supported type.
@@ -90,8 +99,10 @@ pub const Repr = union(enum) {
 ///   - Handle(Procedure): Converted to procedure values
 ///   - Handle(Vector): Converted to vector values
 ///   - Handle(ByteVector): Converted to bytevector values
+///   - Handle(Record): Converted to record values
+///   - Handle(Record.RecordTypeDescriptor): Converted to record type descriptor values
 ///
-/// For more complex types like Symbol, Pair, Procedure, Vector, or ByteVector structs, use `Vm.builder()`.
+/// For more complex types like Symbol, Pair, Procedure, Vector, ByteVector, or Record structs, use `Vm.builder()`.
 pub fn init(v: anytype) Val {
     const type_info = @TypeOf(v);
     switch (type_info) {
@@ -108,6 +119,8 @@ pub fn init(v: anytype) Val {
         Handle(Procedure) => return init(Val.Repr{ .proc = v }),
         Handle(Vector) => return init(Val.Repr{ .vector = v }),
         Handle(ByteVector) => return init(Val.Repr{ .bytevector = v }),
+        Handle(Record) => return init(Val.Repr{ .record = v }),
+        Handle(Record.RecordTypeDescriptor) => return init(Val.Repr{ .record_type_descriptor = v }),
         else => @compileError("type " ++ @typeName(type_info) ++ " not supported for Val.init."),
     }
 }
@@ -221,6 +234,34 @@ pub fn isVector(self: Val) bool {
 pub fn isBytevector(self: Val) bool {
     return switch (self.repr) {
         .bytevector => true,
+        else => false,
+    };
+}
+
+/// Determines if a value is a record.
+///
+/// Args:
+///   self: The value to test for record type.
+///
+/// Returns:
+///   true if the value is a record, false otherwise.
+pub fn isRecord(self: Val) bool {
+    return switch (self.repr) {
+        .record => true,
+        else => false,
+    };
+}
+
+/// Determines if a value is a record type descriptor.
+///
+/// Args:
+///   self: The value to test for record type descriptor type.
+///
+/// Returns:
+///   true if the value is a record type descriptor, false otherwise.
+pub fn isRecordTypeDescriptor(self: Val) bool {
+    return switch (self.repr) {
+        .record_type_descriptor => true,
         else => false,
     };
 }
@@ -518,4 +559,78 @@ test "bytevector values are truthy" {
     const filled_bytevector = try ByteVector.initFromSlice(testing.allocator, &bytes);
     const filled_bytevector_val = try vm.toVal(filled_bytevector);
     try testing.expectEqual(true, filled_bytevector_val.isTruthy());
+}
+
+test "isRecord returns true for record values" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const type_name = try vm.interner.internStatic(Symbol.init("person"));
+    const field_names = [_]Symbol.Interned{};
+    const descriptor = try Record.RecordTypeDescriptor.init(testing.allocator, type_name, &field_names);
+    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+
+    const record = try Record.init(testing.allocator, &vm, descriptor_handle);
+    const record_val = try vm.toVal(record);
+    try testing.expectEqual(true, record_val.isRecord());
+}
+
+test "isRecord returns false for non-record values" {
+    const bool_val = Val.init(true);
+    const int_val = Val.init(42);
+    const nil_val = Val.init({});
+
+    try testing.expectEqual(false, bool_val.isRecord());
+    try testing.expectEqual(false, int_val.isRecord());
+    try testing.expectEqual(false, nil_val.isRecord());
+}
+
+test "record values are truthy" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const type_name = try vm.interner.internStatic(Symbol.init("person"));
+    const field_names = [_]Symbol.Interned{};
+    const descriptor = try Record.RecordTypeDescriptor.init(testing.allocator, type_name, &field_names);
+    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+
+    const record = try Record.init(testing.allocator, &vm, descriptor_handle);
+    const record_val = try vm.toVal(record);
+    try testing.expectEqual(true, record_val.isTruthy());
+}
+
+test "isRecordTypeDescriptor returns true for record type descriptor values" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const type_name = try vm.interner.internStatic(Symbol.init("person"));
+    const field_names = [_]Symbol.Interned{};
+    const descriptor = try Record.RecordTypeDescriptor.init(testing.allocator, type_name, &field_names);
+    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+    const descriptor_val = Val.init(descriptor_handle);
+
+    try testing.expectEqual(true, descriptor_val.isRecordTypeDescriptor());
+}
+
+test "isRecordTypeDescriptor returns false for non-record-type-descriptor values" {
+    const bool_val = Val.init(true);
+    const int_val = Val.init(42);
+    const nil_val = Val.init({});
+
+    try testing.expectEqual(false, bool_val.isRecordTypeDescriptor());
+    try testing.expectEqual(false, int_val.isRecordTypeDescriptor());
+    try testing.expectEqual(false, nil_val.isRecordTypeDescriptor());
+}
+
+test "record type descriptor values are truthy" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const type_name = try vm.interner.internStatic(Symbol.init("person"));
+    const field_names = [_]Symbol.Interned{};
+    const descriptor = try Record.RecordTypeDescriptor.init(testing.allocator, type_name, &field_names);
+    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+    const descriptor_val = Val.init(descriptor_handle);
+
+    try testing.expectEqual(true, descriptor_val.isTruthy());
 }

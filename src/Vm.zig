@@ -20,6 +20,7 @@ const ObjectPool = @import("object_pool.zig").ObjectPool;
 const Pair = @import("Pair.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
 const Procedure = @import("Procedure.zig");
+const Record = @import("Record.zig");
 const String = @import("String.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
@@ -101,6 +102,14 @@ vectors: ObjectPool(Vector),
 /// Provides efficient allocation and deallocation of bytevector values.
 bytevectors: ObjectPool(ByteVector),
 
+/// Object pool for managing Record objects with automatic memory recycling.
+/// Provides efficient allocation and deallocation of record values.
+records: ObjectPool(Record),
+
+/// Object pool for managing RecordTypeDescriptor objects with automatic memory recycling.
+/// Provides efficient allocation and deallocation of record type descriptors.
+record_type_descriptors: ObjectPool(Record.RecordTypeDescriptor),
+
 /// Error state for the virtual machine. When set, indicates that an error
 /// has occurred during execution and should be handled or propagated.
 err: ?Val = null,
@@ -147,6 +156,8 @@ pub fn init(options: Options) !Vm {
         .strings = ObjectPool(String).init(),
         .vectors = ObjectPool(Vector).init(),
         .bytevectors = ObjectPool(ByteVector).init(),
+        .records = ObjectPool(Record).init(),
+        .record_type_descriptors = ObjectPool(Record.RecordTypeDescriptor).init(),
         .common_symbols = undefined,
     };
     vm.common_symbols = try vm.builder().symbolTable(CommonSymbolTable);
@@ -186,6 +197,18 @@ pub fn deinit(self: *Vm) void {
         mutable_bytevector.deinit(self.allocator);
     }
     self.bytevectors.deinit(self.allocator);
+    var record_iter = self.records.iterator();
+    while (record_iter.next()) |record| {
+        var mutable_record = record;
+        mutable_record.deinit(self.allocator);
+    }
+    self.records.deinit(self.allocator);
+    var record_type_descriptor_iter = self.record_type_descriptors.iterator();
+    while (record_type_descriptor_iter.next()) |descriptor| {
+        var mutable_descriptor = descriptor;
+        mutable_descriptor.deinit(self.allocator);
+    }
+    self.record_type_descriptors.deinit(self.allocator);
 }
 
 fn PrettyReturnType(comptime T: type) type {
@@ -360,7 +383,7 @@ pub fn expectEval(self: *Vm, expected: []const u8, input: []const u8) !void {
     try testing.expectFmt(expected, "{f}", .{self.pretty(actual_val)});
     switch (expected_val.repr) {
         .nil, .boolean, .i64, .f64, .char, .symbol => try testing.expectEqual(expected_val, actual_val),
-        .string, .pair, .proc, .vector, .bytevector => {},
+        .string, .pair, .proc, .vector, .bytevector, .record, .record_type_descriptor => {},
     }
 }
 

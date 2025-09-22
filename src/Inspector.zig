@@ -13,6 +13,7 @@ const Handle = object_pool.Handle;
 const Pair = @import("Pair.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
 const Procedure = @import("Procedure.zig");
+const Record = @import("Record.zig");
 const String = @import("String.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
@@ -227,6 +228,16 @@ pub fn to(self: Inspector, T: type, val: Val) !T {
             ByteVector => return self.resolve(ByteVector, v),
             else => return error.TypeMismatch,
         },
+        .record => |v| switch (T) {
+            Handle(Record) => return v,
+            Record => return self.resolve(Record, v),
+            else => return error.TypeMismatch,
+        },
+        .record_type_descriptor => |v| switch (T) {
+            Handle(Record.RecordTypeDescriptor) => return v,
+            Record.RecordTypeDescriptor => return self.resolve(Record.RecordTypeDescriptor, v),
+            else => return error.TypeMismatch,
+        },
         .symbol => |s| switch (T) {
             Symbol.Interned => return s,
             Symbol => return self.vm.interner.get(s),
@@ -261,7 +272,9 @@ pub fn resolve(self: Inspector, T: type, handle: Handle(T)) !T {
         String => self.vm.strings.get(handle) orelse return error.ObjectNotFound,
         Vector => self.vm.vectors.get(handle) orelse return error.ObjectNotFound,
         ByteVector => self.vm.bytevectors.get(handle) orelse return error.ObjectNotFound,
-        else => @compileError("resolve() only supports Pair, Procedure, String, Vector, and ByteVector, got " ++ @typeName(T)),
+        Record => self.vm.records.get(handle) orelse return error.ObjectNotFound,
+        Record.RecordTypeDescriptor => self.vm.record_type_descriptors.get(handle) orelse return error.ObjectNotFound,
+        else => @compileError("resolve() only supports Pair, Procedure, String, Vector, ByteVector, Record, and Record.RecordTypeDescriptor, got " ++ @typeName(T)),
     };
 }
 
@@ -601,4 +614,50 @@ test "isEmpty returns true after consuming all elements" {
 
     _ = try iter.next(); // consume the element
     try testing.expectEqual(true, iter.isEmpty());
+}
+
+test "to converts record type descriptor to Handle(Record.RecordTypeDescriptor)" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const type_name = try vm.interner.internStatic(Symbol.init("person"));
+    const field_names = [_]Symbol.Interned{};
+    const descriptor = try Record.RecordTypeDescriptor.init(testing.allocator, type_name, &field_names);
+    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+    const val = Val.init(descriptor_handle);
+
+    const result = try vm.inspector().to(Handle(Record.RecordTypeDescriptor), val);
+    try testing.expectEqual(descriptor_handle, result);
+}
+
+test "to converts record type descriptor to Record.RecordTypeDescriptor" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const type_name = try vm.interner.internStatic(Symbol.init("person"));
+    const first_name = try vm.interner.internStatic(Symbol.init("first-name"));
+    const field_names = [_]Symbol.Interned{first_name};
+    const descriptor = try Record.RecordTypeDescriptor.init(testing.allocator, type_name, &field_names);
+    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+    const val = Val.init(descriptor_handle);
+
+    const result = try vm.inspector().to(Record.RecordTypeDescriptor, val);
+    try testing.expectEqual(type_name, result.name);
+    try testing.expectEqual(@as(usize, 1), result.fieldCount());
+}
+
+test "to returns TypeMismatch for record type descriptor to incompatible types" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const type_name = try vm.interner.internStatic(Symbol.init("person"));
+    const field_names = [_]Symbol.Interned{};
+    const descriptor = try Record.RecordTypeDescriptor.init(testing.allocator, type_name, &field_names);
+    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+    const val = Val.init(descriptor_handle);
+
+    try testing.expectError(
+        error.TypeMismatch,
+        vm.inspector().to(i64, val),
+    );
 }

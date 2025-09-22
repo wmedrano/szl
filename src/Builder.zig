@@ -6,16 +6,17 @@
 const std = @import("std");
 const testing = std.testing;
 
+const ByteVector = @import("ByteVector.zig");
 const object_pool = @import("object_pool.zig");
 const Handle = object_pool.Handle;
 const Pair = @import("Pair.zig");
 const Procedure = @import("Procedure.zig");
 const Reader = @import("Reader.zig");
+const Record = @import("Record.zig");
 const String = @import("String.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 const Vector = @import("Vector.zig");
-const ByteVector = @import("ByteVector.zig");
 const Vm = @import("Vm.zig");
 
 const Builder = @This();
@@ -43,6 +44,10 @@ const Error = error{OutOfMemory};
 ///   - Vector: Stored in object pool and converted to vector values
 ///   - Handle(ByteVector): Direct bytevector handles
 ///   - ByteVector: Stored in object pool and converted to bytevector values
+///   - Handle(Record): Direct record handles
+///   - Record: Stored in object pool and converted to record values
+///   - Handle(Record.RecordTypeDescriptor): Direct record type descriptor handles
+///   - Record.RecordTypeDescriptor: Stored in object pool and converted to record type descriptor values
 ///   - Procedure: Stored in object pool and converted to procedure values
 ///   - []const Val, []Val: Converted to proper Scheme lists
 ///
@@ -67,6 +72,8 @@ pub fn build(self: Builder, v: anytype) Error!Val {
         Handle(Procedure),
         Handle(Vector),
         Handle(ByteVector),
+        Handle(Record),
+        Handle(Record.RecordTypeDescriptor),
         => return Val.init(v),
         Symbol => return self.internVal(v),
         String => return Val.init(try self.vm.strings.put(self.vm.allocator, v)),
@@ -74,6 +81,8 @@ pub fn build(self: Builder, v: anytype) Error!Val {
         Procedure => return Val.init(try self.vm.procedures.put(self.vm.allocator, v)),
         Vector => return Val.init(try self.vm.vectors.put(self.vm.allocator, v)),
         ByteVector => return Val.init(try self.vm.bytevectors.put(self.vm.allocator, v)),
+        Record => return Val.init(try self.vm.records.put(self.vm.allocator, v)),
+        Record.RecordTypeDescriptor => return Val.init(try self.vm.record_type_descriptors.put(self.vm.allocator, v)),
         []const Val, []Val => {
             if (v.len == 0) return self.build({});
             var val = try self.build({});
@@ -663,4 +672,68 @@ test "build with Handle(ByteVector) creates bytevector val" {
 
     try testing.expectEqual(.bytevector, std.meta.activeTag(result.repr));
     try testing.expectEqual(bytevector_handle, result.repr.bytevector);
+}
+
+test "build with Record creates record val" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const type_name = try vm.interner.internStatic(Symbol.init("person"));
+    const first_name = try vm.interner.internStatic(Symbol.init("first-name"));
+    const field_names = [_]Symbol.Interned{first_name};
+    const descriptor = try Record.RecordTypeDescriptor.init(testing.allocator, type_name, &field_names);
+    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+
+    const test_record = try Record.init(testing.allocator, &vm, descriptor_handle);
+    const result = try vm.builder().build(test_record);
+
+    try testing.expectEqual(.record, std.meta.activeTag(result.repr));
+}
+
+test "build with Handle(Record) creates record val" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const type_name = try vm.interner.internStatic(Symbol.init("car"));
+    const brand = try vm.interner.internStatic(Symbol.init("brand"));
+    const field_names = [_]Symbol.Interned{brand};
+    const descriptor = try Record.RecordTypeDescriptor.init(testing.allocator, type_name, &field_names);
+    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+
+    const test_record = try Record.init(testing.allocator, &vm, descriptor_handle);
+    const record_handle = try vm.records.put(testing.allocator, test_record);
+    const result = try vm.builder().build(record_handle);
+
+    try testing.expectEqual(.record, std.meta.activeTag(result.repr));
+    try testing.expectEqual(record_handle, result.repr.record);
+}
+
+test "build with Record.RecordTypeDescriptor creates record type descriptor val" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const type_name = try vm.interner.internStatic(Symbol.init("person"));
+    const first_name = try vm.interner.internStatic(Symbol.init("first-name"));
+    const field_names = [_]Symbol.Interned{first_name};
+    const descriptor = try Record.RecordTypeDescriptor.init(testing.allocator, type_name, &field_names);
+
+    const result = try vm.builder().build(descriptor);
+
+    try testing.expectEqual(.record_type_descriptor, std.meta.activeTag(result.repr));
+}
+
+test "build with Handle(Record.RecordTypeDescriptor) creates record type descriptor val" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const type_name = try vm.interner.internStatic(Symbol.init("car"));
+    const brand = try vm.interner.internStatic(Symbol.init("brand"));
+    const field_names = [_]Symbol.Interned{brand};
+    const descriptor = try Record.RecordTypeDescriptor.init(testing.allocator, type_name, &field_names);
+    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+
+    const result = try vm.builder().build(descriptor_handle);
+
+    try testing.expectEqual(.record_type_descriptor, std.meta.activeTag(result.repr));
+    try testing.expectEqual(descriptor_handle, result.repr.record_type_descriptor);
 }

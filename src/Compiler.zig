@@ -176,6 +176,8 @@ fn compileOne(self: *Compiler, expr: Val) Error!void {
         .proc,
         .vector,
         .bytevector,
+        .record,
+        .record_type_descriptor,
         => try self.addInstruction(Instruction.initLoad(expr)),
         .nil => return error.InvalidExpression,
         .symbol => |s| return self.compileSymbol(s),
