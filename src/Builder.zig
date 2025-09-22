@@ -29,6 +29,10 @@ const Error = error{OutOfMemory};
 /// This function provides type-safe conversion from compile-time known
 /// Zig types to the dynamic value system used by the Scheme interpreter.
 ///
+/// Objects allocated during this process are initially marked with the
+/// unreachable color, making them eligible for collection in the next GC cycle
+/// unless they become reachable through normal program execution.
+///
 /// Supported types:
 ///   - Val, Val.Repr: Pass-through values
 ///   - void: Converted to nil (empty list)
@@ -58,6 +62,11 @@ const Error = error{OutOfMemory};
 /// Returns:
 ///   A Val representing the converted value, or a compile error for unsupported types.
 pub fn build(self: Builder, v: anytype) Error!Val {
+    // Objects are allocated with the unreachable color so they will be collected
+    // in the next GC cycle if they don't become reachable through marking.
+    // NOTE: This is safe because mark-and-sweep GC never sweeps before marking -
+    // objects will be marked as reachable if referenced before the sweep phase.
+    const color = self.vm.reachable_color.other();
     const type_info = @TypeOf(v);
     switch (type_info) {
         Val,
@@ -76,13 +85,16 @@ pub fn build(self: Builder, v: anytype) Error!Val {
         Handle(Record.RecordTypeDescriptor),
         => return Val.init(v),
         Symbol => return self.internVal(v),
-        String => return Val.init(try self.vm.strings.put(self.vm.allocator, v)),
-        Pair => return Val.init(try self.vm.pairs.put(self.vm.allocator, v)),
-        Procedure => return Val.init(try self.vm.procedures.put(self.vm.allocator, v)),
-        Vector => return Val.init(try self.vm.vectors.put(self.vm.allocator, v)),
-        ByteVector => return Val.init(try self.vm.bytevectors.put(self.vm.allocator, v)),
-        Record => return Val.init(try self.vm.records.put(self.vm.allocator, v)),
-        Record.RecordTypeDescriptor => return Val.init(try self.vm.record_type_descriptors.put(self.vm.allocator, v)),
+        String => return Val.init(try self.vm.strings.put(self.vm.allocator, v, color)),
+        Pair => return Val.init(try self.vm.pairs.put(self.vm.allocator, v, color)),
+        Procedure => return Val.init(try self.vm.procedures.put(self.vm.allocator, v, color)),
+        Vector => return Val.init(try self.vm.vectors.put(self.vm.allocator, v, color)),
+        ByteVector => return Val.init(try self.vm.bytevectors.put(self.vm.allocator, v, color)),
+        Record => return Val.init(try self.vm.records.put(self.vm.allocator, v, color)),
+        Record.RecordTypeDescriptor => {
+            const handle = try self.vm.record_type_descriptors.put(self.vm.allocator, v, color);
+            return Val.init(handle);
+        },
         []const Val, []Val => {
             if (v.len == 0) return self.build({});
             var val = try self.build({});
@@ -94,6 +106,32 @@ pub fn build(self: Builder, v: anytype) Error!Val {
         },
         else => @compileError("type " ++ @typeName(type_info) ++ " not supported for toVal."),
     }
+}
+
+/// Builds a value and returns its handle directly.
+///
+/// This is a convenience method for tests and internal use where you need
+/// the handle rather than the Val wrapper. It handles the color management
+/// automatically through the normal build() process.
+///
+/// Args:
+///   self: The Builder instance.
+///   v: The value to convert and get a handle for.
+///
+/// Returns:
+///   A handle to the allocated object, or a compile error for unsupported types.
+pub fn buildHandle(self: Builder, v: anytype) !Handle(@TypeOf(v)) {
+    const val = try self.build(v);
+    return switch (@TypeOf(v)) {
+        String => val.repr.string,
+        Pair => val.repr.pair,
+        Procedure => val.repr.procedure,
+        Vector => val.repr.vector,
+        ByteVector => val.repr.bytevector,
+        Record => val.repr.record,
+        Record.RecordTypeDescriptor => val.repr.record_type_descriptor,
+        else => @compileError("buildHandle not supported for type " ++ @typeName(@TypeOf(v))),
+    };
 }
 
 /// Creates a new Reader for parsing Scheme source code.
@@ -609,7 +647,7 @@ test "build with Handle(String) creates string val" {
     defer vm.deinit();
 
     const test_string = try String.initFromSlice(testing.allocator, "test string");
-    const string_handle = try vm.strings.put(testing.allocator, test_string);
+    const string_handle = try vm.builder().buildHandle(test_string);
     const result = try vm.builder().build(string_handle);
 
     try testing.expectEqual(.string, std.meta.activeTag(result.repr));
@@ -638,7 +676,7 @@ test "build with Handle(Vector) creates vector val" {
 
     const values = [_]Val{ Val.init(42), Val.init(true) };
     const test_vector = try Vector.initFromSlice(testing.allocator, &values);
-    const vector_handle = try vm.vectors.put(testing.allocator, test_vector);
+    const vector_handle = try vm.builder().buildHandle(test_vector);
     const result = try vm.builder().build(vector_handle);
 
     try testing.expectEqual(.vector, std.meta.activeTag(result.repr));
@@ -667,7 +705,7 @@ test "build with Handle(ByteVector) creates bytevector val" {
 
     const bytes = [_]u8{ 0x42, 0xFF };
     const test_bytevector = try ByteVector.initFromSlice(testing.allocator, &bytes);
-    const bytevector_handle = try vm.bytevectors.put(testing.allocator, test_bytevector);
+    const bytevector_handle = try vm.builder().buildHandle(test_bytevector);
     const result = try vm.builder().build(bytevector_handle);
 
     try testing.expectEqual(.bytevector, std.meta.activeTag(result.repr));
@@ -682,7 +720,7 @@ test "build with Record creates record val" {
     const first_name = try vm.interner.internStatic(Symbol.init("first-name"));
     const field_names = [_]Symbol.Interned{first_name};
     const descriptor = try Record.RecordTypeDescriptor.init(testing.allocator, type_name, &field_names);
-    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+    const descriptor_handle = try vm.builder().buildHandle(descriptor);
 
     const test_record = try Record.init(testing.allocator, &vm, descriptor_handle);
     const result = try vm.builder().build(test_record);
@@ -698,10 +736,10 @@ test "build with Handle(Record) creates record val" {
     const brand = try vm.interner.internStatic(Symbol.init("brand"));
     const field_names = [_]Symbol.Interned{brand};
     const descriptor = try Record.RecordTypeDescriptor.init(testing.allocator, type_name, &field_names);
-    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+    const descriptor_handle = try vm.builder().buildHandle(descriptor);
 
     const test_record = try Record.init(testing.allocator, &vm, descriptor_handle);
-    const record_handle = try vm.records.put(testing.allocator, test_record);
+    const record_handle = try vm.builder().buildHandle(test_record);
     const result = try vm.builder().build(record_handle);
 
     try testing.expectEqual(.record, std.meta.activeTag(result.repr));
@@ -730,7 +768,7 @@ test "build with Handle(Record.RecordTypeDescriptor) creates record type descrip
     const brand = try vm.interner.internStatic(Symbol.init("brand"));
     const field_names = [_]Symbol.Interned{brand};
     const descriptor = try Record.RecordTypeDescriptor.init(testing.allocator, type_name, &field_names);
-    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+    const descriptor_handle = try vm.builder().buildHandle(descriptor);
 
     const result = try vm.builder().build(descriptor_handle);
 

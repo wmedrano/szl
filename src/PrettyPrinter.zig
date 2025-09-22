@@ -334,7 +334,7 @@ test "cons pair formats with dot" {
     const car = Val{ .repr = .{ .i64 = 1 } };
     const cdr = Val{ .repr = .{ .i64 = 2 } };
     const cons = Pair{ .car = car, .cdr = cdr };
-    const handle = try vm.pairs.put(testing.allocator, cons);
+    const handle = try vm.builder().buildHandle(cons);
     const val = Val{ .repr = .{ .pair = handle } };
 
     try testing.expectFmt(
@@ -353,11 +353,11 @@ test "proper list formats without dots" {
     const one = Val{ .repr = .{ .i64 = 1 } };
 
     const cdr_cons = Pair{ .car = two, .cdr = nil };
-    const cdr_handle = try vm.pairs.put(testing.allocator, cdr_cons);
+    const cdr_handle = try vm.builder().buildHandle(cdr_cons);
     const cdr_val = Val{ .repr = .{ .pair = cdr_handle } };
 
     const car_cons = Pair{ .car = one, .cdr = cdr_val };
-    const car_handle = try vm.pairs.put(testing.allocator, car_cons);
+    const car_handle = try vm.builder().buildHandle(car_cons);
     const val = Val{ .repr = .{ .pair = car_handle } };
 
     try testing.expectFmt(
@@ -376,11 +376,11 @@ test "nested cons structures format correctly" {
     const one = Val{ .repr = .{ .i64 = 1 } };
 
     const inner_cons = Pair{ .car = two, .cdr = three };
-    const inner_handle = try vm.pairs.put(testing.allocator, inner_cons);
+    const inner_handle = try vm.builder().buildHandle(inner_cons);
     const inner_val = Val{ .repr = .{ .pair = inner_handle } };
 
     const outer_cons = Pair{ .car = one, .cdr = inner_val };
-    const outer_handle = try vm.pairs.put(testing.allocator, outer_cons);
+    const outer_handle = try vm.builder().buildHandle(outer_cons);
     const val = Val{ .repr = .{ .pair = outer_handle } };
 
     try testing.expectFmt(
@@ -398,7 +398,7 @@ test "single element list formats correctly" {
     const one = Val{ .repr = .{ .i64 = 42 } };
 
     const cons = Pair{ .car = one, .cdr = nil };
-    const handle = try vm.pairs.put(testing.allocator, cons);
+    const handle = try vm.builder().buildHandle(cons);
     const val = Val{ .repr = .{ .pair = handle } };
 
     try testing.expectFmt(
@@ -418,11 +418,11 @@ test "mixed types in list format correctly" {
     const number_val = Val{ .repr = .{ .i64 = 42 } };
 
     const cdr_cons = Pair{ .car = symbol_val, .cdr = nil };
-    const cdr_handle = try vm.pairs.put(testing.allocator, cdr_cons);
+    const cdr_handle = try vm.builder().buildHandle(cdr_cons);
     const cdr_val = Val{ .repr = .{ .pair = cdr_handle } };
 
     const car_cons = Pair{ .car = number_val, .cdr = cdr_val };
-    const car_handle = try vm.pairs.put(testing.allocator, car_cons);
+    const car_handle = try vm.builder().buildHandle(car_cons);
     const val = Val{ .repr = .{ .pair = car_handle } };
 
     try testing.expectFmt(
@@ -465,7 +465,7 @@ test "boolean in cons pair formats correctly" {
     const car = Val{ .repr = .{ .boolean = true } };
     const cdr = Val{ .repr = .{ .boolean = false } };
     const cons = Pair{ .car = car, .cdr = cdr };
-    const handle = try vm.pairs.put(testing.allocator, cons);
+    const handle = try vm.builder().buildHandle(cons);
     const val = Val{ .repr = .{ .pair = handle } };
 
     try testing.expectFmt(
@@ -484,11 +484,11 @@ test "boolean in mixed type list formats correctly" {
     const number_val = Val{ .repr = .{ .i64 = 42 } };
 
     const cdr_cons = Pair{ .car = bool_val, .cdr = nil };
-    const cdr_handle = try vm.pairs.put(testing.allocator, cdr_cons);
+    const cdr_handle = try vm.builder().buildHandle(cdr_cons);
     const cdr_val = Val{ .repr = .{ .pair = cdr_handle } };
 
     const car_cons = Pair{ .car = number_val, .cdr = cdr_val };
-    const car_handle = try vm.pairs.put(testing.allocator, car_cons);
+    const car_handle = try vm.builder().buildHandle(car_cons);
     const val = Val{ .repr = .{ .pair = car_handle } };
 
     try testing.expectFmt(
@@ -521,11 +521,7 @@ test "string formats with quotes and escapes" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const string = try vm.strings.put(
-        testing.allocator,
-        String.initStatic("hello world"),
-    );
-    const val = Val{ .repr = .{ .string = string } };
+    const val = try vm.builder().build(String.initStatic("hello world"));
 
     try testing.expectFmt(
         "\"hello world\"",
@@ -538,11 +534,7 @@ test "string with escape characters formats correctly" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const string = try vm.strings.put(
-        testing.allocator,
-        String.initStatic("hello\nworld\t!"),
-    );
-    const val = Val{ .repr = .{ .string = string } };
+    const val = try vm.builder().build(String.initStatic("hello\nworld\t!"));
 
     try testing.expectFmt(
         "\"hello\\nworld\\t!\"",
@@ -555,11 +547,7 @@ test "string with quotes and backslashes formats correctly" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const string = try vm.strings.put(
-        testing.allocator,
-        String.initStatic("say \"hello\" and use \\"),
-    );
-    const val = Val{ .repr = .{ .string = string } };
+    const val = try vm.builder().build(String.initStatic("say \"hello\" and use \\"));
 
     try testing.expectFmt(
         "\"say \\\"hello\\\" and use \\\\\"",
@@ -572,11 +560,7 @@ test "empty string formats correctly" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const string = try vm.strings.put(
-        testing.allocator,
-        String.init(),
-    );
-    const val = Val{ .repr = .{ .string = string } };
+    const val = try vm.builder().build(String.init());
 
     try testing.expectFmt(
         "\"\"",
@@ -590,11 +574,7 @@ test "string with control characters formats with hex escapes" {
     defer vm.deinit();
 
     const data = [_]u8{ 'h', 'i', 0x01, 0x1F, '!' };
-    const string = try vm.strings.put(
-        testing.allocator,
-        try String.initFromSlice(testing.allocator, &data),
-    );
-    const val = Val{ .repr = .{ .string = string } };
+    const val = try vm.builder().build(try String.initFromSlice(testing.allocator, &data));
 
     try testing.expectFmt(
         "\"hi\\x01\\x1F!\"",
@@ -609,7 +589,7 @@ test "vector formats with #() syntax" {
 
     const values = [_]Val{ Val.init(1), Val.init(2), Val.init(3) };
     const vector = try Vector.initFromSlice(testing.allocator, &values);
-    const val = Val.init(try vm.vectors.put(testing.allocator, vector));
+    const val = try vm.builder().build(vector);
 
     try testing.expectFmt(
         "#(1 2 3)",
@@ -623,7 +603,7 @@ test "empty vector formats correctly" {
     defer vm.deinit();
 
     const vector = Vector.init();
-    const vector_handle = try vm.vectors.put(testing.allocator, vector);
+    const vector_handle = try vm.builder().buildHandle(vector);
     const val = Val{ .repr = .{ .vector = vector_handle } };
 
     try testing.expectFmt(
@@ -639,7 +619,7 @@ test "vector with mixed types formats correctly" {
 
     const values = [_]Val{ Val.init(42), Val.init(true), Val.init({}), try vm.toVal(String.initStatic("hello")) };
     const vector = try Vector.initFromSlice(testing.allocator, &values);
-    const vector_handle = try vm.vectors.put(testing.allocator, vector);
+    const vector_handle = try vm.builder().buildHandle(vector);
     const val = Val{ .repr = .{ .vector = vector_handle } };
 
     try testing.expectFmt(
@@ -655,7 +635,7 @@ test "bytevector formats with #u8() syntax" {
 
     const bytes = [_]u8{ 0x01, 0x02, 0x03 };
     const bytevector = try ByteVector.initFromSlice(testing.allocator, &bytes);
-    const val = Val.init(try vm.bytevectors.put(testing.allocator, bytevector));
+    const val = try vm.builder().build(bytevector);
 
     try testing.expectFmt(
         "#u8(1 2 3)",
@@ -669,7 +649,7 @@ test "empty bytevector formats correctly" {
     defer vm.deinit();
 
     const bytevector = ByteVector.init();
-    const bytevector_handle = try vm.bytevectors.put(testing.allocator, bytevector);
+    const bytevector_handle = try vm.builder().buildHandle(bytevector);
     const val = Val{ .repr = .{ .bytevector = bytevector_handle } };
 
     try testing.expectFmt(
@@ -685,7 +665,7 @@ test "bytevector with various values formats correctly" {
 
     const bytes = [_]u8{ 0, 42, 128, 255 };
     const bytevector = try ByteVector.initFromSlice(testing.allocator, &bytes);
-    const bytevector_handle = try vm.bytevectors.put(testing.allocator, bytevector);
+    const bytevector_handle = try vm.builder().buildHandle(bytevector);
     const val = Val{ .repr = .{ .bytevector = bytevector_handle } };
 
     try testing.expectFmt(
@@ -704,12 +684,12 @@ test "record formats with type name and field values" {
     const age = try vm.interner.internStatic(Symbol.init("age"));
     const field_names = [_]Symbol.Interned{ first_name, age };
     const descriptor = try Record.RecordTypeDescriptor.init(testing.allocator, type_name, &field_names);
-    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+    const descriptor_handle = try vm.builder().buildHandle(descriptor);
 
     const values = [_]Val{ Val.init(42), Val.init(true) };
     const record = try Record.initWithValues(testing.allocator, &vm, descriptor_handle, &values);
 
-    const record_handle = try vm.records.put(testing.allocator, record);
+    const record_handle = try vm.builder().buildHandle(record);
     const val = Val{ .repr = .{ .record = record_handle } };
 
     try testing.expectFmt(
@@ -726,11 +706,11 @@ test "empty record formats correctly" {
     const type_name = try vm.interner.internStatic(Symbol.init("empty"));
     const field_names = [_]Symbol.Interned{};
     const descriptor = try Record.RecordTypeDescriptor.init(testing.allocator, type_name, &field_names);
-    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+    const descriptor_handle = try vm.builder().buildHandle(descriptor);
 
     const record = try Record.init(testing.allocator, &vm, descriptor_handle);
 
-    const record_handle = try vm.records.put(testing.allocator, record);
+    const record_handle = try vm.builder().buildHandle(record);
     const val = Val{ .repr = .{ .record = record_handle } };
 
     try testing.expectFmt(
@@ -749,7 +729,7 @@ test "record type descriptor formats with type name and field names" {
     const age = try vm.interner.internStatic(Symbol.init("age"));
     const field_names = [_]Symbol.Interned{ first_name, age };
     const descriptor = try Record.RecordTypeDescriptor.init(testing.allocator, type_name, &field_names);
-    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+    const descriptor_handle = try vm.builder().buildHandle(descriptor);
 
     const val = Val{ .repr = .{ .record_type_descriptor = descriptor_handle } };
 
@@ -767,7 +747,7 @@ test "empty record type descriptor formats correctly" {
     const type_name = try vm.interner.internStatic(Symbol.init("empty"));
     const field_names = [_]Symbol.Interned{};
     const descriptor = try Record.RecordTypeDescriptor.init(testing.allocator, type_name, &field_names);
-    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+    const descriptor_handle = try vm.builder().buildHandle(descriptor);
 
     const val = Val{ .repr = .{ .record_type_descriptor = descriptor_handle } };
 

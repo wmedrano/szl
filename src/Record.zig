@@ -279,7 +279,7 @@ test "RecordTypeDescriptor init creates empty descriptor" {
     const name = try vm.interner.internStatic(Symbol.init("person"));
     const field_names = [_]Symbol.Interned{};
     const descriptor = try RecordTypeDescriptor.init(testing.allocator, name, &field_names);
-    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+    const descriptor_handle = try vm.builder().buildHandle(descriptor);
 
     const resolved_descriptor = vm.record_type_descriptors.get(descriptor_handle).?;
     try testing.expectEqual(name, resolved_descriptor.name);
@@ -296,7 +296,7 @@ test "RecordTypeDescriptor init adds fields correctly" {
 
     const field_names = [_]Symbol.Interned{ first_name, last_name };
     const descriptor = try RecordTypeDescriptor.init(testing.allocator, name, &field_names);
-    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+    const descriptor_handle = try vm.builder().buildHandle(descriptor);
 
     const final_descriptor = vm.record_type_descriptors.get(descriptor_handle).?;
     try testing.expectEqual(2, final_descriptor.fieldCount());
@@ -314,7 +314,7 @@ test "RecordTypeDescriptor findFieldIndex finds correct indices" {
 
     const field_names = [_]Symbol.Interned{ first_name, age };
     const descriptor = try RecordTypeDescriptor.init(testing.allocator, name, &field_names);
-    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+    const descriptor_handle = try vm.builder().buildHandle(descriptor);
 
     const final_descriptor = vm.record_type_descriptors.get(descriptor_handle).?;
     try testing.expectEqual(@as(usize, 0), try final_descriptor.findFieldIndex(first_name));
@@ -332,7 +332,7 @@ test "Record init creates record with nil fields" {
     const first_name = try vm.interner.internStatic(Symbol.init("first-name"));
     const field_names = [_]Symbol.Interned{first_name};
     const descriptor = try RecordTypeDescriptor.init(testing.allocator, name, &field_names);
-    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+    const descriptor_handle = try vm.builder().buildHandle(descriptor);
 
     var record = try Record.init(testing.allocator, &vm, descriptor_handle);
     defer record.deinit(testing.allocator);
@@ -352,7 +352,7 @@ test "Record initWithValues creates record with specified values" {
 
     const field_names = [_]Symbol.Interned{ first_name, age };
     const descriptor = try RecordTypeDescriptor.init(testing.allocator, name, &field_names);
-    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+    const descriptor_handle = try vm.builder().buildHandle(descriptor);
 
     const values = [_]Val{ Val.init(42), Val.init(true) };
     var record = try Record.initWithValues(testing.allocator, &vm, descriptor_handle, &values);
@@ -371,7 +371,7 @@ test "Record getField and setField work correctly" {
     const first_name = try vm.interner.internStatic(Symbol.init("first-name"));
     const field_names = [_]Symbol.Interned{first_name};
     const descriptor = try RecordTypeDescriptor.init(testing.allocator, name, &field_names);
-    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+    const descriptor_handle = try vm.builder().buildHandle(descriptor);
 
     var record = try Record.init(testing.allocator, &vm, descriptor_handle);
     defer record.deinit(testing.allocator);
@@ -392,7 +392,7 @@ test "Record getFieldByName and setFieldByName work correctly" {
     const age = try vm.interner.internStatic(Symbol.init("age"));
     const field_names = [_]Symbol.Interned{ first_name, age };
     const descriptor = try RecordTypeDescriptor.init(testing.allocator, type_name, &field_names);
-    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+    const descriptor_handle = try vm.builder().buildHandle(descriptor);
 
     var record = try Record.init(testing.allocator, &vm, descriptor_handle);
     defer record.deinit(testing.allocator);
@@ -417,7 +417,7 @@ test "Record isOfType works correctly" {
 
     const field_names = [_]Symbol.Interned{};
     const descriptor = try RecordTypeDescriptor.init(testing.allocator, person_type, &field_names);
-    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+    const descriptor_handle = try vm.builder().buildHandle(descriptor);
 
     var record = try Record.init(testing.allocator, &vm, descriptor_handle);
     defer record.deinit(testing.allocator);

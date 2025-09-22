@@ -48,55 +48,113 @@ pub const Instruction = union(enum) {
     /// Instruction to squash the top n values on the stack, keeping only the topmost value.
     /// Takes n values from the stack and leaves only the top one.
     squash: usize,
+    /// Instruction to swap the top two values on the stack.
+    /// Exchanges the positions of the topmost and second-topmost stack values.
     swap,
 
     /// Creates a new load instruction with the given value.
+    ///
+    /// Args:
+    ///   val: The value to be loaded onto the stack when this instruction executes.
+    ///
+    /// Returns:
+    ///   A new load instruction containing the specified value.
     pub fn initLoad(val: Val) Instruction {
         return Instruction{ .load = val };
     }
 
     /// Creates a new eval_procedure instruction with the given argument count.
+    ///
+    /// Args:
+    ///   arg_count: The number of arguments to pass to the procedure being evaluated.
+    ///
+    /// Returns:
+    ///   A new eval_proc instruction with the specified argument count.
     pub fn initEvalProc(arg_count: usize) Instruction {
         return Instruction{ .eval_proc = arg_count };
     }
 
     /// Creates a new get_global instruction with the given symbol.
+    ///
+    /// Args:
+    ///   symbol: The interned symbol identifying the global variable to retrieve.
+    ///
+    /// Returns:
+    ///   A new get_global instruction for the specified symbol.
     pub fn initGetGlobal(symbol: Symbol.Interned) Instruction {
         return Instruction{ .get_global = symbol };
     }
 
     /// Creates a new get_local instruction with the given local variable index.
     /// The index is relative to the current stack frame's starting position.
+    ///
+    /// Args:
+    ///   index: The local variable index relative to the stack frame start.
+    ///
+    /// Returns:
+    ///   A new get_local instruction for the specified local variable.
     pub fn initGetLocal(index: isize) Instruction {
         return Instruction{ .get_local = index };
     }
 
     /// Creates a new set_local instruction with the given local variable index.
     /// The index is relative to the current stack frame's starting position.
+    ///
+    /// Args:
+    ///   index: The local variable index relative to the stack frame start.
+    ///
+    /// Returns:
+    ///   A new set_local instruction for the specified local variable.
     pub fn initSetLocal(index: isize) Instruction {
         return Instruction{ .set_local = index };
     }
 
     /// Creates a new return_value instruction.
+    ///
+    /// Returns:
+    ///   A new return_value instruction for returning from the current procedure.
     pub fn initReturnValue() Instruction {
         return .return_value;
     }
 
     /// Creates a new jump instruction with the given offset.
+    ///
+    /// Args:
+    ///   offset: The instruction offset to jump by (can be positive or negative).
+    ///
+    /// Returns:
+    ///   A new jump instruction with the specified offset.
     pub fn initJump(offset: isize) Instruction {
         return Instruction{ .jump = offset };
     }
 
     /// Creates a new jump_if_not instruction with the given parameters.
+    ///
+    /// Args:
+    ///   params: The conditional jump parameters including step count and pop behavior.
+    ///
+    /// Returns:
+    ///   A new jump_if_not instruction with the specified parameters.
     pub fn initJumpIfNot(params: ConditionalJumpParams) Instruction {
         return Instruction{ .jump_if_not = params };
     }
 
     /// Creates a new squash instruction with the given count.
+    ///
+    /// Args:
+    ///   count: The number of stack values to squash, keeping only the topmost.
+    ///
+    /// Returns:
+    ///   A new squash instruction with the specified count.
     pub fn initSquash(count: usize) Instruction {
         return Instruction{ .squash = count };
     }
 
+    /// Creates a new swap instruction.
+    /// Swaps the top two values on the stack when executed.
+    ///
+    /// Returns:
+    ///   A new swap instruction.
     pub fn initSwap() Instruction {
         return Instruction{ .swap = {} };
     }
@@ -367,6 +425,15 @@ pub fn squash(vm: *Vm, count: usize) !void {
     try vm.stack.resize(vm.allocator, new_len);
 }
 
+/// Swaps the top two values on the virtual machine's stack.
+/// Exchanges the positions of the topmost and second-topmost values.
+///
+/// Args:
+///   vm: Pointer to the virtual machine whose stack will be modified.
+///
+/// Note:
+///   This function assumes there are at least 2 values on the stack.
+///   Behavior is undefined if the stack has fewer than 2 values.
 pub fn swap(vm: *Vm) void {
     const a_idx = vm.stack.items.len - 1;
     const b_idx = vm.stack.items.len - 2;

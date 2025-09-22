@@ -7,6 +7,7 @@
 const std = @import("std");
 const testing = std.testing;
 
+const ByteVector = @import("ByteVector.zig");
 const Char = @import("Char.zig");
 const object_pool = @import("object_pool.zig");
 const Handle = object_pool.Handle;
@@ -18,7 +19,6 @@ const String = @import("String.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 const Vector = @import("Vector.zig");
-const ByteVector = @import("ByteVector.zig");
 const Vm = @import("Vm.zig");
 
 const Inspector = @This();
@@ -623,7 +623,7 @@ test "to converts record type descriptor to Handle(Record.RecordTypeDescriptor)"
     const type_name = try vm.interner.internStatic(Symbol.init("person"));
     const field_names = [_]Symbol.Interned{};
     const descriptor = try Record.RecordTypeDescriptor.init(testing.allocator, type_name, &field_names);
-    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+    const descriptor_handle = try vm.builder().buildHandle(descriptor);
     const val = Val.init(descriptor_handle);
 
     const result = try vm.inspector().to(Handle(Record.RecordTypeDescriptor), val);
@@ -638,7 +638,7 @@ test "to converts record type descriptor to Record.RecordTypeDescriptor" {
     const first_name = try vm.interner.internStatic(Symbol.init("first-name"));
     const field_names = [_]Symbol.Interned{first_name};
     const descriptor = try Record.RecordTypeDescriptor.init(testing.allocator, type_name, &field_names);
-    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+    const descriptor_handle = try vm.builder().buildHandle(descriptor);
     const val = Val.init(descriptor_handle);
 
     const result = try vm.inspector().to(Record.RecordTypeDescriptor, val);
@@ -653,7 +653,7 @@ test "to returns TypeMismatch for record type descriptor to incompatible types" 
     const type_name = try vm.interner.internStatic(Symbol.init("person"));
     const field_names = [_]Symbol.Interned{};
     const descriptor = try Record.RecordTypeDescriptor.init(testing.allocator, type_name, &field_names);
-    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+    const descriptor_handle = try vm.builder().buildHandle(descriptor);
     const val = Val.init(descriptor_handle);
 
     try testing.expectError(

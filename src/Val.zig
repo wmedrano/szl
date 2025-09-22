@@ -568,7 +568,7 @@ test "isRecord returns true for record values" {
     const type_name = try vm.interner.internStatic(Symbol.init("person"));
     const field_names = [_]Symbol.Interned{};
     const descriptor = try Record.RecordTypeDescriptor.init(testing.allocator, type_name, &field_names);
-    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+    const descriptor_handle = try vm.builder().buildHandle(descriptor);
 
     const record = try Record.init(testing.allocator, &vm, descriptor_handle);
     const record_val = try vm.toVal(record);
@@ -592,7 +592,7 @@ test "record values are truthy" {
     const type_name = try vm.interner.internStatic(Symbol.init("person"));
     const field_names = [_]Symbol.Interned{};
     const descriptor = try Record.RecordTypeDescriptor.init(testing.allocator, type_name, &field_names);
-    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+    const descriptor_handle = try vm.builder().buildHandle(descriptor);
 
     const record = try Record.init(testing.allocator, &vm, descriptor_handle);
     const record_val = try vm.toVal(record);
@@ -606,7 +606,7 @@ test "isRecordTypeDescriptor returns true for record type descriptor values" {
     const type_name = try vm.interner.internStatic(Symbol.init("person"));
     const field_names = [_]Symbol.Interned{};
     const descriptor = try Record.RecordTypeDescriptor.init(testing.allocator, type_name, &field_names);
-    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+    const descriptor_handle = try vm.builder().buildHandle(descriptor);
     const descriptor_val = Val.init(descriptor_handle);
 
     try testing.expectEqual(true, descriptor_val.isRecordTypeDescriptor());
@@ -629,7 +629,7 @@ test "record type descriptor values are truthy" {
     const type_name = try vm.interner.internStatic(Symbol.init("person"));
     const field_names = [_]Symbol.Interned{};
     const descriptor = try Record.RecordTypeDescriptor.init(testing.allocator, type_name, &field_names);
-    const descriptor_handle = try vm.record_type_descriptors.put(testing.allocator, descriptor);
+    const descriptor_handle = try vm.builder().buildHandle(descriptor);
     const descriptor_val = Val.init(descriptor_handle);
 
     try testing.expectEqual(true, descriptor_val.isTruthy());
