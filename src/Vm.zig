@@ -333,9 +333,25 @@ test evalStr {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try vm.expectEval("*unspecified*", "(define (foo arg) (+ arg 2))");
-    try vm.expectEval("*unspecified*", "(define bar 40)");
-    try vm.expectEval("42", "(foo bar)");
+    _ = try vm.evalStr("(define (foo arg) (+ arg 2))");
+    _ = try vm.evalStr("(define bar 40)");
+    try testing.expectEqual(
+        Val.init(42),
+        try vm.evalStr("(foo bar)"),
+    );
+
+    const define_fib =
+        \\ (define (fib n)
+        \\   (if (<= n 2)
+        \\     1
+        \\     (+ (fib (- n 1))
+        \\        (fib (- n 2)))))
+    ;
+    _ = try vm.evalStr(define_fib);
+    try testing.expectEqual(
+        Val.init(55),
+        try vm.evalStr("(fib 10)"),
+    );
 }
 
 /// Evaluates a compiled procedure by executing its bytecode instructions.
@@ -386,10 +402,11 @@ fn evalProc(self: *Vm, proc: Val, args: []const Val) !Val {
 pub fn expectEval(self: *Vm, expected: []const u8, input: []const u8) !void {
     self.reset();
     const expected_val = try self.builder().readOne(expected);
-    const actual_val = try self.evalStr(input);
-    if (std.meta.eql(expected_val, actual_val)) {
-        return;
-    }
+    const actual_val = self.evalStr(input) catch |e| {
+        if (self.err) |err| try testing.expectFmt("", "{f}", .{self.pretty(err)});
+        return e;
+    };
+    if (std.meta.eql(expected_val, actual_val)) return;
     try testing.expectFmt(expected, "{f}", .{self.pretty(actual_val)});
     switch (expected_val.repr) {
         .nil, .boolean, .i64, .f64, .char, .symbol => try testing.expectEqual(expected_val, actual_val),
