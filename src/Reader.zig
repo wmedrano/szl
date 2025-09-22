@@ -78,17 +78,21 @@ pub fn init(vm: *Vm, source: []const u8) Reader {
 ///   - BadExpression: If a closing parenthesis is encountered without a matching open.
 ///   - Other errors from parseToken or nextExpression functions.
 pub fn next(self: *Reader) Error!?Val {
-    const token = self.tokenizer.nextText() orelse return null;
-    const result = try self.parseTokenValue(token);
-    return switch (result) {
-        .value => |val| val,
-        .end_expression => error.BadExpression, // Unexpected ) at top level
-    };
+    while (true) {
+        const token = self.tokenizer.nextText() orelse return null;
+        const result = try self.parseTokenValue(token);
+        switch (result) {
+            .value => |val| return val,
+            .end_expression => return error.BadExpression, // Unexpected ) at top level
+            .comment => continue, // Skip comments and try next token
+        }
+    }
 }
 
 const ParseResult = union(enum) {
     value: Val,
     end_expression: void,
+    comment: void,
 };
 
 /// Parses a token into a value or signals end of expression.
@@ -116,6 +120,12 @@ fn parseTokenValue(self: *Reader, token: []const u8) Error!ParseResult {
     if (std.mem.eql(u8, token, "#(")) {
         const vector = try self.nextVector();
         return ParseResult{ .value = vector };
+    }
+    // Skip comments - they start with semicolon
+    if (token.len > 0 and token[0] == ';') {
+        // Return a special result that indicates we should skip this token
+        // We need to add a new variant to ParseResult for this
+        return ParseResult{ .comment = {} };
     }
     const val = try self.parseToken(token);
     return ParseResult{ .value = val };
@@ -165,6 +175,7 @@ fn nextExpression(self: *Reader) !?Val {
         switch (try self.parseTokenValue(token)) {
             .value => |val| try expressions.append(self.vm.allocator, val),
             .end_expression => return try self.vm.toVal(expressions.items),
+            .comment => continue, // Skip comments in expressions
         }
     }
     return error.BadExpression;
@@ -193,6 +204,7 @@ fn nextVector(self: *Reader) !Val {
                 const vector = try Vector.initFromSlice(self.vm.allocator, elements.items);
                 return try self.vm.toVal(vector);
             },
+            .comment => continue, // Skip comments in vectors
         }
     }
     return error.BadExpression;
@@ -1501,4 +1513,161 @@ test "readOne evaluates vector elements correctly" {
     try testing.expectEqual(Val.init(true), try vector.get(1));
     const string_val = try vector.get(2);
     try testing.expectEqual(.string, std.meta.activeTag(string_val.repr));
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Comment Tests
+////////////////////////////////////////////////////////////////////////////////
+
+test "readOne with comment followed by expression skips comment" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "; this is a comment\nhello");
+    try testing.expectEqual(
+        try vm.toVal(Symbol.init("hello")),
+        result,
+    );
+}
+
+test "readOne with expression followed by comment returns only expression" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "42 ; this is a comment");
+    try testing.expectEqual(
+        Val.init(42),
+        result,
+    );
+}
+
+test "readOne with comment only returns NoValue error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectError(
+        error.NoValue,
+        readOne(&vm, "; just a comment"),
+    );
+}
+
+test "readOne with multiple comments before expression skips all comments" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "; first comment\n; second comment\n#t");
+    try testing.expectEqual(
+        Val.init(true),
+        result,
+    );
+}
+
+test "readOne with list containing comments skips comments within list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "(+ ; addition operator\n 1 ; first number\n 2) ; second number");
+    try testing.expectFmt(
+        "(+ 1 2)",
+        "{f}",
+        .{vm.pretty(result)},
+    );
+}
+
+test "readOne with nested list containing comments returns proper structure" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "(define ; define a variable\n x ; variable name\n (+ 1 2)) ; variable value");
+    try testing.expectFmt(
+        "(define x (+ 1 2))",
+        "{f}",
+        .{vm.pretty(result)},
+    );
+}
+
+test "readOne with vector containing comments skips comments within vector" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "#(1 ; first element\n 2 ; second element\n 3) ; third element");
+    try testing.expectFmt(
+        "#(1 2 3)",
+        "{f}",
+        .{vm.pretty(result)},
+    );
+}
+
+test "readOne with comment at end of file returns NoValue error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectError(
+        error.NoValue,
+        readOne(&vm, "; comment at end of file"),
+    );
+}
+
+test "readOne with expression and multiple trailing comments returns expression" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "#f ; first comment\n; second comment");
+    try testing.expectEqual(
+        Val.init(false),
+        result,
+    );
+}
+
+test "readOne with complex nested structure and comments returns proper structure" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm,
+        \\(let ; let binding
+        \\  ((x 10) ; x equals 10
+        \\   (y 20)) ; y equals 20
+        \\  (+ x y)) ; add x and y
+    );
+    try testing.expectFmt(
+        "(let ((x 10) (y 20)) (+ x y))",
+        "{f}",
+        .{vm.pretty(result)},
+    );
+}
+
+test "readOne with quote followed by comment and expression returns quoted expression" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "' ; quote symbol\nhello");
+    try testing.expectFmt(
+        "(quote hello)",
+        "{f}",
+        .{vm.pretty(result)},
+    );
+}
+
+test "readOne with empty vector containing only comments returns empty vector" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "#( ; just comments\n ; in vector\n )");
+    try testing.expectFmt(
+        "#()",
+        "{f}",
+        .{vm.pretty(result)},
+    );
+}
+
+test "readOne with empty list containing only comments returns empty list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const result = try readOne(&vm, "( ; just comments\n ; in list\n )");
+    try testing.expectFmt(
+        "()",
+        "{f}",
+        .{vm.pretty(result)},
+    );
 }

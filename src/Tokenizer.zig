@@ -41,6 +41,7 @@ pub fn next(self: *Tokenizer) ?Span {
     if (std.mem.startsWith(u8, self.rest(), "#\\")) return self.eatCharacterLiteral();
     if (std.mem.startsWith(u8, self.rest(), "#(")) return self.eatVectorStart();
     if (next_char == '"') return self.eatStringLiteral();
+    if (next_char == ';') return self.eatComment();
     return self.eatSymbol();
 }
 
@@ -153,6 +154,18 @@ fn eatVectorStart(self: *Tokenizer) Span {
     // Consume "#("
     _ = self.eat(); // consume '#'
     _ = self.eat(); // consume '('
+    return Span{ .start = start, .end = self.idx };
+}
+
+/// Consumes a comment starting with ";" and returns its span.
+/// Comments extend from the semicolon to the end of the line.
+fn eatComment(self: *Tokenizer) Span {
+    const start = self.idx;
+    _ = self.eat();
+    while (self.currentChar()) |ch| {
+        if (ch == '\n' or ch == '\r') break;
+        _ = self.eat();
+    }
     return Span{ .start = start, .end = self.idx };
 }
 
@@ -405,5 +418,87 @@ test "string literal with multiple tokens" {
 test "unclosed string literal" {
     var tokenizer = init("\"unclosed");
     try testing.expectEqualStrings("\"unclosed", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Comment Tests
+////////////////////////////////////////////////////////////////////////////////
+
+test "simple comment then returns comment token" {
+    var tokenizer = init("; this is a comment");
+    try testing.expectEqualStrings("; this is a comment", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
+}
+
+test "comment with newline then returns comment without newline" {
+    var tokenizer = init("; comment\nhello");
+    try testing.expectEqualStrings("; comment", tokenizer.nextText().?);
+    try testing.expectEqualStrings("hello", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
+}
+
+test "comment with carriage return then returns comment without carriage return" {
+    var tokenizer = init("; comment\rworld");
+    try testing.expectEqualStrings("; comment", tokenizer.nextText().?);
+    try testing.expectEqualStrings("world", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
+}
+
+test "comment at end of file then returns comment token" {
+    var tokenizer = init("; end comment");
+    try testing.expectEqualStrings("; end comment", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
+}
+
+test "comment after expression then returns expression and comment" {
+    var tokenizer = init("(+ 1 2) ; result is 3");
+    try testing.expectEqualStrings("(", tokenizer.nextText().?);
+    try testing.expectEqualStrings("+", tokenizer.nextText().?);
+    try testing.expectEqualStrings("1", tokenizer.nextText().?);
+    try testing.expectEqualStrings("2", tokenizer.nextText().?);
+    try testing.expectEqualStrings(")", tokenizer.nextText().?);
+    try testing.expectEqualStrings("; result is 3", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
+}
+
+test "comment with special characters then returns comment with special characters" {
+    var tokenizer = init("; comment with ()!@#$%^&*");
+    try testing.expectEqualStrings("; comment with ()!@#$%^&*", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
+}
+
+test "multiple consecutive comments then returns each comment separately" {
+    var tokenizer = init("; first comment\n; second comment\n; third comment");
+    try testing.expectEqualStrings("; first comment", tokenizer.nextText().?);
+    try testing.expectEqualStrings("; second comment", tokenizer.nextText().?);
+    try testing.expectEqualStrings("; third comment", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
+}
+
+test "comment on empty line then returns comment token" {
+    var tokenizer = init("hello\n;\nworld");
+    try testing.expectEqualStrings("hello", tokenizer.nextText().?);
+    try testing.expectEqualStrings(";", tokenizer.nextText().?);
+    try testing.expectEqualStrings("world", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
+}
+
+test "comment with whitespace before semicolon then returns symbol and comment" {
+    var tokenizer = init("symbol ; comment");
+    try testing.expectEqualStrings("symbol", tokenizer.nextText().?);
+    try testing.expectEqualStrings("; comment", tokenizer.nextText().?);
+    try testing.expectEqual(null, tokenizer.nextText());
+}
+
+test "nested expression with comments then returns all tokens" {
+    var tokenizer = init("(define x ; variable name\n  42) ; the answer");
+    try testing.expectEqualStrings("(", tokenizer.nextText().?);
+    try testing.expectEqualStrings("define", tokenizer.nextText().?);
+    try testing.expectEqualStrings("x", tokenizer.nextText().?);
+    try testing.expectEqualStrings("; variable name", tokenizer.nextText().?);
+    try testing.expectEqualStrings("42", tokenizer.nextText().?);
+    try testing.expectEqualStrings(")", tokenizer.nextText().?);
+    try testing.expectEqualStrings("; the answer", tokenizer.nextText().?);
     try testing.expectEqual(null, tokenizer.nextText());
 }
