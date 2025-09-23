@@ -16,6 +16,7 @@ const boolean = @import("boolean.zig");
 const define = @import("define.zig");
 const equivalence = @import("equivalence.zig");
 const numbers = @import("numbers.zig");
+const pair = @import("pair.zig");
 
 /// Registers all built-in functions with the virtual machine.
 ///
@@ -32,4 +33,5 @@ pub fn register(vm: *Vm) !void {
     try define.register(vm);
     try equivalence.register(vm);
     try numbers.register(vm);
+    try pair.register(vm);
 }
