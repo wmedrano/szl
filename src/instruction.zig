@@ -167,13 +167,13 @@ pub const Instruction = union(enum) {
     ///   - get_global: Retrieves a global variable and pushes its value onto the stack
     ///   - get_local: Retrieves a local variable and pushes its value onto the stack
     ///   - set_local: Sets a local variable to the value popped from the stack
-    ///   - eval_procedure: Calls a procedure with specified number of arguments
+    ///   - eval_proc: Calls a procedure with specified number of arguments
     ///   - return_value: Returns from the current procedure, restoring the previous stack frame
     ///   - raise_error: Pops a value from the stack and sets it as the VM's error state
     ///   - jump: Jumps by a specified offset in the instruction sequence
-    ///   - jump_if: Conditionally jumps by a specified offset if the popped stack value is truthy
     ///   - jump_if_not: Conditionally jumps by a specified offset if the popped stack value is falsy
     ///   - squash: Squashes the top n values on the stack, keeping only the topmost value
+    ///   - swap: Swaps the top two values on the stack
     ///
     /// Args:
     ///   self: The instruction to execute.
@@ -182,6 +182,7 @@ pub const Instruction = union(enum) {
     /// Errors:
     ///   - May return memory allocation errors if stack operations fail.
     ///   - May return StackUnderflow if stack frame operations fail.
+    ///   - May return SzlError if the VM is in an error state.
     pub fn execute(self: Instruction, vm: *Vm) !void {
         if (vm.err) |_| return error.SzlError;
         switch (self) {

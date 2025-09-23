@@ -8,17 +8,17 @@
 const std = @import("std");
 const testing = std.testing;
 
-const ByteVector = @import("ByteVector.zig");
-const Char = @import("Char.zig");
 const object_pool = @import("../object_pool.zig");
 const Handle = object_pool.Handle;
-const Pair = @import("Pair.zig");
 const Procedure = @import("../Procedure.zig");
+const Vm = @import("../Vm.zig");
+const ByteVector = @import("ByteVector.zig");
+const Char = @import("Char.zig");
+const Pair = @import("Pair.zig");
 const Record = @import("Record.zig");
 const String = @import("String.zig");
 const Symbol = @import("Symbol.zig");
 const Vector = @import("Vector.zig");
-const Vm = @import("../Vm.zig");
 
 const Val = @This();
 
@@ -284,6 +284,20 @@ pub fn isTruthy(self: Val) bool {
         .boolean => |b| b,
         else => true,
     };
+}
+
+/// Determines if two values are equal using structural comparison.
+/// This performs a deep equality check comparing the internal representations
+/// of both values, including all nested data structures.
+///
+/// Args:
+///   self: The first value to compare.
+///   other: The second value to compare.
+///
+/// Returns:
+///   true if the values are structurally equal, false otherwise.
+pub fn eq(self: Val, other: Val) bool {
+    return std.meta.eql(self, other);
 }
 
 test "Val size is 16 bytes" {

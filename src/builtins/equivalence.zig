@@ -47,9 +47,7 @@ fn eqFunc(ctx: Procedure.Context) Val {
         instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
         return Val.init(ctx.vm.common_symbols.@"*unspecified*");
     }
-
-    const result = std.meta.eql(args[0], args[1]);
-    return Val.init(result);
+    return Val.init(args[0].eq(args[1]));
 }
 
 test "eq? with same immediate values returns #t" {

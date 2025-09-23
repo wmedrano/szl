@@ -7,13 +7,13 @@
 const std = @import("std");
 const testing = std.testing;
 
-const ByteVector = @import("types/ByteVector.zig");
-const Char = @import("types/Char.zig");
 const object_pool = @import("object_pool.zig");
 const Handle = object_pool.Handle;
-const Pair = @import("types/Pair.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
 const Procedure = @import("Procedure.zig");
+const ByteVector = @import("types/ByteVector.zig");
+const Char = @import("types/Char.zig");
+const Pair = @import("types/Pair.zig");
 const Record = @import("types/Record.zig");
 const String = @import("types/String.zig");
 const Symbol = @import("types/Symbol.zig");
@@ -128,6 +128,34 @@ pub const ListIterator = struct {
             .pair => |handle| {
                 const pair = try self.vm.inspector().resolve(Pair, handle);
                 return pair.car;
+            },
+            else => return error.TypeMismatch,
+        }
+    }
+
+    /// Consumes the next value if it equals the given value.
+    ///
+    /// Args:
+    ///   self: Pointer to the iterator instance.
+    ///   val: The value to compare against.
+    ///
+    /// Returns:
+    ///   true if the next value was equal and consumed, false otherwise.
+    ///
+    /// Errors:
+    ///   - TypeMismatch if the list structure is improper (cdr is not nil or pair).
+    pub fn takeIfEq(self: *ListIterator, val: Val) !bool {
+        switch (self.current.repr) {
+            .nil => {
+                return false;
+            },
+            .pair => |handle| {
+                const pair = try self.vm.inspector().resolve(Pair, handle);
+                if (val.eq(pair.car)) {
+                    self.current = pair.cdr;
+                    return true;
+                }
+                return false;
             },
             else => return error.TypeMismatch,
         }
@@ -664,4 +692,150 @@ test "to returns TypeMismatch for record type descriptor to incompatible types" 
         error.TypeMismatch,
         vm.inspector().to(i64, val),
     );
+}
+
+test "takeIfEq returns true and consumes matching element" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Create (42 100)
+    const list = try vm.toVal(Pair{
+        .car = try vm.toVal(42),
+        .cdr = try vm.toVal(Pair{
+            .car = try vm.toVal(100),
+            .cdr = try vm.toVal({}),
+        }),
+    });
+
+    var iter = try vm.inspector().iterList(list);
+
+    // Should consume 42 and return true
+    try testing.expectEqual(true, try iter.takeIfEq(try vm.toVal(42)));
+
+    // Next element should be 100
+    try testing.expectEqual(try vm.toVal(100), try iter.next());
+    try testing.expectEqual(null, try iter.next());
+}
+
+test "takeIfEq returns false and doesn't consume non-matching element" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Create (42 100)
+    const list = try vm.toVal(Pair{
+        .car = try vm.toVal(42),
+        .cdr = try vm.toVal(Pair{
+            .car = try vm.toVal(100),
+            .cdr = try vm.toVal({}),
+        }),
+    });
+
+    var iter = try vm.inspector().iterList(list);
+
+    // Should not consume 42 and return false when looking for 99
+    try testing.expectEqual(false, try iter.takeIfEq(try vm.toVal(99)));
+
+    // Next element should still be 42
+    try testing.expectEqual(try vm.toVal(42), try iter.next());
+    try testing.expectEqual(try vm.toVal(100), try iter.next());
+}
+
+test "takeIfEq returns false for empty list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var iter = try vm.inspector().iterList(Val.init({}));
+
+    // Should return false for any value on empty list
+    try testing.expectEqual(false, try iter.takeIfEq(try vm.toVal(42)));
+    try testing.expectEqual(true, iter.isEmpty());
+}
+
+test "takeIfEq works with different value types" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Create list with symbol, boolean, and string
+    const symbol_val = try vm.toVal(Symbol.init("test"));
+    const bool_val = try vm.toVal(true);
+    const string_val = try vm.toVal(String.initStatic("hello"));
+
+    const list = try vm.toVal(Pair{
+        .car = symbol_val,
+        .cdr = try vm.toVal(Pair{
+            .car = bool_val,
+            .cdr = try vm.toVal(Pair{
+                .car = string_val,
+                .cdr = try vm.toVal({}),
+            }),
+        }),
+    });
+
+    var iter = try vm.inspector().iterList(list);
+
+    // Test symbol match
+    try testing.expectEqual(true, try iter.takeIfEq(symbol_val));
+
+    // Test boolean match
+    try testing.expectEqual(true, try iter.takeIfEq(bool_val));
+
+    // Test string match
+    try testing.expectEqual(true, try iter.takeIfEq(string_val));
+
+    // Should be empty now
+    try testing.expectEqual(true, iter.isEmpty());
+}
+
+test "takeIfEq handles improper list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Create (42 . 100) - improper list
+    const improper_list = try vm.toVal(Pair{
+        .car = try vm.toVal(42),
+        .cdr = try vm.toVal(100), // Not nil or pair
+    });
+
+    var iter = try vm.inspector().iterList(improper_list);
+
+    // Should successfully consume 42
+    try testing.expectEqual(true, try iter.takeIfEq(try vm.toVal(42)));
+
+    // Next takeIfEq should return TypeMismatch error because cdr is not nil or pair
+    try testing.expectError(
+        error.TypeMismatch,
+        iter.takeIfEq(try vm.toVal(100)),
+    );
+}
+
+test "takeIfEq multiple sequential matches" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Create (1 1 2 3)
+    const list = try vm.toVal(Pair{
+        .car = try vm.toVal(1),
+        .cdr = try vm.toVal(Pair{
+            .car = try vm.toVal(1),
+            .cdr = try vm.toVal(Pair{
+                .car = try vm.toVal(2),
+                .cdr = try vm.toVal(Pair{
+                    .car = try vm.toVal(3),
+                    .cdr = try vm.toVal({}),
+                }),
+            }),
+        }),
+    });
+
+    var iter = try vm.inspector().iterList(list);
+
+    // Consume both 1s
+    try testing.expectEqual(true, try iter.takeIfEq(try vm.toVal(1)));
+    try testing.expectEqual(true, try iter.takeIfEq(try vm.toVal(1)));
+
+    // Try to consume another 1 (should fail)
+    try testing.expectEqual(false, try iter.takeIfEq(try vm.toVal(1)));
+
+    // Should be at 2 now
+    try testing.expectEqual(try vm.toVal(2), try iter.next());
 }

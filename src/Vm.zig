@@ -10,7 +10,6 @@ const testing = std.testing;
 
 const Builder = @import("Builder.zig");
 const builtins = @import("builtins/builtins.zig");
-const ByteVector = @import("types/ByteVector.zig");
 const Color = @import("object_pool.zig").Color;
 const Compiler = @import("compiler/Compiler.zig");
 const Handle = @import("object_pool.zig").Handle;
@@ -18,9 +17,10 @@ const Inspector = @import("Inspector.zig");
 const instruction = @import("instruction.zig");
 const Instruction = instruction.Instruction;
 const ObjectPool = @import("object_pool.zig").ObjectPool;
-const Pair = @import("types/Pair.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
 const Procedure = @import("Procedure.zig");
+const ByteVector = @import("types/ByteVector.zig");
+const Pair = @import("types/Pair.zig");
 const Record = @import("types/Record.zig");
 const String = @import("types/String.zig");
 const Symbol = @import("types/Symbol.zig");
@@ -320,10 +320,13 @@ pub fn reset(self: *Vm) void {
 ///   - May return parsing errors from the Reader if the source is malformed.
 ///   - May return compilation errors if expressions cannot be compiled to bytecode.
 pub fn evalStr(self: *Vm, source: []const u8) !Val {
+    var arena = std.heap.ArenaAllocator.init(self.allocator);
+    defer arena.deinit();
     var reader = self.builder().read(source);
     var ret = Val.init({});
     while (try reader.next()) |expr| {
-        const proc = try Compiler.compile(self, expr);
+        const proc = try Compiler.compile(self, &arena, expr);
+        _ = arena.reset(.retain_capacity);
         ret = try self.evalProc(proc, &.{});
     }
     return ret;
