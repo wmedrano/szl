@@ -84,6 +84,10 @@ pub fn build(self: Builder, v: anytype) Error!Val {
         Handle(Record),
         Handle(Record.RecordTypeDescriptor),
         => return Val.init(v),
+        *const Procedure.Native => return Val.init(v),
+        Procedure.Native,
+        *Procedure.Native,
+        => @compileError("found type " ++ @typeName(type_info) ++ ", did you mean *const Procedure.Native?"),
         Symbol => return self.internVal(v),
         String => return Val.init(try self.vm.strings.put(self.vm.allocator, v, color)),
         Pair => return Val.init(try self.vm.pairs.put(self.vm.allocator, v, color)),
@@ -297,6 +301,23 @@ pub fn define(self: Builder, symbol: anytype, value: Val) !void {
         ),
     };
     try self.vm.global_values.put(self.vm.allocator, interned_symbol, value);
+}
+
+/// Defines a native procedure as a global variable.
+///
+/// This function takes a native procedure and defines it in the global
+/// environment using the procedure's name as the symbol. The procedure's
+/// name is automatically interned as a static symbol.
+///
+/// Args:
+///   self: The Builder instance.
+///   proc: A pointer to the native procedure to define globally. The procedure must have static lifetime.
+///
+/// Returns:
+///   An error if symbol interning or value storage fails.
+pub fn defineNativeProc(self: Builder, proc: *const Procedure.Native) !void {
+    const symbol = try self.internStatic(Symbol.init(proc.name));
+    try self.define(symbol, Val.init(proc));
 }
 
 test "build with void is end_of_list" {
@@ -524,22 +545,18 @@ test "build with Procedure creates procedure val" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const test_procedure = Procedure{
-        .name = try vm.interner.internStatic(Symbol.init("test-proc")),
-        .implementation = .{
-            .native = .{
-                .func = struct {
-                    fn testFunc(_: Procedure.Context) Val {
-                        return Val.init(42);
-                    }
-                }.testFunc,
-            },
-        },
+    const test_procedure = Procedure.Native{
+        .name = "test-proc",
+        .func = struct {
+            fn testFunc(_: Procedure.Context) Val {
+                return Val.init(42);
+            }
+        }.testFunc,
     };
 
-    const result = try vm.builder().build(test_procedure);
+    const result = try vm.builder().build(&test_procedure);
 
-    try testing.expectEqual(.proc, std.meta.activeTag(result.repr));
+    try testing.expectEqual(.native_proc, std.meta.activeTag(result.repr));
     try testing.expectFmt(
         "#<procedure:test-proc>",
         "{f}",

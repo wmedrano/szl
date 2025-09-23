@@ -236,6 +236,7 @@ fn formatValue(self: PrettyPrinter, writer: *std.Io.Writer, val: Val) error{Writ
             try writer.writeAll(")");
         },
         .proc => |proc_handle| try self.formatProcedure(writer, proc_handle),
+        .native_proc => |proc| try writer.print("#<procedure:{s}>", .{proc.name}),
     }
 }
 

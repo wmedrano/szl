@@ -67,11 +67,11 @@ common_symbols: CommonSymbolTable,
 
 /// Execution stack that holds values during computation and procedure calls.
 /// Values are pushed and popped as expressions are evaluated.
-stack: std.ArrayList(Val) = .{},
+stack: std.ArrayList(Val),
 
 /// Stack of procedure call frames, enabling nested procedure calls and proper scoping.
 /// Each frame tracks the stack position and execution state for a procedure call.
-stack_frames: std.ArrayList(StackFrame) = .{},
+stack_frames: std.ArrayList(StackFrame),
 
 /// The currently executing stack frame containing execution state.
 /// Tracks the current instruction pointer and stack frame boundaries.
@@ -158,6 +158,9 @@ pub fn init(options: Options) !Vm {
     const interner = Symbol.Interner.init(options.allocator);
     var vm = Vm{
         .allocator = options.allocator,
+        .common_symbols = undefined,
+        .stack = try std.ArrayList(Val).initCapacity(options.allocator, 1024),
+        .stack_frames = try std.ArrayList(StackFrame).initCapacity(options.allocator, 64),
         .interner = interner,
         .reachable_color = Color.blue,
         .pairs = ObjectPool(Pair).init(),
@@ -167,7 +170,6 @@ pub fn init(options: Options) !Vm {
         .bytevectors = ObjectPool(ByteVector).init(),
         .records = ObjectPool(Record).init(),
         .record_type_descriptors = ObjectPool(Record.RecordTypeDescriptor).init(),
-        .common_symbols = undefined,
     };
     vm.common_symbols = try vm.builder().symbolTable(CommonSymbolTable);
     try builtins.register(&vm);
@@ -455,7 +457,7 @@ fn markOne(self: *Vm, val: Val) !void {
         // These types don't require marking:
         // - Primitive values (.nil, .boolean, .i64, .f64, .char) are stored inline
         // - Symbols are never garbage collected and live for the program's lifetime
-        .nil, .boolean, .i64, .f64, .char, .symbol => {},
+        .nil, .boolean, .i64, .f64, .char, .symbol, .native_proc => {},
         .string => |h| {
             _ = self.strings.setColor(h, self.reachable_color);
         },
@@ -467,16 +469,11 @@ fn markOne(self: *Vm, val: Val) !void {
         },
         .proc => |h| {
             if (self.procedures.setColor(h, self.reachable_color)) |proc| {
-                switch (proc.implementation) {
-                    .native => {},
-                    .bytecode => |bytecode| {
-                        for (bytecode.instructions) |inst| {
-                            switch (inst) {
-                                .load => |v| try self.markOne(v),
-                                else => {},
-                            }
-                        }
-                    },
+                for (proc.instructions) |inst| {
+                    switch (inst) {
+                        .load => |v| try self.markOne(v),
+                        else => {},
+                    }
                 }
             }
         },
@@ -533,7 +530,7 @@ pub fn expectEval(self: *Vm, expected: []const u8, input: []const u8) !void {
     if (std.meta.eql(expected_val, actual_val)) return;
     try testing.expectFmt(expected, "{f}", .{self.pretty(actual_val)});
     switch (expected_val.repr) {
-        .nil, .boolean, .i64, .f64, .char, .symbol => try testing.expectEqual(expected_val, actual_val),
+        .nil, .boolean, .i64, .f64, .char, .symbol, .native_proc => try testing.expectEqual(expected_val, actual_val),
         .string, .pair, .proc, .vector, .bytevector, .record, .record_type_descriptor => {},
     }
 }
@@ -566,7 +563,7 @@ pub fn expectEvalErr(self: *Vm, expected: []const u8, source: []const u8) !void 
     if (std.meta.eql(expected_err, actual_err)) return;
     try testing.expectFmt(expected, "{f}", .{self.pretty(actual_err)});
     switch (expected_err.repr) {
-        .nil, .boolean, .i64, .f64, .char, .symbol => try testing.expectEqual(expected_err, actual_err),
+        .nil, .boolean, .i64, .f64, .char, .symbol, .native_proc => try testing.expectEqual(expected_err, actual_err),
         .string, .pair, .proc, .vector, .bytevector, .record, .record_type_descriptor => {},
     }
 }

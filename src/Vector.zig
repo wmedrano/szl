@@ -154,6 +154,10 @@ pub fn sliceMut(self: *Vector) []Val {
     return self.data.items;
 }
 
+test "Vector is small" {
+    try testing.expectEqual(24, @sizeOf(Vector));
+}
+
 test "Vector init creates empty vector" {
     const vector = Vector.init();
     try testing.expectEqual(0, vector.len());

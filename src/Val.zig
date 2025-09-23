@@ -67,6 +67,9 @@ pub const Repr = union(enum) {
     /// Procedures include both built-in functions and user-defined functions.
     proc: Handle(Procedure),
 
+    /// Similar to `proc`, but implemented in natively in Zig.
+    native_proc: *const Procedure.Native,
+
     /// Represents a vector using a handle to an object pool.
     /// Vectors in Scheme are sequences of values that can be accessed by index.
     vector: Handle(Vector),
@@ -117,6 +120,7 @@ pub fn init(v: anytype) Val {
         Handle(String) => return init(Val.Repr{ .string = v }),
         Handle(Pair) => return init(Val.Repr{ .pair = v }),
         Handle(Procedure) => return init(Val.Repr{ .proc = v }),
+        *const Procedure.Native => return init(Val.Repr{ .native_proc = v }),
         Handle(Vector) => return init(Val.Repr{ .vector = v }),
         Handle(ByteVector) => return init(Val.Repr{ .bytevector = v }),
         Handle(Record) => return init(Val.Repr{ .record = v }),
@@ -162,7 +166,7 @@ pub fn isPair(self: Val) bool {
 ///   true if the value is a procedure, false otherwise.
 pub fn isProcedure(self: Val) bool {
     return switch (self.repr) {
-        .proc => true,
+        .proc, .native_proc => true,
         else => false,
     };
 }
@@ -337,15 +341,15 @@ test "isTruthy returns true for procedure" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const proc = Procedure{
-        .name = try vm.interner.internStatic(Symbol.init("test-proc")),
-        .implementation = .{ .native = .{ .func = struct {
+    const proc = Procedure.Native{
+        .name = "test-proc",
+        .func = struct {
             fn func(_: Procedure.Context) Val {
                 return Val.init({});
             }
-        }.func } },
+        }.func,
     };
-    const proc_val = try vm.toVal(proc);
+    const proc_val = try vm.toVal(&proc);
 
     try testing.expectEqual(true, proc_val.isTruthy());
 }
@@ -367,15 +371,15 @@ test "isProcedure returns true for procedure value" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const proc = Procedure{
-        .name = try vm.interner.internStatic(Symbol.init("test-proc")),
-        .implementation = .{ .native = .{ .func = struct {
+    const proc = Procedure.Native{
+        .name = "test-proc",
+        .func = struct {
             fn func(_: Procedure.Context) Val {
                 return Val.init({});
             }
-        }.func } },
+        }.func,
     };
-    const proc_val = try vm.toVal(proc);
+    const proc_val = try vm.toVal(&proc);
 
     try testing.expectEqual(true, proc_val.isProcedure());
 }

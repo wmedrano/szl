@@ -179,15 +179,8 @@ pub fn appendByte(self: *String, allocator: std.mem.Allocator, byte: u8) !void {
 pub fn clear(self: *String) void {
     switch (self.data) {
         .empty => {},
-        .static => {
-            self.data = .{ .empty = {} };
-        },
-        .mutable => |*mutable| {
-            mutable.clearRetainingCapacity();
-            if (mutable.capacity == 0) {
-                self.data = .{ .empty = {} };
-            }
-        },
+        .static => self.data = .{ .empty = {} },
+        .mutable => |*mutable| mutable.clearRetainingCapacity(),
     }
 }
 
@@ -213,6 +206,10 @@ pub fn eql(self: String, other: String) bool {
 ///   true if the string content matches the slice, false otherwise.
 pub fn eqlSlice(self: String, other: []const u8) bool {
     return std.mem.eql(u8, self.slice(), other);
+}
+
+test "String is small" {
+    try testing.expectEqual(32, @sizeOf(String));
 }
 
 test "String init creates empty string" {

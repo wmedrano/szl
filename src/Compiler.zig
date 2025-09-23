@@ -64,13 +64,9 @@ fn toProcedure(self: *Compiler, name: ?Symbol.Interned) Error!Procedure {
     const instructions = try self.instructions.toOwnedSlice(self.vm.allocator);
     return Procedure{
         .name = name,
-        .implementation = .{
-            .bytecode = .{
-                .args = self.scope.procedureArgCount(),
-                .locals_count = self.scope.count(),
-                .instructions = instructions,
-            },
-        },
+        .args = self.scope.procedureArgCount(),
+        .locals_count = self.scope.count(),
+        .instructions = instructions,
     };
 }
 
@@ -92,7 +88,7 @@ pub fn expectInstructions(expected_instructions: []const Instruction, vm: *Vm, s
 
     try testing.expectEqualDeep(
         expected_instructions,
-        proc.implementation.bytecode.instructions,
+        proc.instructions,
     );
 }
 
@@ -174,6 +170,7 @@ fn compileOne(self: *Compiler, expr: Val) Error!void {
         .char,
         .string,
         .proc,
+        .native_proc,
         .vector,
         .bytevector,
         .record,
@@ -716,7 +713,7 @@ test "compile define procedure expression" {
     const expr = try vm.builder().readOne("(define (foo) 42)");
     const proc = try vm.fromVal(Procedure, try compile(&vm, expr));
 
-    const instructions = proc.implementation.bytecode.instructions;
+    const instructions = proc.instructions;
 
     try testing.expectEqual(4, instructions.len);
     try testing.expectEqual(
@@ -743,7 +740,7 @@ test "compile define procedure with recursive call" {
     const expr = try vm.builder().readOne("(define (foo x) (foo x))");
     const proc = try vm.fromVal(Procedure, try compile(&vm, expr));
 
-    const instructions = proc.implementation.bytecode.instructions;
+    const instructions = proc.instructions;
 
     try testing.expectEqual(4, instructions.len);
     try testing.expectEqual(
@@ -754,14 +751,14 @@ test "compile define procedure with recursive call" {
         Instruction.initLoad(try vm.builder().internStaticVal(Symbol.init("foo"))),
         instructions[1],
     );
-    const foo_proc = try vm.fromVal(Procedure, proc.implementation.bytecode.instructions[2].load);
+    const foo_proc = try vm.fromVal(Procedure, proc.instructions[2].load);
     try testing.expectEqualDeep(
         &.{
             Instruction.initGetLocal(-1),
             Instruction.initGetLocal(0),
             Instruction.initEvalProc(1),
         },
-        foo_proc.implementation.bytecode.instructions,
+        foo_proc.instructions,
     );
     try testing.expectEqual(
         Instruction.initEvalProc(2),
@@ -892,10 +889,10 @@ test "compile quote with integer" {
     const proc_val = try compile(&vm, try vm.builder().readOne("'42"));
     const proc = try vm.fromVal(Procedure, proc_val);
 
-    try testing.expectEqual(1, proc.implementation.bytecode.instructions.len);
+    try testing.expectEqual(1, proc.instructions.len);
     try testing.expectEqual(
         Instruction.initLoad(Val.init(42)),
-        proc.implementation.bytecode.instructions[0],
+        proc.instructions[0],
     );
 }
 
@@ -928,8 +925,8 @@ test "compile quote with list" {
     const proc_val = try compile(&vm, try vm.builder().readOne("'(1 2 3)"));
     const proc = try vm.fromVal(Procedure, proc_val);
 
-    try testing.expectEqual(1, proc.implementation.bytecode.instructions.len);
-    const instruction = proc.implementation.bytecode.instructions[0];
+    try testing.expectEqual(1, proc.instructions.len);
+    const instruction = proc.instructions[0];
     try testing.expectEqual(.load, std.meta.activeTag(instruction));
 
     // Check that the loaded value is the list (1 2 3)
@@ -1207,9 +1204,9 @@ test "compile lambda with single parameter" {
     const proc = try vm.fromVal(Procedure, proc_val);
 
     // Should generate one Load instruction containing a procedure
-    try testing.expectEqual(1, proc.implementation.bytecode.instructions.len);
-    try testing.expectEqual(.load, std.meta.activeTag(proc.implementation.bytecode.instructions[0]));
-    try testing.expectEqual(.proc, std.meta.activeTag(proc.implementation.bytecode.instructions[0].load.repr));
+    try testing.expectEqual(1, proc.instructions.len);
+    try testing.expectEqual(.load, std.meta.activeTag(proc.instructions[0]));
+    try testing.expectEqual(.proc, std.meta.activeTag(proc.instructions[0].load.repr));
 }
 
 test "compile lambda with multiple parameters" {
@@ -1220,14 +1217,14 @@ test "compile lambda with multiple parameters" {
     const proc = try vm.fromVal(Procedure, proc_val);
 
     // Should generate one Load instruction containing a procedure
-    try testing.expectEqual(1, proc.implementation.bytecode.instructions.len);
-    try testing.expectEqual(.load, std.meta.activeTag(proc.implementation.bytecode.instructions[0]));
-    try testing.expectEqual(.proc, std.meta.activeTag(proc.implementation.bytecode.instructions[0].load.repr));
+    try testing.expectEqual(1, proc.instructions.len);
+    try testing.expectEqual(.load, std.meta.activeTag(proc.instructions[0]));
+    try testing.expectEqual(.proc, std.meta.activeTag(proc.instructions[0].load.repr));
 
     // Check the loaded procedure has correct properties
-    const loaded_proc = try vm.fromVal(Procedure, proc.implementation.bytecode.instructions[0].load);
-    try testing.expectEqual(@as(usize, 2), loaded_proc.implementation.bytecode.args);
-    try testing.expectEqual(@as(usize, 2), loaded_proc.implementation.bytecode.locals_count);
+    const loaded_proc = try vm.fromVal(Procedure, proc.instructions[0].load);
+    try testing.expectEqual(@as(usize, 2), loaded_proc.args);
+    try testing.expectEqual(@as(usize, 2), loaded_proc.locals_count);
 }
 
 test "compile lambda with no parameters" {
@@ -1238,8 +1235,8 @@ test "compile lambda with no parameters" {
     const proc = try vm.fromVal(Procedure, proc_val);
 
     // Should have one instruction that loads the procedure
-    try testing.expectEqual(1, proc.implementation.bytecode.instructions.len);
-    try testing.expectEqual(.load, std.meta.activeTag(proc.implementation.bytecode.instructions[0]));
+    try testing.expectEqual(1, proc.instructions.len);
+    try testing.expectEqual(.load, std.meta.activeTag(proc.instructions[0]));
 }
 
 test "compile lambda used in function position" {
@@ -1250,8 +1247,8 @@ test "compile lambda used in function position" {
     const proc = try vm.fromVal(Procedure, proc_val);
 
     // Should compile the lambda, load 5, then evaluate
-    try testing.expect(proc.implementation.bytecode.instructions.len > 2);
-    const last_instruction = proc.implementation.bytecode.instructions[proc.implementation.bytecode.instructions.len - 1];
+    try testing.expect(proc.instructions.len > 2);
+    const last_instruction = proc.instructions[proc.instructions.len - 1];
     try testing.expectEqual(.eval_proc, std.meta.activeTag(last_instruction));
     try testing.expectEqual(@as(usize, 1), last_instruction.eval_proc);
 }
@@ -1263,8 +1260,8 @@ test "compile lambda with multiple body expressions" {
     const proc_val = try compile(&vm, try vm.builder().readOne("(lambda (x) x (+ x 1))"));
     const proc = try vm.fromVal(Procedure, proc_val);
 
-    try testing.expectEqual(1, proc.implementation.bytecode.instructions.len);
-    try testing.expectEqual(.load, std.meta.activeTag(proc.implementation.bytecode.instructions[0]));
+    try testing.expectEqual(1, proc.instructions.len);
+    try testing.expectEqual(.load, std.meta.activeTag(proc.instructions[0]));
 }
 
 test "compile lambda with invalid parameter list fails" {

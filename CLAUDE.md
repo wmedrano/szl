@@ -26,7 +26,7 @@ The interpreter follows a pipeline architecture:
 ### Value System
 
 - **Val** (`src/Val.zig`) - Core value representation using tagged unions for dynamic typing
-- Supports: nil, booleans, i64/f64 numbers, characters, symbols, pairs, procedures, strings, and vectors
+- Supports: nil, booleans, i64/f64 numbers, characters, symbols, pairs, procedures (bytecode), native procedures, strings, and vectors
 - **Symbol** (`src/Symbol.zig`) - Interned symbols for efficient comparison
 - **Pair** (`src/Pair.zig`) - Cons cells for list structures
 - **Char** (`src/Char.zig`) - Character values with #\ notation
@@ -44,7 +44,8 @@ The interpreter follows a pipeline architecture:
 
 - **LexicalScope** (`src/LexicalScope.zig`) - Variable binding management during compilation
 - **Instruction** (`src/instruction.zig`) - Bytecode instruction definitions
-- **Procedure** (`src/Procedure.zig`) - Compiled procedure representation
+- **Procedure** (`src/Procedure.zig`) - Bytecode procedure representation with direct instruction storage
+- **Procedure.Native** - Native Zig function procedures for built-in operations
 
 ### Built-ins
 

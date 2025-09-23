@@ -272,6 +272,13 @@ pub fn isOfType(self: Record, type_name: Symbol.Interned) bool {
     return self.type_descriptor.name.eql(type_name);
 }
 
+test "Record is small" {
+    // We can reduce the size by moving the `RecordTypeDescriptor` handle into
+    // the `Val` object.
+    try testing.expectEqual(48, @sizeOf(Record));
+    try testing.expectEqual(24, @sizeOf(RecordTypeDescriptor));
+}
+
 test "RecordTypeDescriptor init creates empty descriptor" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();

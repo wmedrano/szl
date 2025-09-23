@@ -329,27 +329,31 @@ pub fn evalProc(vm: *Vm, arg_count: usize) !void {
     const stack_start = vm.stack.items.len - arg_count;
     const proc_idx = stack_start - 1;
     const proc_val = vm.stack.items[proc_idx];
-    const proc = try vm.fromVal(Procedure, proc_val);
     try vm.stack_frames.append(vm.allocator, vm.current_stack_frame);
     vm.current_stack_frame = Vm.StackFrame{ .stack_start = stack_start };
-    switch (proc.implementation) {
-        .native => |native| {
-            const return_val = native.func(Procedure.Context{ .vm = vm });
-            try vm.stack.append(vm.allocator, return_val);
-            try returnValue(vm);
-        },
-        .bytecode => |bytecode| {
-            if (arg_count != bytecode.args) {
+    switch (proc_val.repr) {
+        .proc => |proc_handle| {
+            const proc = vm.inspector().resolve(Procedure, proc_handle) catch return error.SzlError;
+            if (arg_count != proc.args) {
                 raiseWithError(vm, Val.init(vm.common_symbols.@"wrong-number-of-arguments"));
                 return error.SzlError;
             }
-            if (bytecode.locals_count < bytecode.args) {
+            if (proc.locals_count < proc.args) {
                 raiseWithError(vm, Val.init(vm.common_symbols.@"invalid-procedure"));
                 return error.SzlError;
             }
-            const placeholder_count = bytecode.locals_count - bytecode.args;
+            const placeholder_count = proc.locals_count - proc.args;
             try vm.stack.appendNTimes(vm.allocator, Val.init({}), placeholder_count);
-            vm.current_stack_frame.instructions = bytecode.instructions;
+            vm.current_stack_frame.instructions = proc.instructions;
+        },
+        .native_proc => |proc| {
+            const return_val = proc.func(Procedure.Context{ .vm = vm });
+            try vm.stack.append(vm.allocator, return_val);
+            try returnValue(vm);
+        },
+        else => {
+            raiseWithError(vm, Val.init(vm.common_symbols.@"type-error"));
+            return error.SzlError;
         },
     }
 }
@@ -463,18 +467,16 @@ test "execute eval_procedure instruction calls procedure with arguments" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const proc = Procedure{
-        .implementation = .{ .native = .{ .func = struct {
-            fn addTwo(ctx: Procedure.Context) Val {
-                const args = ctx.localStack();
-                const val1 = ctx.vm.fromVal(i64, args[0]) catch unreachable;
-                const val2 = ctx.vm.fromVal(i64, args[1]) catch unreachable;
-                return Val.init(val1 + val2);
-            }
-        }.addTwo } },
-    };
+    const proc = Procedure.Native{ .name = "test-proc", .func = struct {
+        fn addTwo(ctx: Procedure.Context) Val {
+            const args = ctx.localStack();
+            const val1 = ctx.vm.fromVal(i64, args[0]) catch unreachable;
+            const val2 = ctx.vm.fromVal(i64, args[1]) catch unreachable;
+            return Val.init(val1 + val2);
+        }
+    }.addTwo };
     try loadMany(&vm, &.{
-        try vm.toVal(proc),
+        try vm.toVal(&proc),
         Val.init(10),
         Val.init(20),
     });
@@ -496,8 +498,7 @@ test "execute bytecode procedure loads instructions into stack frame" {
         Instruction.initLoad(Val.init(7)),
     };
     const proc = try vm.toVal(Procedure{
-        .name = try vm.interner.internStatic(Symbol.init("test-bytecode")),
-        .implementation = .{ .bytecode = .{ .instructions = try vm.allocator.dupe(Instruction, instructions) } },
+        .instructions = try vm.allocator.dupe(Instruction, instructions),
     });
     try load(&vm, proc);
 
@@ -523,11 +524,9 @@ test "execute bytecode procedure with arguments sets correct stack start" {
         Instruction.initLoad(Val.init(42)),
     };
     const proc = Procedure{
-        .implementation = .{ .bytecode = .{
-            .args = 3,
-            .locals_count = 3,
-            .instructions = try vm.allocator.dupe(Instruction, instructions),
-        } },
+        .args = 3,
+        .locals_count = 3,
+        .instructions = try vm.allocator.dupe(Instruction, instructions),
     };
     try loadMany(&vm, &.{
         try vm.toVal(proc),
@@ -540,7 +539,7 @@ test "execute bytecode procedure with arguments sets correct stack start" {
     try testing.expectEqualDeep(
         Vm.StackFrame{
             .stack_start = 1,
-            .instructions = proc.implementation.bytecode.instructions,
+            .instructions = proc.instructions,
         },
         vm.current_stack_frame,
     );
@@ -554,11 +553,9 @@ test "return_value restores previous stack frame and places return value on top"
         Instruction.initLoad(Val.init(42)),
     };
     const proc = Procedure{
-        .implementation = .{ .bytecode = .{
-            .args = 2,
-            .locals_count = 2,
-            .instructions = try vm.allocator.dupe(Instruction, instructions),
-        } },
+        .args = 2,
+        .locals_count = 2,
+        .instructions = try vm.allocator.dupe(Instruction, instructions),
     };
 
     // Stack layout: [100, 200, proc, 10, 20]
@@ -573,7 +570,7 @@ test "return_value restores previous stack frame and places return value on top"
     try load(&vm, Val.init(999)); // This becomes the return value
     try testing.expectEqual(1, vm.stack_frames.items.len);
     try testing.expectEqualDeep(
-        Vm.StackFrame{ .stack_start = 3, .instructions = proc.implementation.bytecode.instructions },
+        Vm.StackFrame{ .stack_start = 3, .instructions = proc.instructions },
         vm.current_stack_frame,
     );
 
@@ -1204,18 +1201,14 @@ test "bytecode procedure with locals_count > args allocates additional local var
     defer vm.deinit();
 
     const proc = Procedure{
-        .implementation = .{
-            .bytecode = .{
-                .args = 2,
-                .locals_count = 4, // 2 more locals than args
-                .instructions = try vm.allocator.dupe(Instruction, &.{
-                    Instruction.initGetLocal(0), // Get first argument
-                    Instruction.initGetLocal(1), // Get second argument
-                    Instruction.initGetLocal(2), // Get first additional local (should be {})
-                    Instruction.initGetLocal(3), // Get second additional local (should be {})
-                }),
-            },
-        },
+        .args = 2,
+        .locals_count = 4, // 2 more locals than args
+        .instructions = try vm.allocator.dupe(Instruction, &.{
+            Instruction.initGetLocal(0), // Get first argument
+            Instruction.initGetLocal(1), // Get second argument
+            Instruction.initGetLocal(2), // Get first additional local (should be {})
+            Instruction.initGetLocal(3), // Get second additional local (should be {})
+        }),
     };
     try loadMany(&vm, &.{
         try vm.toVal(proc),
@@ -1244,16 +1237,12 @@ test "bytecode procedure with locals_count equal to args works correctly" {
     defer vm.deinit();
 
     const proc = Procedure{
-        .implementation = .{
-            .bytecode = .{
-                .args = 2,
-                .locals_count = 2, // same as args
-                .instructions = try vm.allocator.dupe(Instruction, &.{
-                    Instruction.initGetLocal(0),
-                    Instruction.initGetLocal(1),
-                }),
-            },
-        },
+        .args = 2,
+        .locals_count = 2, // same as args
+        .instructions = try vm.allocator.dupe(Instruction, &.{
+            Instruction.initGetLocal(0),
+            Instruction.initGetLocal(1),
+        }),
     };
     try loadMany(&vm, &.{
         try vm.toVal(proc),
@@ -1277,16 +1266,12 @@ test "bytecode procedure with locals_count < args raises error" {
     defer vm.deinit();
 
     const proc = Procedure{
-        .implementation = .{
-            .bytecode = .{
-                .args = 3,
-                .locals_count = 2, // less than args - invalid
-                .instructions = try vm.allocator.dupe(
-                    Instruction,
-                    &.{Instruction.initLoad(Val.init(42))},
-                ),
-            },
-        },
+        .args = 3,
+        .locals_count = 2, // less than args - invalid
+        .instructions = try vm.allocator.dupe(
+            Instruction,
+            &.{Instruction.initLoad(Val.init(42))},
+        ),
     };
     try loadMany(&vm, &.{
         try vm.toVal(proc),
@@ -1305,14 +1290,12 @@ test "bytecode procedure with wrong argument count raises error" {
     defer vm.deinit();
 
     const proc = Procedure{
-        .implementation = .{ .bytecode = .{
-            .args = 2,
-            .locals_count = 3,
-            .instructions = try vm.allocator.dupe(
-                Instruction,
-                &.{Instruction.initLoad(Val.init(42))},
-            ),
-        } },
+        .args = 2,
+        .locals_count = 3,
+        .instructions = try vm.allocator.dupe(
+            Instruction,
+            &.{Instruction.initLoad(Val.init(42))},
+        ),
     };
     try loadMany(&vm, &.{
         try vm.toVal(proc),
@@ -1329,16 +1312,12 @@ test "bytecode procedure initializes additional locals to unit values" {
     defer vm.deinit();
 
     const proc = Procedure{
-        .implementation = .{
-            .bytecode = .{
-                .args = 1,
-                .locals_count = 2, // 1 additional local
-                .instructions = try vm.allocator.dupe(Instruction, &.{
-                    Instruction.initSetLocal(1), // Set additional local to value from stack
-                    Instruction.initGetLocal(1), // Get the value back
-                }),
-            },
-        },
+        .args = 1,
+        .locals_count = 2, // 1 additional local
+        .instructions = try vm.allocator.dupe(Instruction, &.{
+            Instruction.initSetLocal(1), // Set additional local to value from stack
+            Instruction.initGetLocal(1), // Get the value back
+        }),
     };
     try loadMany(&vm, &.{
         try vm.toVal(proc),

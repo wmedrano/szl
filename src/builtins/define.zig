@@ -13,6 +13,11 @@ const Symbol = @import("../Symbol.zig");
 const Val = @import("../Val.zig");
 const Vm = @import("../Vm.zig");
 
+const szl_define = Procedure.Native{
+    .name = "szl-define",
+    .func = szlDefineFunc,
+};
+
 /// Registers all definition functions with the virtual machine.
 ///
 /// Args:
@@ -21,13 +26,7 @@ const Vm = @import("../Vm.zig");
 /// Errors:
 ///   May return allocation errors if registering functions fails.
 pub fn register(vm: *Vm) !void {
-    try vm.builder().define(
-        Symbol.init("szl-define"),
-        try vm.builder().build(Procedure{
-            .name = try vm.interner.internStatic(Symbol.init("szl-define")),
-            .implementation = .{ .native = .{ .func = szlDefineFunc } },
-        }),
-    );
+    try vm.builder().defineNativeProc(&szl_define);
 }
 
 /// Native implementation of the 'szl-define' procedure for defining global variables.

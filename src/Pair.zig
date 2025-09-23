@@ -4,6 +4,9 @@
 //! lists and pairs in Scheme. A pair contains two values: car (first) and
 //! cdr (rest), which can be any valid Scheme value.
 
+const std = @import("std");
+const testing = std.testing;
+
 const Val = @import("Val.zig");
 
 const Pair = @This();
@@ -21,4 +24,8 @@ cdr: Val,
 /// Creates a new pair with `first` and `second`.
 pub fn init(first: Val, second: Val) Pair {
     return Pair{ .car = first, .cdr = second };
+}
+
+test "Pair is small" {
+    try testing.expectEqual(32, @sizeOf(Pair));
 }

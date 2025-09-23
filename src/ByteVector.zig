@@ -153,6 +153,10 @@ pub fn sliceMut(self: *ByteVector) []u8 {
     return self.data.items;
 }
 
+test "ByteVector is small" {
+    try testing.expectEqual(24, @sizeOf(ByteVector));
+}
+
 test "ByteVector init creates empty bytevector" {
     const bytevector = ByteVector.init();
     try testing.expectEqual(0, bytevector.len());

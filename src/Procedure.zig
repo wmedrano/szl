@@ -1,8 +1,8 @@
 //! Procedure representation for the Scheme interpreter.
 //!
 //! This module defines the core procedure types that can be called
-//! in the Scheme interpreter. Procedures represent callable values
-//! including both built-in and user-defined functions.
+//! in the Scheme interpreter. Procedures represent callable bytecode
+//! functions, while native functions are handled separately as Native structs.
 
 const std = @import("std");
 const testing = std.testing;
@@ -19,23 +19,20 @@ const Procedure = @This();
 /// debugging, and reflection.
 name: ?Symbol.Interned = null,
 
-/// The implementation for this procedure.
-/// Can be either a native Zig function or compiled bytecode.
-implementation: Impl,
+/// The number of arguments for the procedure.
+args: usize = 0,
 
-/// Implementation types for procedures.
-/// Procedures can be implemented either as native Zig functions
-/// or as compiled bytecode instructions.
-pub const Impl = union(enum) {
-    /// Native Zig function implementation.
-    native: Native,
-    /// Bytecode implementation with compiled instructions.
-    bytecode: Bytecode,
-};
+/// The total number of local variable slots (arguments + local variables).
+locals_count: usize = 0,
+
+/// Array of instructions that implement the procedure logic.
+instructions: []const Instruction,
 
 /// Native Zig function wrapper for procedures.
 /// Contains a function pointer that takes a Context and returns a value.
 pub const Native = struct {
+    /// The name of the procedure.
+    name: []const u8,
     /// Function pointer that implements the procedure logic.
     /// Takes a Context providing access to VM state and returns a value.
     func: *const fn (Context) Val,
@@ -58,23 +55,13 @@ pub const Context = struct {
     }
 };
 
-/// Bytecode implementation for procedures.
-/// Contains compiled instructions that will be executed by the VM.
-pub const Bytecode = struct {
-    /// The number of arguments for the procedure.
-    args: usize = 0,
-    /// The total number of local variable slots (arguments + local variables).
-    locals_count: usize = 0,
-    /// Array of instructions that implement the procedure logic.
-    instructions: []const Instruction,
-};
+test "Procedure is small" {
+    try testing.expectEqual(40, @sizeOf(Procedure));
+}
 
 /// Deallocates resources associated with this procedure.
-/// For dynamic bytecode procedures, frees the instructions array.
-/// For static bytecode and native procedures, this is a no-op.
-pub fn deinit(self: Procedure, allocator: std.mem.Allocator) void {
-    switch (self.implementation) {
-        .native => {},
-        .bytecode => |bytecode| allocator.free(bytecode.instructions),
-    }
+/// Frees the instructions array and resets the procedure to an empty state.
+pub fn deinit(self: *Procedure, allocator: std.mem.Allocator) void {
+    allocator.free(self.instructions);
+    self.instructions = &.{};
 }

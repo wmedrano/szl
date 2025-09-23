@@ -13,6 +13,11 @@ const Symbol = @import("../Symbol.zig");
 const Val = @import("../Val.zig");
 const Vm = @import("../Vm.zig");
 
+const eq_native = Procedure.Native{
+    .name = "eq?",
+    .func = eqFunc,
+};
+
 /// Registers all equivalence functions with the virtual machine.
 ///
 /// Args:
@@ -21,13 +26,7 @@ const Vm = @import("../Vm.zig");
 /// Errors:
 ///   May return allocation errors if registering functions fails.
 pub fn register(vm: *Vm) !void {
-    try vm.builder().define(
-        Symbol.init("eq?"),
-        try vm.builder().build(Procedure{
-            .name = try vm.interner.internStatic(Symbol.init("eq?")),
-            .implementation = .{ .native = .{ .func = eqFunc } },
-        }),
-    );
+    try vm.builder().defineNativeProc(&eq_native);
 }
 
 /// Native implementation of the 'eq?' equivalence predicate.

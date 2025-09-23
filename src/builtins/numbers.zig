@@ -14,6 +14,57 @@ const Symbol = @import("../Symbol.zig");
 const Val = @import("../Val.zig");
 const Vm = @import("../Vm.zig");
 
+// Define all native procedures as constants
+const add_native = Procedure.Native{
+    .name = "+",
+    .func = addFunc,
+};
+
+const sub_native = Procedure.Native{
+    .name = "-",
+    .func = subFunc,
+};
+
+const mul_native = Procedure.Native{
+    .name = "*",
+    .func = mulFunc,
+};
+
+const div_native = Procedure.Native{
+    .name = "/",
+    .func = divFunc,
+};
+
+const less_than_native = Procedure.Native{
+    .name = "<",
+    .func = lessThanFunc,
+};
+
+const greater_than_native = Procedure.Native{
+    .name = ">",
+    .func = greaterThanFunc,
+};
+
+const less_than_or_equal_native = Procedure.Native{
+    .name = "<=",
+    .func = lessThanOrEqualFunc,
+};
+
+const greater_than_or_equal_native = Procedure.Native{
+    .name = ">=",
+    .func = greaterThanOrEqualFunc,
+};
+
+const equal_native = Procedure.Native{
+    .name = "=",
+    .func = equalFunc,
+};
+
+const abs_native = Procedure.Native{
+    .name = "abs",
+    .func = absFunc,
+};
+
 /// Registers all number functions with the virtual machine.
 ///
 /// Args:
@@ -23,80 +74,20 @@ const Vm = @import("../Vm.zig");
 ///   May return allocation errors if registering functions fails.
 pub fn register(vm: *Vm) !void {
     // Arithmetic operations
-    try vm.builder().define(
-        Symbol.init("+"),
-        try vm.builder().build(Procedure{
-            .name = try vm.interner.internStatic(Symbol.init("+")),
-            .implementation = .{ .native = .{ .func = addFunc } },
-        }),
-    );
-    try vm.builder().define(
-        Symbol.init("-"),
-        try vm.builder().build(Procedure{
-            .name = try vm.interner.internStatic(Symbol.init("-")),
-            .implementation = .{ .native = .{ .func = subFunc } },
-        }),
-    );
-    try vm.builder().define(
-        Symbol.init("*"),
-        try vm.builder().build(Procedure{
-            .name = try vm.interner.internStatic(Symbol.init("*")),
-            .implementation = .{ .native = .{ .func = mulFunc } },
-        }),
-    );
-    try vm.builder().define(
-        Symbol.init("/"),
-        try vm.builder().build(Procedure{
-            .name = try vm.interner.internStatic(Symbol.init("/")),
-            .implementation = .{ .native = .{ .func = divFunc } },
-        }),
-    );
+    try vm.builder().defineNativeProc(&add_native);
+    try vm.builder().defineNativeProc(&sub_native);
+    try vm.builder().defineNativeProc(&mul_native);
+    try vm.builder().defineNativeProc(&div_native);
 
     // Comparison operations
-    try vm.builder().define(
-        Symbol.init("<"),
-        try vm.builder().build(Procedure{
-            .name = try vm.interner.internStatic(Symbol.init("<")),
-            .implementation = .{ .native = .{ .func = lessThanFunc } },
-        }),
-    );
-    try vm.builder().define(
-        Symbol.init(">"),
-        try vm.builder().build(Procedure{
-            .name = try vm.interner.internStatic(Symbol.init(">")),
-            .implementation = .{ .native = .{ .func = greaterThanFunc } },
-        }),
-    );
-    try vm.builder().define(
-        Symbol.init("<="),
-        try vm.builder().build(Procedure{
-            .name = try vm.interner.internStatic(Symbol.init("<=")),
-            .implementation = .{ .native = .{ .func = lessThanOrEqualFunc } },
-        }),
-    );
-    try vm.builder().define(
-        Symbol.init(">="),
-        try vm.builder().build(Procedure{
-            .name = try vm.interner.internStatic(Symbol.init(">=")),
-            .implementation = .{ .native = .{ .func = greaterThanOrEqualFunc } },
-        }),
-    );
-    try vm.builder().define(
-        Symbol.init("="),
-        try vm.builder().build(Procedure{
-            .name = try vm.interner.internStatic(Symbol.init("=")),
-            .implementation = .{ .native = .{ .func = equalFunc } },
-        }),
-    );
+    try vm.builder().defineNativeProc(&less_than_native);
+    try vm.builder().defineNativeProc(&greater_than_native);
+    try vm.builder().defineNativeProc(&less_than_or_equal_native);
+    try vm.builder().defineNativeProc(&greater_than_or_equal_native);
+    try vm.builder().defineNativeProc(&equal_native);
 
     // Mathematical functions
-    try vm.builder().define(
-        Symbol.init("abs"),
-        try vm.builder().build(Procedure{
-            .name = try vm.interner.internStatic(Symbol.init("abs")),
-            .implementation = .{ .native = .{ .func = absFunc } },
-        }),
-    );
+    try vm.builder().defineNativeProc(&abs_native);
 }
 
 // =============================================================================

@@ -253,6 +253,10 @@ pub fn to(self: Inspector, T: type, val: Val) !T {
             Procedure => return try self.resolve(Procedure, p),
             else => return error.TypeMismatch,
         },
+        .native_proc => |p| switch (T) {
+            *const Procedure.Native => return p,
+            else => return error.TypeMismatch,
+        },
     }
 }
 
