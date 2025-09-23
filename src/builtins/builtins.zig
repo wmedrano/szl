@@ -12,6 +12,7 @@ const Procedure = @import("../Procedure.zig");
 const Symbol = @import("../Symbol.zig");
 const Val = @import("../Val.zig");
 const Vm = @import("../Vm.zig");
+const boolean = @import("boolean.zig");
 const define = @import("define.zig");
 const equivalence = @import("equivalence.zig");
 const numbers = @import("numbers.zig");
@@ -27,6 +28,7 @@ const numbers = @import("numbers.zig");
 /// Errors:
 ///   May return allocation errors if registering built-ins fails.
 pub fn register(vm: *Vm) !void {
+    try boolean.register(vm);
     try define.register(vm);
     try equivalence.register(vm);
     try numbers.register(vm);

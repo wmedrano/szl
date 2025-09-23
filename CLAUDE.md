@@ -50,10 +50,10 @@ The interpreter follows a pipeline architecture:
 ### Built-ins
 
 Located in `src/builtins/`:
-- `arithmetic.zig` - Basic math operations (+, -, *, /)
-- `comparison.zig` - Comparison operations (<, >, =, etc.)
-- `math.zig` - Advanced math functions
+- `boolean.zig` - Boolean operations (boolean?, not)
 - `define.zig` - Variable definition primitives
+- `equivalence.zig` - Equivalence operations (eq?, equal?)
+- `numbers.zig` - Numeric operations (+, -, *, /, <, >, =, <=, >=, abs)
 - `builtins.zig` - Built-in function registry
 
 ### Debugging & Utilities
@@ -76,7 +76,9 @@ The project uses Zig's built-in testing framework. Tests are embedded within mod
 Currently implemented Scheme features:
 - Basic data types (numbers, booleans, symbols, characters, strings, lists, vectors)
 - Special forms: `define`, `quote`, `if`, `let`, `begin`, `cond`
-- Arithmetic and comparison operations
+- Arithmetic and comparison operations (+, -, *, /, <, >, =, <=, >=, abs)
+- Boolean operations (boolean?, not)
+- Equivalence operations (eq?, equal?)
 - Lexical scoping with proper variable binding
 - Bytecode compilation and execution
 - Vector syntax: `#(element1 element2 ...)` with support for nested vectors and mixed types
