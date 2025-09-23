@@ -8,14 +8,14 @@
 const std = @import("std");
 const testing = std.testing;
 
-const Char = @import("Char.zig");
-const Pair = @import("Pair.zig");
-const String = @import("String.zig");
-const Symbol = @import("Symbol.zig");
+const Char = @import("../types/Char.zig");
+const Pair = @import("../types/Pair.zig");
+const String = @import("../types/String.zig");
+const Symbol = @import("../types/Symbol.zig");
 const Tokenizer = @import("Tokenizer.zig");
-const Val = @import("Val.zig");
-const Vector = @import("Vector.zig");
-const Vm = @import("Vm.zig");
+const Val = @import("../types/Val.zig");
+const Vector = @import("../types/Vector.zig");
+const Vm = @import("../Vm.zig");
 
 const Reader = @This();
 

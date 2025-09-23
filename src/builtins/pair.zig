@@ -8,10 +8,10 @@ const testing = std.testing;
 
 const instruction = @import("../instruction.zig");
 const Instruction = instruction.Instruction;
-const Pair = @import("../Pair.zig");
+const Pair = @import("../types/Pair.zig");
 const Procedure = @import("../Procedure.zig");
-const Symbol = @import("../Symbol.zig");
-const Val = @import("../Val.zig");
+const Symbol = @import("../types/Symbol.zig");
+const Val = @import("../types/Val.zig");
 const Vm = @import("../Vm.zig");
 
 // Define all native procedures as constants

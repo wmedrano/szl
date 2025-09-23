@@ -10,15 +10,15 @@ const testing = std.testing;
 
 const ByteVector = @import("ByteVector.zig");
 const Char = @import("Char.zig");
-const object_pool = @import("object_pool.zig");
+const object_pool = @import("../object_pool.zig");
 const Handle = object_pool.Handle;
 const Pair = @import("Pair.zig");
-const Procedure = @import("Procedure.zig");
+const Procedure = @import("../Procedure.zig");
 const Record = @import("Record.zig");
 const String = @import("String.zig");
 const Symbol = @import("Symbol.zig");
 const Vector = @import("Vector.zig");
-const Vm = @import("Vm.zig");
+const Vm = @import("../Vm.zig");
 
 const Val = @This();
 

@@ -4,7 +4,7 @@
 const std = @import("std");
 const testing = std.testing;
 
-pub const Val = @import("Val.zig");
+pub const Val = @import("types/Val.zig");
 pub const Vm = @import("Vm.zig");
 
 test {

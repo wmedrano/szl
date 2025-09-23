@@ -6,17 +6,17 @@
 const std = @import("std");
 const testing = std.testing;
 
-const ByteVector = @import("ByteVector.zig");
+const ByteVector = @import("types/ByteVector.zig");
 const object_pool = @import("object_pool.zig");
 const Handle = object_pool.Handle;
-const Pair = @import("Pair.zig");
+const Pair = @import("types/Pair.zig");
 const Procedure = @import("Procedure.zig");
-const Reader = @import("Reader.zig");
-const Record = @import("Record.zig");
-const String = @import("String.zig");
-const Symbol = @import("Symbol.zig");
-const Val = @import("Val.zig");
-const Vector = @import("Vector.zig");
+const Reader = @import("compiler/Reader.zig");
+const Record = @import("types/Record.zig");
+const String = @import("types/String.zig");
+const Symbol = @import("types/Symbol.zig");
+const Val = @import("types/Val.zig");
+const Vector = @import("types/Vector.zig");
 const Vm = @import("Vm.zig");
 
 const Builder = @This();

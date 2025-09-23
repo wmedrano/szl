@@ -5,14 +5,14 @@
 const std = @import("std");
 const testing = std.testing;
 
-const Inspector = @import("Inspector.zig");
-const Instruction = @import("instruction.zig").Instruction;
-const LexicalScope = @import("LexicalScope.zig");
-const Pair = @import("Pair.zig");
-const Procedure = @import("Procedure.zig");
-const Symbol = @import("Symbol.zig");
-const Val = @import("Val.zig");
-const Vm = @import("Vm.zig");
+const Inspector = @import("../Inspector.zig");
+const Instruction = @import("../instruction.zig").Instruction;
+const Procedure = @import("../Procedure.zig");
+const Pair = @import("../types/Pair.zig");
+const Symbol = @import("../types/Symbol.zig");
+const Val = @import("../types/Val.zig");
+const Vm = @import("../Vm.zig");
+const Scope = @import("Scope.zig");
 
 const Compiler = @This();
 
@@ -20,8 +20,8 @@ const Compiler = @This();
 vm: *Vm,
 /// Accumulated instructions during compilation.
 instructions: std.ArrayList(Instruction) = .{},
-/// Lexical scope for managing local variable bindings during compilation.
-scope: LexicalScope = .{},
+/// Local bindings for managing local variable bindings during compilation.
+scope: Scope = .{},
 
 /// Errors that can occur during compilation.
 pub const Error = error{
@@ -64,7 +64,7 @@ fn toProcedure(self: *Compiler, name: ?Symbol.Interned) Error!Procedure {
     const instructions = try self.instructions.toOwnedSlice(self.vm.allocator);
     return Procedure{
         .name = name,
-        .args = self.scope.procedureArgCount(),
+        .args = self.scope.argCount(),
         .locals_count = self.scope.count(),
         .instructions = instructions,
     };
@@ -478,7 +478,7 @@ fn compileDefineProc(self: *Compiler, parameters: *Inspector.ListIterator, body:
     } orelse return Error.InvalidExpression;
     const name_sym = self.vm.fromVal(Symbol.Interned, name) catch
         return Error.InvalidExpression;
-    _ = try sub_compiler.scope.addBinding(self.vm.allocator, LexicalScope.Binding{
+    _ = try sub_compiler.scope.addBinding(self.vm.allocator, Scope.Binding{
         .name = name_sym,
         .index = -1,
         .type = .proc,
@@ -511,7 +511,7 @@ fn compileProc(self: *Compiler, name: ?Symbol.Interned, parameters: *Inspector.L
     var sub_compiler = Compiler{ .vm = self.vm };
     defer sub_compiler.deinit();
     if (name) |n| {
-        _ = try sub_compiler.scope.addBinding(self.vm.allocator, LexicalScope.Binding{
+        _ = try sub_compiler.scope.addBinding(self.vm.allocator, Scope.Binding{
             .name = n,
             .index = -1,
             .type = .proc,
@@ -521,7 +521,7 @@ fn compileProc(self: *Compiler, name: ?Symbol.Interned, parameters: *Inspector.L
     while (parameters.next() catch return Error.InvalidExpression) |arg_val| {
         const arg = self.vm.fromVal(Symbol.Interned, arg_val) catch
             return Error.InvalidExpression;
-        _ = try sub_compiler.scope.addBinding(self.vm.allocator, LexicalScope.Binding{
+        _ = try sub_compiler.scope.addBinding(self.vm.allocator, Scope.Binding{
             .name = arg,
             .index = arg_count,
             .type = .argument,
@@ -572,7 +572,7 @@ fn compileLambda(self: *Compiler, iter: *Inspector.ListIterator) Error!void {
 ///
 /// Returns:
 ///   The binding ID for later activation, or an error if compilation fails.
-fn compileLetBinding(self: *Compiler, binding: Val) Error!LexicalScope.Id {
+fn compileLetBinding(self: *Compiler, binding: Val) Error!Scope.Id {
     const inspector = self.vm.inspector();
     var parts = inspector.iterList(binding) catch return Error.InvalidExpression;
 
@@ -584,7 +584,7 @@ fn compileLetBinding(self: *Compiler, binding: Val) Error!LexicalScope.Id {
     const name = inspector.to(Symbol.Interned, name_val) catch return Error.InvalidExpression;
 
     // Create hidden binding for the variable (not yet accessible to other bindings)
-    const id = try self.scope.addVariable(self.vm.allocator, name, .hidden);
+    const id = try self.scope.addLocal(self.vm.allocator, name, .hidden);
 
     // Extract and compile the initialization expression
     const expr_val = parts.next() catch {
@@ -624,7 +624,7 @@ fn compileLet(self: *Compiler, star: bool, iter: *Inspector.ListIterator) Error!
         return Error.InvalidExpression;
     } orelse return Error.InvalidExpression;
 
-    var let_binding_ids = std.ArrayList(LexicalScope.Id){};
+    var let_binding_ids = std.ArrayList(Scope.Id){};
     defer {
         // Clean up bindings when exiting let scope to prevent variable leakage
         for (let_binding_ids.items) |id| self.scope.clear(id);

@@ -8,8 +8,8 @@ const std = @import("std");
 const testing = std.testing;
 
 const Instruction = @import("instruction.zig").Instruction;
-const Symbol = @import("Symbol.zig");
-const Val = @import("Val.zig");
+const Symbol = @import("types/Symbol.zig");
+const Val = @import("types/Val.zig");
 const Vm = @import("Vm.zig");
 
 const Procedure = @This();

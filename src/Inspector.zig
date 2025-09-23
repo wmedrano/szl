@@ -7,18 +7,18 @@
 const std = @import("std");
 const testing = std.testing;
 
-const ByteVector = @import("ByteVector.zig");
-const Char = @import("Char.zig");
+const ByteVector = @import("types/ByteVector.zig");
+const Char = @import("types/Char.zig");
 const object_pool = @import("object_pool.zig");
 const Handle = object_pool.Handle;
-const Pair = @import("Pair.zig");
+const Pair = @import("types/Pair.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
 const Procedure = @import("Procedure.zig");
-const Record = @import("Record.zig");
-const String = @import("String.zig");
-const Symbol = @import("Symbol.zig");
-const Val = @import("Val.zig");
-const Vector = @import("Vector.zig");
+const Record = @import("types/Record.zig");
+const String = @import("types/String.zig");
+const Symbol = @import("types/Symbol.zig");
+const Val = @import("types/Val.zig");
+const Vector = @import("types/Vector.zig");
 const Vm = @import("Vm.zig");
 
 const Inspector = @This();

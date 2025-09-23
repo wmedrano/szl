@@ -10,22 +10,22 @@ const testing = std.testing;
 
 const Builder = @import("Builder.zig");
 const builtins = @import("builtins/builtins.zig");
-const ByteVector = @import("ByteVector.zig");
+const ByteVector = @import("types/ByteVector.zig");
 const Color = @import("object_pool.zig").Color;
-const Compiler = @import("Compiler.zig");
+const Compiler = @import("compiler/Compiler.zig");
 const Handle = @import("object_pool.zig").Handle;
 const Inspector = @import("Inspector.zig");
 const instruction = @import("instruction.zig");
 const Instruction = instruction.Instruction;
 const ObjectPool = @import("object_pool.zig").ObjectPool;
-const Pair = @import("Pair.zig");
+const Pair = @import("types/Pair.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
 const Procedure = @import("Procedure.zig");
-const Record = @import("Record.zig");
-const String = @import("String.zig");
-const Symbol = @import("Symbol.zig");
-const Val = @import("Val.zig");
-const Vector = @import("Vector.zig");
+const Record = @import("types/Record.zig");
+const String = @import("types/String.zig");
+const Symbol = @import("types/Symbol.zig");
+const Val = @import("types/Val.zig");
+const Vector = @import("types/Vector.zig");
 
 const Vm = @This();
 

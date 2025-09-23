@@ -8,10 +8,10 @@
 const std = @import("std");
 const testing = std.testing;
 
-const Handle = @import("object_pool.zig").Handle;
+const Handle = @import("../object_pool.zig").Handle;
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
-const Vm = @import("Vm.zig");
+const Vm = @import("../Vm.zig");
 
 const Record = @This();
 

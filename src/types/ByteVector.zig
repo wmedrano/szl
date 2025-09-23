@@ -8,7 +8,7 @@
 const std = @import("std");
 const testing = std.testing;
 
-const Vm = @import("Vm.zig");
+const Vm = @import("../Vm.zig");
 
 const ByteVector = @This();
 
