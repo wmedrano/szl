@@ -8,8 +8,8 @@ const testing = std.testing;
 
 const instruction = @import("../instruction.zig");
 const Instruction = instruction.Instruction;
-const Pair = @import("../types/Pair.zig");
 const Procedure = @import("../Procedure.zig");
+const Pair = @import("../types/Pair.zig");
 const Symbol = @import("../types/Symbol.zig");
 const Val = @import("../types/Val.zig");
 const Vm = @import("../Vm.zig");
@@ -59,10 +59,10 @@ pub fn register(vm: *Vm) !void {
 /// Returns:
 ///   A Val containing #t if the argument is a pair, #f otherwise.
 ///   If wrong number of arguments is provided, raises an error instead of returning.
-fn pairPredicateFunc(ctx: Procedure.Context) Val {
+fn pairPredicateFunc(ctx: Procedure.Context) Vm.Error!Val {
     const args = ctx.localStack();
     if (args.len != 1) {
-        instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
+        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
         return Val.init({});
     }
 
@@ -82,16 +82,16 @@ fn pairPredicateFunc(ctx: Procedure.Context) Val {
 /// Returns:
 ///   A Val containing the new pair.
 ///   If wrong number of arguments is provided, raises an error instead of returning.
-fn consFunc(ctx: Procedure.Context) Val {
+fn consFunc(ctx: Procedure.Context) Vm.Error!Val {
     const args = ctx.localStack();
     if (args.len != 2) {
-        instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
+        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
         return Val.init({});
     }
 
     const pair = Pair.init(args[0], args[1]);
     return ctx.vm.builder().build(pair) catch {
-        instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"invalid-argument"));
+        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"invalid-argument"));
         return Val.init({});
     };
 }
@@ -106,23 +106,23 @@ fn consFunc(ctx: Procedure.Context) Val {
 /// Returns:
 ///   A Val containing the car of the pair.
 ///   If wrong number of arguments is provided or argument is not a pair, raises an error instead of returning.
-fn carFunc(ctx: Procedure.Context) Val {
+fn carFunc(ctx: Procedure.Context) Vm.Error!Val {
     const args = ctx.localStack();
     if (args.len != 1) {
-        instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
+        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
         return Val.init({});
     }
 
     switch (args[0].repr) {
         .pair => |handle| {
             const pair = ctx.vm.inspector().resolve(Pair, handle) catch {
-                instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
                 return Val.init({});
             };
             return pair.car;
         },
         else => {
-            instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+            try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
             return Val.init({});
         },
     }
@@ -138,23 +138,23 @@ fn carFunc(ctx: Procedure.Context) Val {
 /// Returns:
 ///   A Val containing the cdr of the pair.
 ///   If wrong number of arguments is provided or argument is not a pair, raises an error instead of returning.
-fn cdrFunc(ctx: Procedure.Context) Val {
+fn cdrFunc(ctx: Procedure.Context) Vm.Error!Val {
     const args = ctx.localStack();
     if (args.len != 1) {
-        instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
+        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
         return Val.init({});
     }
 
     switch (args[0].repr) {
         .pair => |handle| {
             const pair = ctx.vm.inspector().resolve(Pair, handle) catch {
-                instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
                 return Val.init({});
             };
             return pair.cdr;
         },
         else => {
-            instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+            try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
             return Val.init({});
         },
     }
@@ -204,7 +204,7 @@ test "pair? with no arguments is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(pair?)"),
     );
 }
@@ -214,7 +214,7 @@ test "pair? with multiple arguments is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(pair? (cons 1 2) (cons 3 4))"),
     );
 }
@@ -249,7 +249,7 @@ test "cons with no arguments is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(cons)"),
     );
 }
@@ -259,7 +259,7 @@ test "cons with one argument is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(cons 1)"),
     );
 }
@@ -269,7 +269,7 @@ test "cons with three arguments is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(cons 1 2 3)"),
     );
 }
@@ -297,7 +297,7 @@ test "car with nil is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(car '())"),
     );
 }
@@ -307,7 +307,7 @@ test "car with non-pair is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(car 42)"),
     );
 }
@@ -317,7 +317,7 @@ test "car with no arguments is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(car)"),
     );
 }
@@ -327,7 +327,7 @@ test "car with multiple arguments is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(car (cons 1 2) (cons 3 4))"),
     );
 }
@@ -362,7 +362,7 @@ test "cdr with nil is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(cdr '())"),
     );
 }
@@ -372,7 +372,7 @@ test "cdr with non-pair is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(cdr 42)"),
     );
 }
@@ -382,7 +382,7 @@ test "cdr with no arguments is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(cdr)"),
     );
 }
@@ -392,7 +392,7 @@ test "cdr with multiple arguments is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(cdr (cons 1 2) (cons 3 4))"),
     );
 }

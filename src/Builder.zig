@@ -6,12 +6,12 @@
 const std = @import("std");
 const testing = std.testing;
 
-const ByteVector = @import("types/ByteVector.zig");
+const Reader = @import("compiler/Reader.zig");
 const object_pool = @import("object_pool.zig");
 const Handle = object_pool.Handle;
-const Pair = @import("types/Pair.zig");
 const Procedure = @import("Procedure.zig");
-const Reader = @import("compiler/Reader.zig");
+const ByteVector = @import("types/ByteVector.zig");
+const Pair = @import("types/Pair.zig");
 const Record = @import("types/Record.zig");
 const String = @import("types/String.zig");
 const Symbol = @import("types/Symbol.zig");
@@ -548,7 +548,7 @@ test "build with Procedure creates procedure val" {
     const test_procedure = Procedure.Native{
         .name = "test-proc",
         .func = struct {
-            fn testFunc(_: Procedure.Context) Val {
+            fn testFunc(_: Procedure.Context) Vm.Error!Val {
                 return Val.init(42);
             }
         }.testFunc,

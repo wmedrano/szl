@@ -182,9 +182,9 @@ pub const Instruction = union(enum) {
     /// Errors:
     ///   - May return memory allocation errors if stack operations fail.
     ///   - May return StackUnderflow if stack frame operations fail.
-    ///   - May return SzlError if the VM is in an error state.
-    pub fn execute(self: Instruction, vm: *Vm) !void {
-        if (vm.err) |_| return error.SzlError;
+    ///   - May return Szl if the VM is in an error state.
+    pub fn execute(self: Instruction, vm: *Vm) Vm.Error!void {
+        if (vm.err) |_| return Vm.Error.UncaughtException;
         switch (self) {
             .load => |val| return load(vm, val),
             .get_global => |symbol| return getGlobal(vm, symbol),
@@ -261,7 +261,7 @@ pub fn loadMany(vm: *Vm, vals: []const Val) !void {
 ///   - Raises an error if the global variable is not found.
 pub fn getGlobal(vm: *Vm, symbol: Symbol.Interned) !void {
     const val = vm.inspector().get(symbol) orelse {
-        raiseWithError(vm, Val.init(vm.common_symbols.@"undefined-variable"));
+        try raiseWithError(vm, Val.init(vm.common_symbols.@"undefined-variable"));
         return;
     };
     try load(vm, val);
@@ -334,27 +334,27 @@ pub fn evalProc(vm: *Vm, arg_count: usize) !void {
     vm.current_stack_frame = Vm.StackFrame{ .stack_start = stack_start };
     switch (proc_val.repr) {
         .proc => |proc_handle| {
-            const proc = vm.inspector().resolve(Procedure, proc_handle) catch return error.SzlError;
+            const proc = vm.inspector().resolve(Procedure, proc_handle) catch return Vm.Error.UncaughtException;
             if (arg_count != proc.args) {
-                raiseWithError(vm, Val.init(vm.common_symbols.@"wrong-number-of-arguments"));
-                return error.SzlError;
+                try raiseWithError(vm, Val.init(vm.common_symbols.@"wrong-number-of-arguments"));
+                return Vm.Error.UncaughtException;
             }
             if (proc.locals_count < proc.args) {
-                raiseWithError(vm, Val.init(vm.common_symbols.@"invalid-procedure"));
-                return error.SzlError;
+                try raiseWithError(vm, Val.init(vm.common_symbols.@"invalid-procedure"));
+                return Vm.Error.UncaughtException;
             }
             const placeholder_count = proc.locals_count - proc.args;
             try vm.stack.appendNTimes(vm.allocator, Val.init({}), placeholder_count);
             vm.current_stack_frame.instructions = proc.instructions;
         },
         .native_proc => |proc| {
-            const return_val = proc.func(Procedure.Context{ .vm = vm });
+            const return_val = try proc.func(Procedure.Context{ .vm = vm });
             try vm.stack.append(vm.allocator, return_val);
             try returnValue(vm);
         },
         else => {
-            raiseWithError(vm, Val.init(vm.common_symbols.@"type-error"));
-            return error.SzlError;
+            try raiseWithError(vm, Val.init(vm.common_symbols.@"type-error"));
+            return Vm.Error.UncaughtException;
         },
     }
 }
@@ -365,7 +365,7 @@ pub fn evalProc(vm: *Vm, arg_count: usize) !void {
 /// Args:
 ///   vm: Pointer to the virtual machine whose error state will be set.
 ///   err: The error value to set as the VM's error state.
-pub fn raiseWithError(vm: *Vm, err: Val) void {
+pub fn raiseWithError(vm: *Vm, err: Val) Vm.Error!void {
     vm.err = err;
 }
 
@@ -377,8 +377,8 @@ pub fn raiseWithError(vm: *Vm, err: Val) void {
 ///
 /// Errors:
 ///   - May return StackUnderflow if the stack is empty when trying to pop the error value.
-pub fn raiseError(vm: *Vm) !void {
-    const err = vm.stack.pop() orelse return error.StackUnderflow;
+pub fn raiseError(vm: *Vm) Vm.Error!void {
+    const err = vm.stack.pop() orelse return Vm.Error.StackUnderflow;
     vm.err = err;
 }
 
@@ -469,7 +469,7 @@ test "execute eval_procedure instruction calls procedure with arguments" {
     defer vm.deinit();
 
     const proc = Procedure.Native{ .name = "test-proc", .func = struct {
-        fn addTwo(ctx: Procedure.Context) Val {
+        fn addTwo(ctx: Procedure.Context) Vm.Error!Val {
             const args = ctx.localStack();
             const val1 = ctx.vm.fromVal(i64, args[0]) catch unreachable;
             const val2 = ctx.vm.fromVal(i64, args[1]) catch unreachable;
@@ -1281,7 +1281,7 @@ test "bytecode procedure with locals_count < args raises error" {
         Val.init(30),
     });
 
-    try testing.expectError(error.SzlError, Instruction.execute(Instruction.initEvalProc(3), &vm));
+    try testing.expectError(Vm.Error.UncaughtException, Instruction.execute(Instruction.initEvalProc(3), &vm));
     // Verify error was set
     try testing.expect(vm.err != null);
 }
@@ -1303,7 +1303,7 @@ test "bytecode procedure with wrong argument count raises error" {
         Val.init(10), // only 1 argument, but procedure expects 2
     });
 
-    try testing.expectError(error.SzlError, Instruction.execute(Instruction.initEvalProc(1), &vm));
+    try testing.expectError(Vm.Error.UncaughtException, Instruction.execute(Instruction.initEvalProc(1), &vm));
     // Verify error was set
     try testing.expect(vm.err != null);
 }

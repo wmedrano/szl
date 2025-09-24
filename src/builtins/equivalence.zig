@@ -41,10 +41,10 @@ pub fn register(vm: *Vm) !void {
 /// Returns:
 ///   A Val containing #t if the arguments are identical, #f otherwise.
 ///   If the wrong number of arguments is provided, raises an error instead of returning.
-fn eqFunc(ctx: Procedure.Context) Val {
+fn eqFunc(ctx: Procedure.Context) Vm.Error!Val {
     const args = ctx.localStack();
     if (args.len != 2) {
-        instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
+        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
         return Val.init(ctx.vm.common_symbols.@"*unspecified*");
     }
     return Val.init(args[0].eq(args[1]));
@@ -96,17 +96,17 @@ test "eq? with wrong number of arguments is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(eq?)"),
     );
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(eq? 1)"),
     );
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(eq? 1 2 3)"),
     );
 }

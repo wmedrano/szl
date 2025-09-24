@@ -358,7 +358,7 @@ test "isTruthy returns true for procedure" {
     const proc = Procedure.Native{
         .name = "test-proc",
         .func = struct {
-            fn func(_: Procedure.Context) Val {
+            fn func(_: Procedure.Context) Vm.Error!Val {
                 return Val.init({});
             }
         }.func,
@@ -388,7 +388,7 @@ test "isProcedure returns true for procedure value" {
     const proc = Procedure.Native{
         .name = "test-proc",
         .func = struct {
-            fn func(_: Procedure.Context) Val {
+            fn func(_: Procedure.Context) Vm.Error!Val {
                 return Val.init({});
             }
         }.func,

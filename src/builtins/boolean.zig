@@ -52,10 +52,10 @@ pub fn register(vm: *Vm) !void {
 /// Returns:
 ///   A Val containing #t if the argument is boolean, #f otherwise.
 ///   If wrong number of arguments is provided, raises an error instead of returning.
-fn booleanPredicateFunc(ctx: Procedure.Context) Val {
+fn booleanPredicateFunc(ctx: Procedure.Context) Vm.Error!Val {
     const args = ctx.localStack();
     if (args.len != 1) {
-        instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
+        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
         return Val.init({});
     }
 
@@ -76,10 +76,10 @@ fn booleanPredicateFunc(ctx: Procedure.Context) Val {
 /// Returns:
 ///   A Val containing #t if the argument is #f, #f otherwise.
 ///   If wrong number of arguments is provided, raises an error instead of returning.
-fn notFunc(ctx: Procedure.Context) Val {
+fn notFunc(ctx: Procedure.Context) Vm.Error!Val {
     const args = ctx.localStack();
     if (args.len != 1) {
-        instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
+        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
         return Val.init({});
     }
 
@@ -100,7 +100,7 @@ fn notFunc(ctx: Procedure.Context) Val {
 /// Returns:
 ///   A Val containing #t if all arguments are equal boolean values, #f otherwise.
 ///   If any argument is not a boolean, raises an error instead of returning.
-fn booleanEqualFunc(ctx: Procedure.Context) Val {
+fn booleanEqualFunc(ctx: Procedure.Context) Vm.Error!Val {
     const args = ctx.localStack();
 
     // 0 arguments: vacuously true
@@ -110,7 +110,7 @@ fn booleanEqualFunc(ctx: Procedure.Context) Val {
     const first_bool: bool = switch (args[0].repr) {
         .boolean => |val| val,
         else => {
-            instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+            try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
             return Val.init({});
         },
     };
@@ -120,7 +120,7 @@ fn booleanEqualFunc(ctx: Procedure.Context) Val {
         const curr_bool: bool = switch (arg.repr) {
             .boolean => |val| val,
             else => {
-                instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
                 return Val.init({});
             },
         };
@@ -177,7 +177,7 @@ test "boolean? with no arguments is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(boolean?)"),
     );
 }
@@ -187,7 +187,7 @@ test "boolean? with multiple arguments is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(boolean? #t #f)"),
     );
 }
@@ -243,7 +243,7 @@ test "not with no arguments is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(not)"),
     );
 }
@@ -253,7 +253,7 @@ test "not with multiple arguments is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(not #t #f)"),
     );
 }
@@ -282,11 +282,11 @@ test "boolean=? with one non-boolean argument is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(boolean=? 42)"),
     );
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(boolean=? 'hello)"),
     );
 }
@@ -321,11 +321,11 @@ test "boolean=? with non-boolean argument is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(boolean=? #t 42)"),
     );
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(boolean=? 42 #t)"),
     );
 }

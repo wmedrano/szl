@@ -35,7 +35,7 @@ pub const Native = struct {
     name: []const u8,
     /// Function pointer that implements the procedure logic.
     /// Takes a Context providing access to VM state and returns a value.
-    func: *const fn (Context) Val,
+    func: *const fn (Context) Vm.Error!Val,
 };
 
 /// Execution context for procedure calls.

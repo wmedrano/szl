@@ -29,6 +29,23 @@ const Vector = @import("types/Vector.zig");
 
 const Vm = @This();
 
+/// Standard errors that can occur during VM operations.
+///
+/// These errors represent the common failure modes that can happen during
+/// virtual machine execution, compilation, and memory management.
+pub const Error = error{
+    /// Indicates that a Scheme-level error occurred during execution.
+    /// This error is set when the VM encounters runtime errors such as
+    /// undefined variables, type mismatches, or other semantic errors.
+    UncaughtException,
+    /// Indicates that the system ran out of available memory.
+    /// This can occur during object allocation, stack growth, or other
+    /// memory-intensive operations within the VM.
+    OutOfMemory,
+    StackUnderflow,
+    StackOverflow,
+};
+
 /// Table of commonly used symbols that are pre-interned for efficient compilation.
 ///
 /// This struct contains interned versions of symbols that the compiler needs
@@ -154,7 +171,7 @@ pub const StackFrame = struct {
 ///
 /// Returns:
 ///   A new Vm instance ready for use with stack frame support.
-pub fn init(options: Options) !Vm {
+pub fn init(options: Options) error{OutOfMemory}!Vm {
     const interner = Symbol.Interner.init(options.allocator);
     var vm = Vm{
         .allocator = options.allocator,
@@ -374,7 +391,7 @@ test evalStr {
 ///   - StackUnderflow if the execution stack becomes empty unexpectedly.
 ///   - Any errors that may occur during instruction execution.
 fn evalProc(self: *Vm, proc: Val, args: []const Val) !Val {
-    if (self.err) |_| return error.SzlError;
+    if (self.err) |_| return Vm.Error.UncaughtException;
     try instruction.load(self, proc);
     try instruction.loadMany(self, args);
     const initial_call_stack_size = self.stack_frames.items.len;
@@ -560,7 +577,7 @@ pub fn expectEval(self: *Vm, expected: []const u8, input: []const u8) !void {
 ///     or if the VM's error state doesn't match `expected_err`.
 pub fn expectEvalErr(self: *Vm, expected: []const u8, source: []const u8) !void {
     self.reset();
-    try testing.expectError(error.SzlError, self.evalStr(source));
+    try testing.expectError(Vm.Error.UncaughtException, self.evalStr(source));
     const expected_err = try self.builder().readOne(expected);
     const actual_err = self.err orelse return error.ErrorNotFound;
     if (std.meta.eql(expected_err, actual_err)) return;

@@ -39,19 +39,19 @@ pub fn register(vm: *Vm) !void {
 /// Returns:
 ///   Returns an unspecified value if successful.
 ///   If arguments are invalid or definition fails, raises an error instead of returning.
-fn szlDefineFunc(ctx: Procedure.Context) Val {
+fn szlDefineFunc(ctx: Procedure.Context) Vm.Error!Val {
     const args = ctx.localStack();
     if (args.len != 2) {
-        instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
+        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
         return Val.init(ctx.vm.common_symbols.@"*unspecified*");
     }
     const symbol = ctx.vm.fromVal(Symbol.Interned, args[0]) catch {
-        instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
         return Val.init(ctx.vm.common_symbols.@"*unspecified*");
     };
     const val = args[1];
     ctx.vm.builder().define(symbol, val) catch {
-        instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"invalid-argument"));
+        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"invalid-argument"));
         return Val.init(ctx.vm.common_symbols.@"*unspecified*");
     };
     return Val.init(ctx.vm.common_symbols.@"*unspecified*");
@@ -73,15 +73,15 @@ test "szl-define with wrong number of arguments raises error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(szl-define)"),
     );
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(szl-define 'foo)"),
     );
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(szl-define 'foo 42 'extra)"),
     );
 }
@@ -92,19 +92,19 @@ test "szl-define with invalid symbol type raises error" {
 
     // Test with non-symbol first argument (number)
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(szl-define 42 'value)"),
     );
 
     // Test with non-symbol first argument (boolean)
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(szl-define #t 'value)"),
     );
 
     // Test with non-symbol first argument (list expression)
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(szl-define '(+ 1 2) 'value)"),
     );
 }

@@ -105,7 +105,7 @@ pub fn register(vm: *Vm) !void {
 /// Returns:
 ///   A Val containing the sum of all numeric arguments.
 ///   If any argument is not numeric, raises an error instead of returning.
-fn addFunc(ctx: Procedure.Context) Val {
+fn addFunc(ctx: Procedure.Context) Vm.Error!Val {
     const args = ctx.localStack();
     var sum_i64: i64 = 0;
     var sum_f64: f64 = 0.0;
@@ -119,7 +119,7 @@ fn addFunc(ctx: Procedure.Context) Val {
                 sum_f64 += val;
             },
             else => {
-                instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
                 return Val.init({});
             },
         }
@@ -145,7 +145,7 @@ fn addFunc(ctx: Procedure.Context) Val {
 /// Returns:
 ///   A Val containing the result of the subtraction operation.
 ///   If any argument is not numeric, raises an error instead of returning.
-fn subFunc(ctx: Procedure.Context) Val {
+fn subFunc(ctx: Procedure.Context) Vm.Error!Val {
     const args = ctx.localStack();
     if (args.len == 0) return Val.init(0);
 
@@ -161,7 +161,7 @@ fn subFunc(ctx: Procedure.Context) Val {
             result_f64 = val;
         },
         else => {
-            instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+            try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
             return Val.init({});
         },
     }
@@ -184,7 +184,7 @@ fn subFunc(ctx: Procedure.Context) Val {
                 result_f64 -= val;
             },
             else => {
-                instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
                 return Val.init({});
             },
         }
@@ -209,7 +209,7 @@ fn subFunc(ctx: Procedure.Context) Val {
 /// Returns:
 ///   A Val containing the product of all numeric arguments.
 ///   If any argument is not numeric, raises an error instead of returning.
-fn mulFunc(ctx: Procedure.Context) Val {
+fn mulFunc(ctx: Procedure.Context) Vm.Error!Val {
     const args = ctx.localStack();
     var result_i64: i64 = 1;
     var result_f64: f64 = 1.0;
@@ -223,7 +223,7 @@ fn mulFunc(ctx: Procedure.Context) Val {
                 result_f64 *= val;
             },
             else => {
-                instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
                 return Val.init({});
             },
         }
@@ -253,10 +253,10 @@ fn mulFunc(ctx: Procedure.Context) Val {
 /// Returns:
 ///   A Val containing the result of the division operation as f64.
 ///   If any argument is not numeric or division by zero occurs, raises an error instead of returning.
-fn divFunc(ctx: Procedure.Context) Val {
+fn divFunc(ctx: Procedure.Context) Vm.Error!Val {
     const args = ctx.localStack();
     if (args.len == 0) {
-        instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
+        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
         return Val.init({});
     }
 
@@ -265,7 +265,7 @@ fn divFunc(ctx: Procedure.Context) Val {
         .i64 => |val| @as(f64, @floatFromInt(val)),
         .f64 => |val| val,
         else => {
-            instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+            try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
             return Val.init({});
         },
     };
@@ -273,7 +273,7 @@ fn divFunc(ctx: Procedure.Context) Val {
     // If only one argument, return its reciprocal
     if (args.len == 1) {
         if (result == 0.0) {
-            instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"division-by-zero"));
+            try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"division-by-zero"));
             return Val.init({});
         }
         return Val.init(1.0 / result);
@@ -285,13 +285,13 @@ fn divFunc(ctx: Procedure.Context) Val {
             .i64 => |val| @as(f64, @floatFromInt(val)),
             .f64 => |val| val,
             else => {
-                instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
                 return Val.init({});
             },
         };
 
         if (divisor == 0.0) {
-            instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"division-by-zero"));
+            try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"division-by-zero"));
             return Val.init({});
         }
 
@@ -317,7 +317,7 @@ fn divFunc(ctx: Procedure.Context) Val {
 /// Returns:
 ///   A Val containing #t if all comparisons hold, #f otherwise.
 ///   If any argument is not numeric, raises an error instead of returning.
-fn compareFunc(ctx: Procedure.Context, predicate: *const fn (f64, f64) bool) Val {
+fn compareFunc(ctx: Procedure.Context, predicate: *const fn (f64, f64) bool) Vm.Error!Val {
     const args = ctx.localStack();
 
     // 0 or 1 arguments: vacuously true
@@ -328,7 +328,7 @@ fn compareFunc(ctx: Procedure.Context, predicate: *const fn (f64, f64) bool) Val
             .i64 => |val| @as(f64, @floatFromInt(val)),
             .f64 => |val| val,
             else => {
-                instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
                 return Val.init({});
             },
         };
@@ -337,7 +337,7 @@ fn compareFunc(ctx: Procedure.Context, predicate: *const fn (f64, f64) bool) Val
             .i64 => |val| @as(f64, @floatFromInt(val)),
             .f64 => |val| val,
             else => {
-                instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
                 return Val.init({});
             },
         };
@@ -387,7 +387,7 @@ fn isEqual(a: f64, b: f64) bool {
 /// Returns:
 ///   A Val containing #t if the comparison holds, #f otherwise.
 ///   If any argument is not numeric, raises an error instead of returning.
-fn lessThanFunc(ctx: Procedure.Context) Val {
+fn lessThanFunc(ctx: Procedure.Context) Vm.Error!Val {
     return compareFunc(ctx, isLessThan);
 }
 
@@ -403,7 +403,7 @@ fn lessThanFunc(ctx: Procedure.Context) Val {
 /// Returns:
 ///   A Val containing #t if the comparison holds, #f otherwise.
 ///   If any argument is not numeric, raises an error instead of returning.
-fn greaterThanFunc(ctx: Procedure.Context) Val {
+fn greaterThanFunc(ctx: Procedure.Context) Vm.Error!Val {
     return compareFunc(ctx, isGreaterThan);
 }
 
@@ -419,7 +419,7 @@ fn greaterThanFunc(ctx: Procedure.Context) Val {
 /// Returns:
 ///   A Val containing #t if the comparison holds, #f otherwise.
 ///   If any argument is not numeric, raises an error instead of returning.
-fn lessThanOrEqualFunc(ctx: Procedure.Context) Val {
+fn lessThanOrEqualFunc(ctx: Procedure.Context) Vm.Error!Val {
     return compareFunc(ctx, isLessThanOrEqual);
 }
 
@@ -435,7 +435,7 @@ fn lessThanOrEqualFunc(ctx: Procedure.Context) Val {
 /// Returns:
 ///   A Val containing #t if the comparison holds, #f otherwise.
 ///   If any argument is not numeric, raises an error instead of returning.
-fn greaterThanOrEqualFunc(ctx: Procedure.Context) Val {
+fn greaterThanOrEqualFunc(ctx: Procedure.Context) Vm.Error!Val {
     return compareFunc(ctx, isGreaterThanOrEqual);
 }
 
@@ -451,7 +451,7 @@ fn greaterThanOrEqualFunc(ctx: Procedure.Context) Val {
 /// Returns:
 ///   A Val containing #t if all arguments are equal, #f otherwise.
 ///   If any argument is not numeric, raises an error instead of returning.
-fn equalFunc(ctx: Procedure.Context) Val {
+fn equalFunc(ctx: Procedure.Context) Vm.Error!Val {
     return compareFunc(ctx, isEqual);
 }
 
@@ -470,10 +470,10 @@ fn equalFunc(ctx: Procedure.Context) Val {
 /// Returns:
 ///   A Val containing the absolute value of the input argument.
 ///   If the wrong number of arguments or non-numeric argument is provided, raises an error instead of returning.
-fn absFunc(ctx: Procedure.Context) Val {
+fn absFunc(ctx: Procedure.Context) Vm.Error!Val {
     const args = ctx.localStack();
     if (args.len != 1) {
-        instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
+        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
         return Val.init({});
     }
 
@@ -493,7 +493,7 @@ fn absFunc(ctx: Procedure.Context) Val {
             }
         },
         else => {
-            instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+            try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
             return Val.init({});
         },
     }
@@ -543,7 +543,7 @@ test "+ with non-number is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(+ #t)"),
     );
 }
@@ -612,7 +612,7 @@ test "- with non-number is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(- #t)"),
     );
 }
@@ -688,7 +688,7 @@ test "* with non-number is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(* #t)"),
     );
 }
@@ -725,7 +725,7 @@ test "/ with no arguments is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(/)"),
     );
 }
@@ -775,7 +775,7 @@ test "/ with division by zero is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(/ 5 0)"),
     );
 }
@@ -785,7 +785,7 @@ test "/ with reciprocal of zero is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(/ 0)"),
     );
 }
@@ -795,7 +795,7 @@ test "/ with non-number is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(/ #t)"),
     );
 }
@@ -909,7 +909,7 @@ test "< with non-number is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(< #t 5)"),
     );
 }
@@ -989,7 +989,7 @@ test "> with non-number is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(> 5 #t)"),
     );
 }
@@ -1069,7 +1069,7 @@ test "<= with non-number is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(<= #t 5)"),
     );
 }
@@ -1149,7 +1149,7 @@ test ">= with non-number is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(>= 5 #t)"),
     );
 }
@@ -1236,7 +1236,7 @@ test "= with non-number is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(= #t 5)"),
     );
 }
@@ -1292,7 +1292,7 @@ test "abs with no arguments is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(abs)"),
     );
 }
@@ -1302,7 +1302,7 @@ test "abs with multiple arguments is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(abs 5 10)"),
     );
 }
@@ -1312,7 +1312,7 @@ test "abs with non-number is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.SzlError,
+        Vm.Error.UncaughtException,
         vm.evalStr("(abs #t)"),
     );
 }
