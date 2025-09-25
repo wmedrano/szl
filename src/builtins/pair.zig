@@ -14,25 +14,151 @@ const Symbol = @import("../types/Symbol.zig");
 const Val = @import("../types/Val.zig");
 const Vm = @import("../Vm.zig");
 
-// Define all native procedures as constants
+/// Native implementation of the `pair?` type predicate.
+///
+/// Determines whether the given argument is a pair (cons cell) or not.
+/// This is the standard Scheme predicate for testing pair types.
+///
+/// Args:
+///   arg: The value to test for being a pair
+///
+/// Returns:
+///   `#t` if the argument is a pair, `#f` otherwise
+///
+/// Errors:
+///   - `wrong-number-of-arguments`: When not exactly 1 argument is provided
 const pair_predicate_native = Procedure.Native{
     .name = "pair?",
-    .func = pairPredicateFunc,
+    .func = struct {
+        fn func(ctx: Procedure.Context) Vm.Error!Val {
+            const args = ctx.localStack();
+            if (args.len != 1) {
+                try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
+                return Val.init({});
+            }
+
+            switch (args[0].repr) {
+                .pair => return Val.init(true),
+                else => return Val.init(false),
+            }
+        }
+    }.func,
 };
 
+/// Native implementation of the `cons` constructor.
+///
+/// Creates a new pair (cons cell) with the given car and cdr values.
+/// This is the fundamental list constructor in Scheme.
+///
+/// Args:
+///   car: The first element of the pair
+///   cdr: The second element of the pair
+///
+/// Returns:
+///   A new pair containing the car and cdr values
+///
+/// Errors:
+///   - `wrong-number-of-arguments`: When not exactly 2 arguments are provided
+///   - `invalid-argument`: When pair construction fails (allocation error)
 const cons_native = Procedure.Native{
     .name = "cons",
-    .func = consFunc,
+    .func = struct {
+        fn func(ctx: Procedure.Context) Vm.Error!Val {
+            const args = ctx.localStack();
+            if (args.len != 2) {
+                try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
+                return Val.init({});
+            }
+
+            const pair = Pair.init(args[0], args[1]);
+            return ctx.vm.builder().build(pair) catch {
+                try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"invalid-argument"));
+                return Val.init({});
+            };
+        }
+    }.func,
 };
 
+/// Native implementation of the `car` accessor.
+///
+/// Returns the first element (car) of a pair. This is one of the fundamental
+/// pair accessors in Scheme, used to extract the head of a list.
+///
+/// Args:
+///   pair: A pair value to extract the car from
+///
+/// Returns:
+///   The car (first element) of the pair
+///
+/// Errors:
+///   - `wrong-number-of-arguments`: When not exactly 1 argument is provided
+///   - `type-error`: When the argument is not a pair or pair resolution fails
 const car_native = Procedure.Native{
     .name = "car",
-    .func = carFunc,
+    .func = struct {
+        fn func(ctx: Procedure.Context) Vm.Error!Val {
+            const args = ctx.localStack();
+            if (args.len != 1) {
+                try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
+                return Val.init({});
+            }
+
+            switch (args[0].repr) {
+                .pair => |handle| {
+                    const pair = ctx.vm.inspector().resolve(Pair, handle) catch {
+                        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                        return Val.init({});
+                    };
+                    return pair.car;
+                },
+                else => {
+                    try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                    return Val.init({});
+                },
+            }
+        }
+    }.func,
 };
 
+/// Native implementation of the `cdr` accessor.
+///
+/// Returns the second element (cdr) of a pair. This is one of the fundamental
+/// pair accessors in Scheme, used to extract the tail of a list.
+///
+/// Args:
+///   pair: A pair value to extract the cdr from
+///
+/// Returns:
+///   The cdr (second element) of the pair
+///
+/// Errors:
+///   - `wrong-number-of-arguments`: When not exactly 1 argument is provided
+///   - `type-error`: When the argument is not a pair or pair resolution fails
 const cdr_native = Procedure.Native{
     .name = "cdr",
-    .func = cdrFunc,
+    .func = struct {
+        fn func(ctx: Procedure.Context) Vm.Error!Val {
+            const args = ctx.localStack();
+            if (args.len != 1) {
+                try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
+                return Val.init({});
+            }
+
+            switch (args[0].repr) {
+                .pair => |handle| {
+                    const pair = ctx.vm.inspector().resolve(Pair, handle) catch {
+                        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                        return Val.init({});
+                    };
+                    return pair.cdr;
+                },
+                else => {
+                    try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                    return Val.init({});
+                },
+            }
+        }
+    }.func,
 };
 
 /// Registers all pair functions with the virtual machine.
@@ -49,116 +175,6 @@ pub fn register(vm: *Vm) !void {
     try vm.builder().defineNativeProc(&cdr_native);
 }
 
-/// Native implementation of the 'pair?' type predicate.
-/// Returns #t if the argument is a pair, #f otherwise.
-/// Expects exactly one argument.
-///
-/// Args:
-///   ctx: The procedure execution context containing the VM and local stack arguments.
-///
-/// Returns:
-///   A Val containing #t if the argument is a pair, #f otherwise.
-///   If wrong number of arguments is provided, raises an error instead of returning.
-fn pairPredicateFunc(ctx: Procedure.Context) Vm.Error!Val {
-    const args = ctx.localStack();
-    if (args.len != 1) {
-        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
-        return Val.init({});
-    }
-
-    switch (args[0].repr) {
-        .pair => return Val.init(true),
-        else => return Val.init(false),
-    }
-}
-
-/// Native implementation of the 'cons' constructor.
-/// Creates a new pair with the given car and cdr values.
-/// Expects exactly two arguments.
-///
-/// Args:
-///   ctx: The procedure execution context containing the VM and local stack arguments.
-///
-/// Returns:
-///   A Val containing the new pair.
-///   If wrong number of arguments is provided, raises an error instead of returning.
-fn consFunc(ctx: Procedure.Context) Vm.Error!Val {
-    const args = ctx.localStack();
-    if (args.len != 2) {
-        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
-        return Val.init({});
-    }
-
-    const pair = Pair.init(args[0], args[1]);
-    return ctx.vm.builder().build(pair) catch {
-        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"invalid-argument"));
-        return Val.init({});
-    };
-}
-
-/// Native implementation of the 'car' accessor.
-/// Returns the first element (car) of a pair.
-/// Expects exactly one argument that must be a pair.
-///
-/// Args:
-///   ctx: The procedure execution context containing the VM and local stack arguments.
-///
-/// Returns:
-///   A Val containing the car of the pair.
-///   If wrong number of arguments is provided or argument is not a pair, raises an error instead of returning.
-fn carFunc(ctx: Procedure.Context) Vm.Error!Val {
-    const args = ctx.localStack();
-    if (args.len != 1) {
-        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
-        return Val.init({});
-    }
-
-    switch (args[0].repr) {
-        .pair => |handle| {
-            const pair = ctx.vm.inspector().resolve(Pair, handle) catch {
-                try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
-                return Val.init({});
-            };
-            return pair.car;
-        },
-        else => {
-            try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
-            return Val.init({});
-        },
-    }
-}
-
-/// Native implementation of the 'cdr' accessor.
-/// Returns the second element (cdr) of a pair.
-/// Expects exactly one argument that must be a pair.
-///
-/// Args:
-///   ctx: The procedure execution context containing the VM and local stack arguments.
-///
-/// Returns:
-///   A Val containing the cdr of the pair.
-///   If wrong number of arguments is provided or argument is not a pair, raises an error instead of returning.
-fn cdrFunc(ctx: Procedure.Context) Vm.Error!Val {
-    const args = ctx.localStack();
-    if (args.len != 1) {
-        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
-        return Val.init({});
-    }
-
-    switch (args[0].repr) {
-        .pair => |handle| {
-            const pair = ctx.vm.inspector().resolve(Pair, handle) catch {
-                try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
-                return Val.init({});
-            };
-            return pair.cdr;
-        },
-        else => {
-            try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
-            return Val.init({});
-        },
-    }
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 // Pair predicate tests

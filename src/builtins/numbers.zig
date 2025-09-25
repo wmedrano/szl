@@ -14,55 +14,548 @@ const Symbol = @import("../types/Symbol.zig");
 const Val = @import("../types/Val.zig");
 const Vm = @import("../Vm.zig");
 
-// Define all native procedures as constants
+/// Native implementation of the '+' arithmetic operator.
+///
+/// Performs addition on zero or more numeric arguments. With no arguments, returns 0.
+/// With multiple arguments, returns the sum of all arguments.
+/// Returns f64 if any operand is f64, otherwise returns i64.
+///
+/// Args:
+///   Any number of numeric arguments (i64 or f64)
+///
+/// Returns:
+///   The sum of all numeric arguments as Val(i64) or Val(f64)
+///
+/// Errors:
+///   - `type-error`: When any argument is not a numeric value
 const add_native = Procedure.Native{
     .name = "+",
-    .func = addFunc,
+    .func = struct {
+        fn func(ctx: Procedure.Context) Vm.Error!Val {
+            const args = ctx.localStack();
+            var sum_i64: i64 = 0;
+            var sum_f64: f64 = 0.0;
+            var has_float = false;
+
+            for (args) |arg| {
+                switch (arg.repr) {
+                    .i64 => |val| sum_i64 += val,
+                    .f64 => |val| {
+                        has_float = true;
+                        sum_f64 += val;
+                    },
+                    else => {
+                        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                        return Val.init({});
+                    },
+                }
+            }
+
+            if (has_float) {
+                sum_f64 += @as(f64, @floatFromInt(sum_i64));
+                return Val.init(sum_f64);
+            } else {
+                return Val.init(sum_i64);
+            }
+        }
+    }.func,
 };
 
+/// Native implementation of the '-' arithmetic operator.
+///
+/// Performs subtraction on zero or more numeric arguments. With no arguments, returns 0.
+/// With one argument, returns its negation. With multiple arguments, subtracts all
+/// subsequent arguments from the first.
+/// Returns f64 if any operand is f64, otherwise returns i64.
+///
+/// Args:
+///   Any number of numeric arguments (i64 or f64)
+///
+/// Returns:
+///   The result of subtraction as Val(i64) or Val(f64)
+///
+/// Errors:
+///   - `type-error`: When any argument is not a numeric value
 const sub_native = Procedure.Native{
     .name = "-",
-    .func = subFunc,
+    .func = struct {
+        fn func(ctx: Procedure.Context) Vm.Error!Val {
+            const args = ctx.localStack();
+            if (args.len == 0) return Val.init(0);
+
+            var result_i64: i64 = 0;
+            var result_f64: f64 = 0.0;
+            var has_float = false;
+
+            // Handle first argument
+            switch (args[0].repr) {
+                .i64 => |val| result_i64 = val,
+                .f64 => |val| {
+                    has_float = true;
+                    result_f64 = val;
+                },
+                else => {
+                    try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                    return Val.init({});
+                },
+            }
+
+            // If only one argument, return its negation
+            if (args.len == 1) {
+                if (has_float) {
+                    return Val.init(-result_f64);
+                } else {
+                    return Val.init(-result_i64);
+                }
+            }
+
+            // Subtract remaining arguments
+            for (args[1..]) |arg| {
+                switch (arg.repr) {
+                    .i64 => |val| result_i64 -= val,
+                    .f64 => |val| {
+                        has_float = true;
+                        result_f64 -= val;
+                    },
+                    else => {
+                        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                        return Val.init({});
+                    },
+                }
+            }
+
+            if (has_float) {
+                result_f64 += @as(f64, @floatFromInt(result_i64));
+                return Val.init(result_f64);
+            } else {
+                return Val.init(result_i64);
+            }
+        }
+    }.func,
 };
 
+/// Native implementation of the '*' arithmetic operator.
+///
+/// Performs multiplication on zero or more numeric arguments. With no arguments, returns 1.
+/// With multiple arguments, returns the product of all arguments.
+/// Returns f64 if any operand is f64, otherwise returns i64.
+///
+/// Args:
+///   Any number of numeric arguments (i64 or f64)
+///
+/// Returns:
+///   The product of all numeric arguments as Val(i64) or Val(f64)
+///
+/// Errors:
+///   - `type-error`: When any argument is not a numeric value
 const mul_native = Procedure.Native{
     .name = "*",
-    .func = mulFunc,
+    .func = struct {
+        fn func(ctx: Procedure.Context) Vm.Error!Val {
+            const args = ctx.localStack();
+            var result_i64: i64 = 1;
+            var result_f64: f64 = 1.0;
+            var has_float = false;
+
+            for (args) |arg| {
+                switch (arg.repr) {
+                    .i64 => |val| result_i64 *= val,
+                    .f64 => |val| {
+                        has_float = true;
+                        result_f64 *= val;
+                    },
+                    else => {
+                        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                        return Val.init({});
+                    },
+                }
+            }
+
+            if (has_float) {
+                result_f64 *= @as(f64, @floatFromInt(result_i64));
+                return Val.init(result_f64);
+            } else {
+                return Val.init(result_i64);
+            }
+        }
+    }.func,
 };
 
+/// Native implementation of the '/' arithmetic operator.
+///
+/// Performs division on one or more numeric arguments. With one argument, returns
+/// its reciprocal (1.0 / argument). With multiple arguments, divides the first
+/// argument by all subsequent arguments. Always returns f64 result.
+///
+/// Args:
+///   One or more numeric arguments (i64 or f64)
+///
+/// Returns:
+///   The result of division as Val(f64)
+///
+/// Errors:
+///   - `wrong-number-of-arguments`: When no arguments are provided
+///   - `type-error`: When any argument is not a numeric value
+///   - `division-by-zero`: When division by zero is attempted
 const div_native = Procedure.Native{
     .name = "/",
-    .func = divFunc,
+    .func = struct {
+        fn func(ctx: Procedure.Context) Vm.Error!Val {
+            const args = ctx.localStack();
+            if (args.len == 0) {
+                try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
+                return Val.init({});
+            }
+
+            // Convert first argument to f64
+            var result: f64 = switch (args[0].repr) {
+                .i64 => |val| @as(f64, @floatFromInt(val)),
+                .f64 => |val| val,
+                else => {
+                    try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                    return Val.init({});
+                },
+            };
+
+            // If only one argument, return its reciprocal
+            if (args.len == 1) {
+                if (result == 0.0) {
+                    try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"division-by-zero"));
+                    return Val.init({});
+                }
+                return Val.init(1.0 / result);
+            }
+
+            // Divide by remaining arguments
+            for (args[1..]) |arg| {
+                const divisor: f64 = switch (arg.repr) {
+                    .i64 => |val| @as(f64, @floatFromInt(val)),
+                    .f64 => |val| val,
+                    else => {
+                        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                        return Val.init({});
+                    },
+                };
+
+                if (divisor == 0.0) {
+                    try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"division-by-zero"));
+                    return Val.init({});
+                }
+
+                result /= divisor;
+            }
+
+            return Val.init(result);
+        }
+    }.func,
 };
 
+/// Native implementation of the '<' comparison operator.
+///
+/// Compares numeric arguments in order, returning #t if each argument is
+/// strictly less than the next one, #f otherwise.
+/// With 0 or 1 arguments, returns #t (vacuously true).
+///
+/// Args:
+///   Any number of numeric arguments (i64 or f64)
+///
+/// Returns:
+///   #t if all consecutive pairs satisfy a < b, #f otherwise
+///
+/// Errors:
+///   - `type-error`: When any argument is not a numeric value
 const less_than_native = Procedure.Native{
     .name = "<",
-    .func = lessThanFunc,
+    .func = struct {
+        fn func(ctx: Procedure.Context) Vm.Error!Val {
+            const args = ctx.localStack();
+
+            // 0 or 1 arguments: vacuously true
+            if (args.len <= 1) return Val.init(true);
+
+            for (0..args.len - 1) |i| {
+                const curr_val: f64 = switch (args[i].repr) {
+                    .i64 => |val| @as(f64, @floatFromInt(val)),
+                    .f64 => |val| val,
+                    else => {
+                        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                        return Val.init({});
+                    },
+                };
+
+                const next_val: f64 = switch (args[i + 1].repr) {
+                    .i64 => |val| @as(f64, @floatFromInt(val)),
+                    .f64 => |val| val,
+                    else => {
+                        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                        return Val.init({});
+                    },
+                };
+
+                if (!(curr_val < next_val)) {
+                    return Val.init(false);
+                }
+            }
+
+            return Val.init(true);
+        }
+    }.func,
 };
 
+/// Native implementation of the '>' comparison operator.
+///
+/// Compares numeric arguments in order, returning #t if each argument is
+/// strictly greater than the next one, #f otherwise.
+/// With 0 or 1 arguments, returns #t (vacuously true).
+///
+/// Args:
+///   Any number of numeric arguments (i64 or f64)
+///
+/// Returns:
+///   #t if all consecutive pairs satisfy a > b, #f otherwise
+///
+/// Errors:
+///   - `type-error`: When any argument is not a numeric value
 const greater_than_native = Procedure.Native{
     .name = ">",
-    .func = greaterThanFunc,
+    .func = struct {
+        fn func(ctx: Procedure.Context) Vm.Error!Val {
+            const args = ctx.localStack();
+
+            // 0 or 1 arguments: vacuously true
+            if (args.len <= 1) return Val.init(true);
+
+            for (0..args.len - 1) |i| {
+                const curr_val: f64 = switch (args[i].repr) {
+                    .i64 => |val| @as(f64, @floatFromInt(val)),
+                    .f64 => |val| val,
+                    else => {
+                        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                        return Val.init({});
+                    },
+                };
+
+                const next_val: f64 = switch (args[i + 1].repr) {
+                    .i64 => |val| @as(f64, @floatFromInt(val)),
+                    .f64 => |val| val,
+                    else => {
+                        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                        return Val.init({});
+                    },
+                };
+
+                if (!(curr_val > next_val)) {
+                    return Val.init(false);
+                }
+            }
+
+            return Val.init(true);
+        }
+    }.func,
 };
 
+/// Native implementation of the '<=' comparison operator.
+///
+/// Compares numeric arguments in order, returning #t if each argument is
+/// less than or equal to the next one, #f otherwise.
+/// With 0 or 1 arguments, returns #t (vacuously true).
+///
+/// Args:
+///   Any number of numeric arguments (i64 or f64)
+///
+/// Returns:
+///   #t if all consecutive pairs satisfy a <= b, #f otherwise
+///
+/// Errors:
+///   - `type-error`: When any argument is not a numeric value
 const less_than_or_equal_native = Procedure.Native{
     .name = "<=",
-    .func = lessThanOrEqualFunc,
+    .func = struct {
+        fn func(ctx: Procedure.Context) Vm.Error!Val {
+            const args = ctx.localStack();
+
+            // 0 or 1 arguments: vacuously true
+            if (args.len <= 1) return Val.init(true);
+
+            for (0..args.len - 1) |i| {
+                const curr_val: f64 = switch (args[i].repr) {
+                    .i64 => |val| @as(f64, @floatFromInt(val)),
+                    .f64 => |val| val,
+                    else => {
+                        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                        return Val.init({});
+                    },
+                };
+
+                const next_val: f64 = switch (args[i + 1].repr) {
+                    .i64 => |val| @as(f64, @floatFromInt(val)),
+                    .f64 => |val| val,
+                    else => {
+                        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                        return Val.init({});
+                    },
+                };
+
+                if (!(curr_val <= next_val)) {
+                    return Val.init(false);
+                }
+            }
+
+            return Val.init(true);
+        }
+    }.func,
 };
 
+/// Native implementation of the '>=' comparison operator.
+///
+/// Compares numeric arguments in order, returning #t if each argument is
+/// greater than or equal to the next one, #f otherwise.
+/// With 0 or 1 arguments, returns #t (vacuously true).
+///
+/// Args:
+///   Any number of numeric arguments (i64 or f64)
+///
+/// Returns:
+///   #t if all consecutive pairs satisfy a >= b, #f otherwise
+///
+/// Errors:
+///   - `type-error`: When any argument is not a numeric value
 const greater_than_or_equal_native = Procedure.Native{
     .name = ">=",
-    .func = greaterThanOrEqualFunc,
+    .func = struct {
+        fn func(ctx: Procedure.Context) Vm.Error!Val {
+            const args = ctx.localStack();
+
+            // 0 or 1 arguments: vacuously true
+            if (args.len <= 1) return Val.init(true);
+
+            for (0..args.len - 1) |i| {
+                const curr_val: f64 = switch (args[i].repr) {
+                    .i64 => |val| @as(f64, @floatFromInt(val)),
+                    .f64 => |val| val,
+                    else => {
+                        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                        return Val.init({});
+                    },
+                };
+
+                const next_val: f64 = switch (args[i + 1].repr) {
+                    .i64 => |val| @as(f64, @floatFromInt(val)),
+                    .f64 => |val| val,
+                    else => {
+                        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                        return Val.init({});
+                    },
+                };
+
+                if (!(curr_val >= next_val)) {
+                    return Val.init(false);
+                }
+            }
+
+            return Val.init(true);
+        }
+    }.func,
 };
 
+/// Native implementation of the '=' equality operator.
+///
+/// Compares numeric arguments for equality, returning #t if all arguments are
+/// equal to each other, #f otherwise.
+/// With 0 or 1 arguments, returns #t (vacuously true).
+///
+/// Args:
+///   Any number of numeric arguments (i64 or f64)
+///
+/// Returns:
+///   #t if all arguments are numerically equal, #f otherwise
+///
+/// Errors:
+///   - `type-error`: When any argument is not a numeric value
 const equal_native = Procedure.Native{
     .name = "=",
-    .func = equalFunc,
+    .func = struct {
+        fn func(ctx: Procedure.Context) Vm.Error!Val {
+            const args = ctx.localStack();
+
+            // 0 or 1 arguments: vacuously true
+            if (args.len <= 1) return Val.init(true);
+
+            for (0..args.len - 1) |i| {
+                const curr_val: f64 = switch (args[i].repr) {
+                    .i64 => |val| @as(f64, @floatFromInt(val)),
+                    .f64 => |val| val,
+                    else => {
+                        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                        return Val.init({});
+                    },
+                };
+
+                const next_val: f64 = switch (args[i + 1].repr) {
+                    .i64 => |val| @as(f64, @floatFromInt(val)),
+                    .f64 => |val| val,
+                    else => {
+                        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                        return Val.init({});
+                    },
+                };
+
+                if (!(curr_val == next_val)) {
+                    return Val.init(false);
+                }
+            }
+
+            return Val.init(true);
+        }
+    }.func,
 };
 
+/// Native implementation of the 'abs' absolute value function.
+///
+/// Returns the absolute value of a single numeric argument.
+/// Preserves the input type (i64 input returns i64, f64 input returns f64).
+///
+/// Args:
+///   Exactly one numeric argument (i64 or f64)
+///
+/// Returns:
+///   The absolute value as Val(i64) or Val(f64) matching input type
+///
+/// Errors:
+///   - `wrong-number-of-arguments`: When not exactly 1 argument is provided
+///   - `type-error`: When the argument is not a numeric value
 const abs_native = Procedure.Native{
     .name = "abs",
-    .func = absFunc,
+    .func = struct {
+        fn func(ctx: Procedure.Context) Vm.Error!Val {
+            const args = ctx.localStack();
+            if (args.len != 1) {
+                try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
+                return Val.init({});
+            }
+
+            switch (args[0].repr) {
+                .i64 => |val| {
+                    if (val < 0) {
+                        return Val.init(-val);
+                    } else {
+                        return Val.init(val);
+                    }
+                },
+                .f64 => |val| {
+                    if (val < 0.0) {
+                        return Val.init(-val);
+                    } else {
+                        return Val.init(val);
+                    }
+                },
+                else => {
+                    try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                    return Val.init({});
+                },
+            }
+        }
+    }.func,
 };
 
 /// Registers all number functions with the virtual machine.
@@ -90,414 +583,6 @@ pub fn register(vm: *Vm) !void {
     try vm.builder().defineNativeProc(&abs_native);
 }
 
-// =============================================================================
-// ARITHMETIC OPERATIONS
-// =============================================================================
-
-/// Native implementation of the '+' arithmetic operator.
-/// Adds all numeric arguments together, returning 0 for no arguments.
-/// Expects all arguments to be numeric values (either i64 or f64).
-/// Returns f64 if any operand is f64, otherwise returns i64.
-///
-/// Args:
-///   ctx: The procedure execution context containing the VM and local stack arguments.
-///
-/// Returns:
-///   A Val containing the sum of all numeric arguments.
-///   If any argument is not numeric, raises an error instead of returning.
-fn addFunc(ctx: Procedure.Context) Vm.Error!Val {
-    const args = ctx.localStack();
-    var sum_i64: i64 = 0;
-    var sum_f64: f64 = 0.0;
-    var has_float = false;
-
-    for (args) |arg| {
-        switch (arg.repr) {
-            .i64 => |val| sum_i64 += val,
-            .f64 => |val| {
-                has_float = true;
-                sum_f64 += val;
-            },
-            else => {
-                try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
-                return Val.init({});
-            },
-        }
-    }
-
-    if (has_float) {
-        sum_f64 += @as(f64, @floatFromInt(sum_i64));
-        return Val.init(sum_f64);
-    } else {
-        return Val.init(sum_i64);
-    }
-}
-
-/// Native implementation of the '-' arithmetic operator.
-/// Subtracts all subsequent numeric arguments from the first argument.
-/// With no arguments, returns 0. With one argument, returns its negation.
-/// Expects all arguments to be numeric values (either i64 or f64).
-/// Returns f64 if any operand is f64, otherwise returns i64.
-///
-/// Args:
-///   ctx: The procedure execution context containing the VM and local stack arguments.
-///
-/// Returns:
-///   A Val containing the result of the subtraction operation.
-///   If any argument is not numeric, raises an error instead of returning.
-fn subFunc(ctx: Procedure.Context) Vm.Error!Val {
-    const args = ctx.localStack();
-    if (args.len == 0) return Val.init(0);
-
-    var result_i64: i64 = 0;
-    var result_f64: f64 = 0.0;
-    var has_float = false;
-
-    // Handle first argument
-    switch (args[0].repr) {
-        .i64 => |val| result_i64 = val,
-        .f64 => |val| {
-            has_float = true;
-            result_f64 = val;
-        },
-        else => {
-            try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
-            return Val.init({});
-        },
-    }
-
-    // If only one argument, return its negation
-    if (args.len == 1) {
-        if (has_float) {
-            return Val.init(-result_f64);
-        } else {
-            return Val.init(-result_i64);
-        }
-    }
-
-    // Subtract remaining arguments
-    for (args[1..]) |arg| {
-        switch (arg.repr) {
-            .i64 => |val| result_i64 -= val,
-            .f64 => |val| {
-                has_float = true;
-                result_f64 -= val;
-            },
-            else => {
-                try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
-                return Val.init({});
-            },
-        }
-    }
-
-    if (has_float) {
-        result_f64 += @as(f64, @floatFromInt(result_i64));
-        return Val.init(result_f64);
-    } else {
-        return Val.init(result_i64);
-    }
-}
-
-/// Native implementation of the '*' arithmetic operator.
-/// Multiplies all numeric arguments together, returning 1 for no arguments.
-/// Expects all arguments to be numeric values (either i64 or f64).
-/// Returns f64 if any operand is f64, otherwise returns i64.
-///
-/// Args:
-///   ctx: The procedure execution context containing the VM and local stack arguments.
-///
-/// Returns:
-///   A Val containing the product of all numeric arguments.
-///   If any argument is not numeric, raises an error instead of returning.
-fn mulFunc(ctx: Procedure.Context) Vm.Error!Val {
-    const args = ctx.localStack();
-    var result_i64: i64 = 1;
-    var result_f64: f64 = 1.0;
-    var has_float = false;
-
-    for (args) |arg| {
-        switch (arg.repr) {
-            .i64 => |val| result_i64 *= val,
-            .f64 => |val| {
-                has_float = true;
-                result_f64 *= val;
-            },
-            else => {
-                try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
-                return Val.init({});
-            },
-        }
-    }
-
-    if (has_float) {
-        result_f64 *= @as(f64, @floatFromInt(result_i64));
-        return Val.init(result_f64);
-    } else {
-        return Val.init(result_i64);
-    }
-}
-
-/// Native implementation of the '/' arithmetic operator.
-/// Divides the first argument by all subsequent arguments.
-/// All arguments are converted to f64 for division operations.
-/// With one argument, returns 1.0 / argument (reciprocal).
-/// Expects all arguments to be numeric values (either i64 or f64).
-/// Always returns f64.
-///
-/// TODO: This implementation will change once rational numbers are supported.
-/// Division should ideally preserve exact rationals when possible.
-///
-/// Args:
-///   ctx: The procedure execution context containing the VM and local stack arguments.
-///
-/// Returns:
-///   A Val containing the result of the division operation as f64.
-///   If any argument is not numeric or division by zero occurs, raises an error instead of returning.
-fn divFunc(ctx: Procedure.Context) Vm.Error!Val {
-    const args = ctx.localStack();
-    if (args.len == 0) {
-        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
-        return Val.init({});
-    }
-
-    // Convert first argument to f64
-    var result: f64 = switch (args[0].repr) {
-        .i64 => |val| @as(f64, @floatFromInt(val)),
-        .f64 => |val| val,
-        else => {
-            try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
-            return Val.init({});
-        },
-    };
-
-    // If only one argument, return its reciprocal
-    if (args.len == 1) {
-        if (result == 0.0) {
-            try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"division-by-zero"));
-            return Val.init({});
-        }
-        return Val.init(1.0 / result);
-    }
-
-    // Divide by remaining arguments
-    for (args[1..]) |arg| {
-        const divisor: f64 = switch (arg.repr) {
-            .i64 => |val| @as(f64, @floatFromInt(val)),
-            .f64 => |val| val,
-            else => {
-                try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
-                return Val.init({});
-            },
-        };
-
-        if (divisor == 0.0) {
-            try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"division-by-zero"));
-            return Val.init({});
-        }
-
-        result /= divisor;
-    }
-
-    return Val.init(result);
-}
-
-// =============================================================================
-// COMPARISON OPERATIONS
-// =============================================================================
-
-/// Generic comparison function that applies a predicate to consecutive pairs of numeric arguments.
-/// Returns #t if all consecutive pairs satisfy the predicate, #f otherwise.
-/// With 0 or 1 arguments, returns #t (vacuously true).
-/// Expects all arguments to be numeric values (either i64 or f64).
-///
-/// Args:
-///   ctx: The procedure execution context containing the VM and local stack arguments.
-///   predicate: Function that takes two f64 values and returns true if the comparison holds.
-///
-/// Returns:
-///   A Val containing #t if all comparisons hold, #f otherwise.
-///   If any argument is not numeric, raises an error instead of returning.
-fn compareFunc(ctx: Procedure.Context, predicate: *const fn (f64, f64) bool) Vm.Error!Val {
-    const args = ctx.localStack();
-
-    // 0 or 1 arguments: vacuously true
-    if (args.len <= 1) return Val.init(true);
-
-    for (0..args.len - 1) |i| {
-        const curr_val: f64 = switch (args[i].repr) {
-            .i64 => |val| @as(f64, @floatFromInt(val)),
-            .f64 => |val| val,
-            else => {
-                try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
-                return Val.init({});
-            },
-        };
-
-        const next_val: f64 = switch (args[i + 1].repr) {
-            .i64 => |val| @as(f64, @floatFromInt(val)),
-            .f64 => |val| val,
-            else => {
-                try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
-                return Val.init({});
-            },
-        };
-
-        if (!predicate(curr_val, next_val)) {
-            return Val.init(false);
-        }
-    }
-
-    return Val.init(true);
-}
-
-/// Predicate function for less-than comparison.
-fn isLessThan(a: f64, b: f64) bool {
-    return a < b;
-}
-
-/// Predicate function for greater-than comparison.
-fn isGreaterThan(a: f64, b: f64) bool {
-    return a > b;
-}
-
-/// Predicate function for less-than-or-equal comparison.
-fn isLessThanOrEqual(a: f64, b: f64) bool {
-    return a <= b;
-}
-
-/// Predicate function for greater-than-or-equal comparison.
-fn isGreaterThanOrEqual(a: f64, b: f64) bool {
-    return a >= b;
-}
-
-/// Predicate function for equality comparison.
-fn isEqual(a: f64, b: f64) bool {
-    return a == b;
-}
-
-/// Native implementation of the '<' comparison operator.
-/// Compares numeric arguments in order, returning #t if each argument is
-/// strictly less than the next one, #f otherwise.
-/// With 0 or 1 arguments, returns #t (vacuously true).
-/// Expects all arguments to be numeric values (either i64 or f64).
-///
-/// Args:
-///   ctx: The procedure execution context containing the VM and local stack arguments.
-///
-/// Returns:
-///   A Val containing #t if the comparison holds, #f otherwise.
-///   If any argument is not numeric, raises an error instead of returning.
-fn lessThanFunc(ctx: Procedure.Context) Vm.Error!Val {
-    return compareFunc(ctx, isLessThan);
-}
-
-/// Native implementation of the '>' comparison operator.
-/// Compares numeric arguments in order, returning #t if each argument is
-/// strictly greater than the next one, #f otherwise.
-/// With 0 or 1 arguments, returns #t (vacuously true).
-/// Expects all arguments to be numeric values (either i64 or f64).
-///
-/// Args:
-///   ctx: The procedure execution context containing the VM and local stack arguments.
-///
-/// Returns:
-///   A Val containing #t if the comparison holds, #f otherwise.
-///   If any argument is not numeric, raises an error instead of returning.
-fn greaterThanFunc(ctx: Procedure.Context) Vm.Error!Val {
-    return compareFunc(ctx, isGreaterThan);
-}
-
-/// Native implementation of the '<=' comparison operator.
-/// Compares numeric arguments in order, returning #t if each argument is
-/// less than or equal to the next one, #f otherwise.
-/// With 0 or 1 arguments, returns #t (vacuously true).
-/// Expects all arguments to be numeric values (either i64 or f64).
-///
-/// Args:
-///   ctx: The procedure execution context containing the VM and local stack arguments.
-///
-/// Returns:
-///   A Val containing #t if the comparison holds, #f otherwise.
-///   If any argument is not numeric, raises an error instead of returning.
-fn lessThanOrEqualFunc(ctx: Procedure.Context) Vm.Error!Val {
-    return compareFunc(ctx, isLessThanOrEqual);
-}
-
-/// Native implementation of the '>=' comparison operator.
-/// Compares numeric arguments in order, returning #t if each argument is
-/// greater than or equal to the next one, #f otherwise.
-/// With 0 or 1 arguments, returns #t (vacuously true).
-/// Expects all arguments to be numeric values (either i64 or f64).
-///
-/// Args:
-///   ctx: The procedure execution context containing the VM and local stack arguments.
-///
-/// Returns:
-///   A Val containing #t if the comparison holds, #f otherwise.
-///   If any argument is not numeric, raises an error instead of returning.
-fn greaterThanOrEqualFunc(ctx: Procedure.Context) Vm.Error!Val {
-    return compareFunc(ctx, isGreaterThanOrEqual);
-}
-
-/// Native implementation of the '=' equality operator.
-/// Compares numeric arguments in order, returning #t if all arguments are
-/// equal to each other, #f otherwise.
-/// With 0 or 1 arguments, returns #t (vacuously true).
-/// Expects all arguments to be numeric values (either i64 or f64).
-///
-/// Args:
-///   ctx: The procedure execution context containing the VM and local stack arguments.
-///
-/// Returns:
-///   A Val containing #t if all arguments are equal, #f otherwise.
-///   If any argument is not numeric, raises an error instead of returning.
-fn equalFunc(ctx: Procedure.Context) Vm.Error!Val {
-    return compareFunc(ctx, isEqual);
-}
-
-// =============================================================================
-// MATHEMATICAL FUNCTIONS
-// =============================================================================
-
-/// Native implementation of the 'abs' absolute value function.
-/// Returns the absolute value of a single numeric argument.
-/// Expects exactly one argument that must be a numeric value (either i64 or f64).
-/// Returns the same type as the input (i64 for i64 input, f64 for f64 input).
-///
-/// Args:
-///   ctx: The procedure execution context containing the VM and local stack arguments.
-///
-/// Returns:
-///   A Val containing the absolute value of the input argument.
-///   If the wrong number of arguments or non-numeric argument is provided, raises an error instead of returning.
-fn absFunc(ctx: Procedure.Context) Vm.Error!Val {
-    const args = ctx.localStack();
-    if (args.len != 1) {
-        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
-        return Val.init({});
-    }
-
-    switch (args[0].repr) {
-        .i64 => |val| {
-            if (val < 0) {
-                return Val.init(-val);
-            } else {
-                return Val.init(val);
-            }
-        },
-        .f64 => |val| {
-            if (val < 0.0) {
-                return Val.init(-val);
-            } else {
-                return Val.init(val);
-            }
-        },
-        else => {
-            try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
-            return Val.init({});
-        },
-    }
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 // Arithmetic operations

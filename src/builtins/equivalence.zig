@@ -13,9 +13,33 @@ const Symbol = @import("../types/Symbol.zig");
 const Val = @import("../types/Val.zig");
 const Vm = @import("../Vm.zig");
 
+/// Native implementation of the `eq?` equivalence predicate.
+///
+/// Tests for object identity - returns #t if both arguments refer to the same object.
+/// For immediate values (nil, booleans, numbers, characters), this is value equality.
+/// For heap objects (symbols, pairs, procedures), this tests reference equality.
+///
+/// Args:
+///   arg1: The first value to compare
+///   arg2: The second value to compare
+///
+/// Returns:
+///   #t if the arguments are identical, #f otherwise
+///
+/// Errors:
+///   - `wrong-number-of-arguments`: When not exactly 2 arguments are provided
 const eq_native = Procedure.Native{
     .name = "eq?",
-    .func = eqFunc,
+    .func = struct {
+        fn func(ctx: Procedure.Context) Vm.Error!Val {
+            const args = ctx.localStack();
+            if (args.len != 2) {
+                try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
+                return Val.init(ctx.vm.common_symbols.@"*unspecified*");
+            }
+            return Val.init(args[0].eq(args[1]));
+        }
+    }.func,
 };
 
 /// Registers all equivalence functions with the virtual machine.
@@ -29,26 +53,6 @@ pub fn register(vm: *Vm) !void {
     try vm.builder().defineNativeProc(&eq_native);
 }
 
-/// Native implementation of the 'eq?' equivalence predicate.
-/// Tests for object identity - returns #t if both arguments refer to the same object.
-/// For immediate values (nil, booleans, numbers, characters), this is value equality.
-/// For heap objects (symbols, pairs, procedures), this tests reference equality.
-/// Expects exactly two arguments.
-///
-/// Args:
-///   ctx: The procedure execution context containing the VM and local stack arguments.
-///
-/// Returns:
-///   A Val containing #t if the arguments are identical, #f otherwise.
-///   If the wrong number of arguments is provided, raises an error instead of returning.
-fn eqFunc(ctx: Procedure.Context) Vm.Error!Val {
-    const args = ctx.localStack();
-    if (args.len != 2) {
-        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
-        return Val.init(ctx.vm.common_symbols.@"*unspecified*");
-    }
-    return Val.init(args[0].eq(args[1]));
-}
 
 test "eq? with same immediate values returns #t" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });

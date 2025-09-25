@@ -1,7 +1,7 @@
 //! Boolean operations for the Scheme interpreter.
 //!
-//! This module provides native implementations of boolean operations
-//! including type checking (boolean?) and logical negation (not).
+//! This module provides native implementations of boolean operations including
+//! type checking (boolean?), logical negation (not), and boolean equality (boolean=?).
 
 const std = @import("std");
 const testing = std.testing;
@@ -13,20 +13,120 @@ const Symbol = @import("../types/Symbol.zig");
 const Val = @import("../types/Val.zig");
 const Vm = @import("../Vm.zig");
 
-// Define all native procedures as constants
+/// Native implementation of the `boolean?` type predicate procedure.
+///
+/// Checks if the given argument is a boolean value (#t or #f). Returns #t if the
+/// argument is boolean, #f otherwise. This is a standard Scheme type predicate.
+///
+/// Args:
+///   value: Any Scheme value to test for boolean type
+///
+/// Returns:
+///   #t if the argument is a boolean value, #f otherwise
+///
+/// Errors:
+///   - `wrong-number-of-arguments`: When not exactly 1 argument is provided
 const boolean_predicate_native = Procedure.Native{
     .name = "boolean?",
-    .func = booleanPredicateFunc,
+    .func = struct {
+        fn func(ctx: Procedure.Context) Vm.Error!Val {
+            const args = ctx.localStack();
+            if (args.len != 1) {
+                try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
+                return Val.init({});
+            }
+
+            switch (args[0].repr) {
+                .boolean => return Val.init(true),
+                else => return Val.init(false),
+            }
+        }
+    }.func,
 };
 
+/// Native implementation of the `not` logical negation procedure.
+///
+/// Returns the logical negation of the given argument. In Scheme, only #f is
+/// considered false; all other values (including 0, empty lists, etc.) are truthy.
+/// Therefore, `not` returns #t only when given #f, and returns #f for all other values.
+///
+/// Args:
+///   value: Any Scheme value to logically negate
+///
+/// Returns:
+///   #t if the argument is #f, #f for all other values
+///
+/// Errors:
+///   - `wrong-number-of-arguments`: When not exactly 1 argument is provided
 const not_native = Procedure.Native{
     .name = "not",
-    .func = notFunc,
+    .func = struct {
+        fn func(ctx: Procedure.Context) Vm.Error!Val {
+            const args = ctx.localStack();
+            if (args.len != 1) {
+                try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
+                return Val.init({});
+            }
+
+            switch (args[0].repr) {
+                .boolean => |val| return Val.init(!val),
+                else => return Val.init(false), // All non-#f values are truthy, so not returns #f
+            }
+        }
+    }.func,
 };
 
+/// Native implementation of the `boolean=?` equality comparison procedure.
+///
+/// Tests whether all arguments are boolean values and are equal to each other.
+/// Returns #t if all arguments are the same boolean value, #f if they differ.
+/// With 0 arguments, returns #t (vacuously true). With 1 argument, returns #t
+/// if it's a boolean (type check), otherwise raises a type error.
+///
+/// Args:
+///   values...: Zero or more values to compare (all must be booleans)
+///
+/// Returns:
+///   #t if all arguments are equal boolean values, #f if they differ
+///
+/// Errors:
+///   - `type-error`: When any argument is not a boolean value
 const boolean_equal_native = Procedure.Native{
     .name = "boolean=?",
-    .func = booleanEqualFunc,
+    .func = struct {
+        fn func(ctx: Procedure.Context) Vm.Error!Val {
+            const args = ctx.localStack();
+
+            // 0 arguments: vacuously true
+            if (args.len == 0) return Val.init(true);
+
+            // Get the first boolean value to compare against
+            const first_bool: bool = switch (args[0].repr) {
+                .boolean => |val| val,
+                else => {
+                    try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                    return Val.init({});
+                },
+            };
+
+            // Check that all remaining arguments are booleans and equal to the first
+            for (args[1..]) |arg| {
+                const curr_bool: bool = switch (arg.repr) {
+                    .boolean => |val| val,
+                    else => {
+                        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                        return Val.init({});
+                    },
+                };
+
+                if (curr_bool != first_bool) {
+                    return Val.init(false);
+                }
+            }
+
+            return Val.init(true);
+        }
+    }.func,
 };
 
 /// Registers all boolean functions with the virtual machine.
@@ -42,96 +142,6 @@ pub fn register(vm: *Vm) !void {
     try vm.builder().defineNativeProc(&boolean_equal_native);
 }
 
-/// Native implementation of the 'boolean?' type predicate.
-/// Returns #t if the argument is a boolean value (#t or #f), #f otherwise.
-/// Expects exactly one argument.
-///
-/// Args:
-///   ctx: The procedure execution context containing the VM and local stack arguments.
-///
-/// Returns:
-///   A Val containing #t if the argument is boolean, #f otherwise.
-///   If wrong number of arguments is provided, raises an error instead of returning.
-fn booleanPredicateFunc(ctx: Procedure.Context) Vm.Error!Val {
-    const args = ctx.localStack();
-    if (args.len != 1) {
-        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
-        return Val.init({});
-    }
-
-    switch (args[0].repr) {
-        .boolean => return Val.init(true),
-        else => return Val.init(false),
-    }
-}
-
-/// Native implementation of the 'not' logical negation operator.
-/// Returns #t if the argument is false (#f), #f otherwise.
-/// In Scheme, all values except #f are considered true.
-/// Expects exactly one argument.
-///
-/// Args:
-///   ctx: The procedure execution context containing the VM and local stack arguments.
-///
-/// Returns:
-///   A Val containing #t if the argument is #f, #f otherwise.
-///   If wrong number of arguments is provided, raises an error instead of returning.
-fn notFunc(ctx: Procedure.Context) Vm.Error!Val {
-    const args = ctx.localStack();
-    if (args.len != 1) {
-        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
-        return Val.init({});
-    }
-
-    switch (args[0].repr) {
-        .boolean => |val| return Val.init(!val),
-        else => return Val.init(false), // All non-#f values are truthy, so not returns #f
-    }
-}
-
-/// Native implementation of the 'boolean=?' equality operator.
-/// Returns #t if all arguments are boolean values and are equal to each other, #f otherwise.
-/// With 0 or 1 arguments, returns #t (vacuously true).
-/// All arguments must be boolean values.
-///
-/// Args:
-///   ctx: The procedure execution context containing the VM and local stack arguments.
-///
-/// Returns:
-///   A Val containing #t if all arguments are equal boolean values, #f otherwise.
-///   If any argument is not a boolean, raises an error instead of returning.
-fn booleanEqualFunc(ctx: Procedure.Context) Vm.Error!Val {
-    const args = ctx.localStack();
-
-    // 0 arguments: vacuously true
-    if (args.len == 0) return Val.init(true);
-
-    // Get the first boolean value to compare against
-    const first_bool: bool = switch (args[0].repr) {
-        .boolean => |val| val,
-        else => {
-            try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
-            return Val.init({});
-        },
-    };
-
-    // Check that all remaining arguments are booleans and equal to the first
-    for (args[1..]) |arg| {
-        const curr_bool: bool = switch (arg.repr) {
-            .boolean => |val| val,
-            else => {
-                try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
-                return Val.init({});
-            },
-        };
-
-        if (curr_bool != first_bool) {
-            return Val.init(false);
-        }
-    }
-
-    return Val.init(true);
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 // Boolean predicate tests

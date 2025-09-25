@@ -13,9 +13,43 @@ const Symbol = @import("../types/Symbol.zig");
 const Val = @import("../types/Val.zig");
 const Vm = @import("../Vm.zig");
 
+/// Native implementation of the `szl-define` procedure.
+///
+/// Defines a global variable in the VM's environment with the specified symbol and value.
+/// This is the core primitive for creating global bindings in the Scheme interpreter.
+///
+/// Args:
+///   symbol: A symbol representing the variable name to define
+///   value: The value to bind to the symbol
+///
+/// Returns:
+///   The `*unspecified*` value on success
+///
+/// Errors:
+///   - `wrong-number-of-arguments`: When not exactly 2 arguments are provided
+///   - `type-error`: When the first argument is not a symbol
+///   - `invalid-argument`: When the definition operation fails
 const szl_define = Procedure.Native{
     .name = "szl-define",
-    .func = szlDefineFunc,
+    .func = struct {
+        fn func(ctx: Procedure.Context) Vm.Error!Val {
+            const args = ctx.localStack();
+            if (args.len != 2) {
+                try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
+                return Val.init(ctx.vm.common_symbols.@"*unspecified*");
+            }
+            const symbol = ctx.vm.fromVal(Symbol.Interned, args[0]) catch {
+                try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
+                return Val.init(ctx.vm.common_symbols.@"*unspecified*");
+            };
+            const val = args[1];
+            ctx.vm.builder().define(symbol, val) catch {
+                try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"invalid-argument"));
+                return Val.init(ctx.vm.common_symbols.@"*unspecified*");
+            };
+            return Val.init(ctx.vm.common_symbols.@"*unspecified*");
+        }
+    }.func,
 };
 
 /// Registers all definition functions with the virtual machine.
@@ -27,34 +61,6 @@ const szl_define = Procedure.Native{
 ///   May return allocation errors if registering functions fails.
 pub fn register(vm: *Vm) !void {
     try vm.builder().defineNativeProc(&szl_define);
-}
-
-/// Native implementation of the 'szl-define' procedure for defining global variables.
-/// Defines a global variable with the given symbol name and value.
-/// Expects exactly two arguments: a symbol and a value to associate with it.
-///
-/// Args:
-///   ctx: The procedure execution context containing the VM and local stack arguments.
-///
-/// Returns:
-///   Returns an unspecified value if successful.
-///   If arguments are invalid or definition fails, raises an error instead of returning.
-fn szlDefineFunc(ctx: Procedure.Context) Vm.Error!Val {
-    const args = ctx.localStack();
-    if (args.len != 2) {
-        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
-        return Val.init(ctx.vm.common_symbols.@"*unspecified*");
-    }
-    const symbol = ctx.vm.fromVal(Symbol.Interned, args[0]) catch {
-        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
-        return Val.init(ctx.vm.common_symbols.@"*unspecified*");
-    };
-    const val = args[1];
-    ctx.vm.builder().define(symbol, val) catch {
-        try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"invalid-argument"));
-        return Val.init(ctx.vm.common_symbols.@"*unspecified*");
-    };
-    return Val.init(ctx.vm.common_symbols.@"*unspecified*");
 }
 
 test "szl-define defines global variable successfully" {
