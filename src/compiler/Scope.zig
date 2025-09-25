@@ -23,10 +23,10 @@ pub const Id = struct {
 /// Type of binding.
 pub const Type = enum {
     argument, // Procedure parameter
-    proc,     // The current procedure (for recursion)
-    local,    // Local variable
-    hidden,   // Temporarily unavailable (during let binding)
-    free,     // Cleared binding, slot can be reused
+    proc, // The current procedure (for recursion)
+    local, // Local variable
+    hidden, // Temporarily unavailable (during let binding)
+    free, // Cleared binding, slot can be reused
 };
 
 /// Maps a symbol name to a stack index.
@@ -78,27 +78,12 @@ pub fn clear(self: *Scope, id: Id) void {
     self.bindings.items[id.id].type = .free;
 }
 
-/// Finds the next available stack slot.
-fn nextAvailableSlot(self: Scope) isize {
-    for (0..self.bindings.items.len + 1) |idx| {
-        var ok = true;
-        for (self.bindings.items) |b| {
-            if (b.index == idx and b.type != .free) {
-                ok = false;
-                break;
-            }
-        }
-        if (ok) return @intCast(idx);
-    }
-    unreachable;
-}
-
 /// Creates a new local binding with an available slot.
 pub fn addLocal(self: *Scope, allocator: std.mem.Allocator, symbol: Symbol.Interned, binding_type: Type) Error!Id {
-    const index = self.nextAvailableSlot();
+    const index = self.bindings.items.len;
     const binding = Binding{
         .name = symbol,
-        .index = index,
+        .index = @intCast(index),
         .type = binding_type,
     };
     return self.addBinding(allocator, binding);

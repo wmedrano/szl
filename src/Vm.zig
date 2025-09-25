@@ -159,6 +159,22 @@ pub const StackFrame = struct {
     /// Current instruction pointer within the instructions array.
     /// Points to the next instruction to be executed in this frame.
     instruction_idx: usize = 0,
+    /// The currently installed exception handler.
+    exception_handler: Val = Val.init(&default_exception_handler),
+    /// The exception handler to install for the next call.
+    next_exception_handler: Val = Val.init(&default_exception_handler),
+};
+
+const default_exception_handler = Procedure.Native{
+    .name = "szl-default-exception-handler",
+    .func = struct {
+        fn func(ctx: Procedure.Context) Vm.Error!Val {
+            const stack = ctx.localStack();
+            const err = if (stack.len == 0) Val.init({}) else stack[0];
+            ctx.vm.err = err;
+            return Vm.Error.UncaughtException;
+        }
+    }.func,
 };
 
 /// Initializes a new virtual machine with the given options.
@@ -421,16 +437,7 @@ fn evalProc(self: *Vm, proc: Val, args: []const Val) !Val {
 /// Returns:
 ///   An error if memory allocation fails during the marking process.
 pub fn runGc(self: *Vm) !void {
-    // Mark phase: mark all reachable objects starting from GC roots
-    // Note: Call frames are not marked as GC roots because the executing
-    // procedure is always on the stack at position -1, so it's already marked
-
-    // Mark objects on the execution stack
-    for (self.stack.items) |val| try self.markOne(val);
-
-    // Mark global variables
-    var global_iter = self.global_values.valueIterator();
-    while (global_iter.next()) |val| try self.markOne(val.*);
+    try self.runGcMark();
 
     // Sweep
     var string_sweep = self.strings.sweep(self.allocator, self.reachable_color);
@@ -450,6 +457,21 @@ pub fn runGc(self: *Vm) !void {
 
     // Prepare for next iteration
     self.reachable_color = self.reachable_color.other();
+}
+
+pub fn runGcMark(self: *Vm) !void {
+    // Mark phase: mark all reachable objects starting from GC roots
+    // Note: Call frames are not marked as GC roots because the executing
+    // procedure is always on the stack at position -1, so it's already marked
+    for (self.stack.items) |val| try self.markOne(val);
+    var global_iter = self.global_values.valueIterator();
+    while (global_iter.next()) |val| try self.markOne(val.*);
+    try self.markOne(self.current_stack_frame.exception_handler);
+    try self.markOne(self.current_stack_frame.next_exception_handler);
+    for (self.stack_frames.items) |frame| {
+        try self.markOne(frame.exception_handler);
+        try self.markOne(frame.next_exception_handler);
+    }
 }
 
 /// Marks a single value and all values it references as reachable during garbage collection.

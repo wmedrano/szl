@@ -184,7 +184,6 @@ pub const Instruction = union(enum) {
     ///   - May return StackUnderflow if stack frame operations fail.
     ///   - May return Szl if the VM is in an error state.
     pub fn execute(self: Instruction, vm: *Vm) Vm.Error!void {
-        if (vm.err) |_| return Vm.Error.UncaughtException;
         switch (self) {
             .load => |val| return load(vm, val),
             .get_global => |symbol| return getGlobal(vm, symbol),
@@ -331,7 +330,10 @@ pub fn evalProc(vm: *Vm, arg_count: usize) !void {
     const proc_idx = stack_start - 1;
     const proc_val = vm.stack.items[proc_idx];
     try vm.stack_frames.append(vm.allocator, vm.current_stack_frame);
-    vm.current_stack_frame = Vm.StackFrame{ .stack_start = stack_start };
+    vm.current_stack_frame = Vm.StackFrame{
+        .stack_start = stack_start,
+        .exception_handler = vm.current_stack_frame.next_exception_handler,
+    };
     switch (proc_val.repr) {
         .proc => |proc_handle| {
             const proc = vm.inspector().resolve(Procedure, proc_handle) catch return Vm.Error.UncaughtException;
@@ -366,7 +368,14 @@ pub fn evalProc(vm: *Vm, arg_count: usize) !void {
 ///   vm: Pointer to the virtual machine whose error state will be set.
 ///   err: The error value to set as the VM's error state.
 pub fn raiseWithError(vm: *Vm, err: Val) Vm.Error!void {
-    vm.err = err;
+    try loadMany(vm, &.{
+        vm.current_stack_frame.exception_handler,
+        err,
+    });
+    // TODO: This calls a new procedure which may then also raise an
+    // exception. See what behavior makes sense. It's possible that an exception
+    // should use a different handler.
+    try evalProc(vm, 1);
 }
 
 /// Raises an error by popping the top value from the stack and setting it as the VM's error state.
@@ -379,7 +388,7 @@ pub fn raiseWithError(vm: *Vm, err: Val) Vm.Error!void {
 ///   - May return StackUnderflow if the stack is empty when trying to pop the error value.
 pub fn raiseError(vm: *Vm) Vm.Error!void {
     const err = vm.stack.pop() orelse return Vm.Error.StackUnderflow;
-    vm.err = err;
+    try raiseWithError(vm, err);
 }
 
 /// Jumps by the specified offset in the instruction sequence.
