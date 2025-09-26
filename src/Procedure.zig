@@ -35,12 +35,12 @@ pub const Native = struct {
     name: []const u8,
     /// Function pointer that implements the procedure logic.
     /// Takes a Context providing access to VM state and returns a value.
-    func: *const fn (Context) Vm.Error!Val,
+    func: *const fn (NativeContext) Vm.Error!Val,
 };
 
 /// Execution context for procedure calls.
 /// Provides access to the VM state during procedure execution.
-pub const Context = struct {
+pub const NativeContext = struct {
     vm: *Vm,
 
     /// Gets the local stack slice for the current procedure call.
@@ -49,9 +49,9 @@ pub const Context = struct {
     ///
     /// Returns:
     ///   A slice of Val containing the arguments for the current procedure.
-    pub fn localStack(self: Context) []const Val {
-        const frame = self.vm.current_stack_frame;
-        return self.vm.stack.items[frame.stack_start..];
+    pub fn localStack(self: NativeContext) []const Val {
+        const frame = self.vm.context.current_stack_frame;
+        return self.vm.context.stack()[frame.stack_start..];
     }
 };
 

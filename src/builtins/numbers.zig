@@ -31,7 +31,7 @@ const Vm = @import("../Vm.zig");
 const add_native = Procedure.Native{
     .name = "+",
     .func = struct {
-        fn func(ctx: Procedure.Context) Vm.Error!Val {
+        fn func(ctx: Procedure.NativeContext) Vm.Error!Val {
             const args = ctx.localStack();
             var sum_i64: i64 = 0;
             var sum_f64: f64 = 0.0;
@@ -79,7 +79,7 @@ const add_native = Procedure.Native{
 const sub_native = Procedure.Native{
     .name = "-",
     .func = struct {
-        fn func(ctx: Procedure.Context) Vm.Error!Val {
+        fn func(ctx: Procedure.NativeContext) Vm.Error!Val {
             const args = ctx.localStack();
             if (args.len == 0) return Val.init(0);
 
@@ -151,7 +151,7 @@ const sub_native = Procedure.Native{
 const mul_native = Procedure.Native{
     .name = "*",
     .func = struct {
-        fn func(ctx: Procedure.Context) Vm.Error!Val {
+        fn func(ctx: Procedure.NativeContext) Vm.Error!Val {
             const args = ctx.localStack();
             var result_i64: i64 = 1;
             var result_f64: f64 = 1.0;
@@ -200,7 +200,7 @@ const mul_native = Procedure.Native{
 const div_native = Procedure.Native{
     .name = "/",
     .func = struct {
-        fn func(ctx: Procedure.Context) Vm.Error!Val {
+        fn func(ctx: Procedure.NativeContext) Vm.Error!Val {
             const args = ctx.localStack();
             if (args.len == 0) {
                 try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
@@ -267,7 +267,7 @@ const div_native = Procedure.Native{
 const less_than_native = Procedure.Native{
     .name = "<",
     .func = struct {
-        fn func(ctx: Procedure.Context) Vm.Error!Val {
+        fn func(ctx: Procedure.NativeContext) Vm.Error!Val {
             const args = ctx.localStack();
 
             // 0 or 1 arguments: vacuously true
@@ -319,7 +319,7 @@ const less_than_native = Procedure.Native{
 const greater_than_native = Procedure.Native{
     .name = ">",
     .func = struct {
-        fn func(ctx: Procedure.Context) Vm.Error!Val {
+        fn func(ctx: Procedure.NativeContext) Vm.Error!Val {
             const args = ctx.localStack();
 
             // 0 or 1 arguments: vacuously true
@@ -371,7 +371,7 @@ const greater_than_native = Procedure.Native{
 const less_than_or_equal_native = Procedure.Native{
     .name = "<=",
     .func = struct {
-        fn func(ctx: Procedure.Context) Vm.Error!Val {
+        fn func(ctx: Procedure.NativeContext) Vm.Error!Val {
             const args = ctx.localStack();
 
             // 0 or 1 arguments: vacuously true
@@ -423,7 +423,7 @@ const less_than_or_equal_native = Procedure.Native{
 const greater_than_or_equal_native = Procedure.Native{
     .name = ">=",
     .func = struct {
-        fn func(ctx: Procedure.Context) Vm.Error!Val {
+        fn func(ctx: Procedure.NativeContext) Vm.Error!Val {
             const args = ctx.localStack();
 
             // 0 or 1 arguments: vacuously true
@@ -475,7 +475,7 @@ const greater_than_or_equal_native = Procedure.Native{
 const equal_native = Procedure.Native{
     .name = "=",
     .func = struct {
-        fn func(ctx: Procedure.Context) Vm.Error!Val {
+        fn func(ctx: Procedure.NativeContext) Vm.Error!Val {
             const args = ctx.localStack();
 
             // 0 or 1 arguments: vacuously true
@@ -527,7 +527,7 @@ const equal_native = Procedure.Native{
 const abs_native = Procedure.Native{
     .name = "abs",
     .func = struct {
-        fn func(ctx: Procedure.Context) Vm.Error!Val {
+        fn func(ctx: Procedure.NativeContext) Vm.Error!Val {
             const args = ctx.localStack();
             if (args.len != 1) {
                 try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));

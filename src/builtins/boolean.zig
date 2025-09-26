@@ -29,7 +29,7 @@ const Vm = @import("../Vm.zig");
 const boolean_predicate_native = Procedure.Native{
     .name = "boolean?",
     .func = struct {
-        fn func(ctx: Procedure.Context) Vm.Error!Val {
+        fn func(ctx: Procedure.NativeContext) Vm.Error!Val {
             const args = ctx.localStack();
             if (args.len != 1) {
                 try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
@@ -61,7 +61,7 @@ const boolean_predicate_native = Procedure.Native{
 const not_native = Procedure.Native{
     .name = "not",
     .func = struct {
-        fn func(ctx: Procedure.Context) Vm.Error!Val {
+        fn func(ctx: Procedure.NativeContext) Vm.Error!Val {
             const args = ctx.localStack();
             if (args.len != 1) {
                 try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
@@ -94,7 +94,7 @@ const not_native = Procedure.Native{
 const boolean_equal_native = Procedure.Native{
     .name = "boolean=?",
     .func = struct {
-        fn func(ctx: Procedure.Context) Vm.Error!Val {
+        fn func(ctx: Procedure.NativeContext) Vm.Error!Val {
             const args = ctx.localStack();
 
             // 0 arguments: vacuously true
@@ -141,7 +141,6 @@ pub fn register(vm: *Vm) !void {
     try vm.builder().defineNativeProc(&not_native);
     try vm.builder().defineNativeProc(&boolean_equal_native);
 }
-
 
 ////////////////////////////////////////////////////////////////////////////////
 // Boolean predicate tests

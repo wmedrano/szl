@@ -12,6 +12,7 @@ const Builder = @import("Builder.zig");
 const builtins = @import("builtins/builtins.zig");
 const Color = @import("object_pool.zig").Color;
 const Compiler = @import("compiler/Compiler.zig");
+const Context = @import("Context.zig");
 const Handle = @import("object_pool.zig").Handle;
 const Inspector = @import("Inspector.zig");
 const instruction = @import("instruction.zig");
@@ -84,15 +85,7 @@ common_symbols: CommonSymbolTable,
 
 /// Execution stack that holds values during computation and procedure calls.
 /// Values are pushed and popped as expressions are evaluated.
-stack: std.ArrayList(Val),
-
-/// Stack of procedure call frames, enabling nested procedure calls and proper scoping.
-/// Each frame tracks the stack position and execution state for a procedure call.
-stack_frames: std.ArrayList(StackFrame),
-
-/// The currently executing stack frame containing execution state.
-/// Tracks the current instruction pointer and stack frame boundaries.
-current_stack_frame: StackFrame = .{},
+context: Context,
 
 /// Global variable storage mapping interned symbols to their values.
 /// Used for storing and retrieving globally defined variables and functions.
@@ -135,46 +128,10 @@ records: ObjectPool(Record),
 /// Provides efficient allocation and deallocation of record type descriptors.
 record_type_descriptors: ObjectPool(Record.RecordTypeDescriptor),
 
-/// Error state for the virtual machine. When set, indicates that an error
-/// has occurred during execution and should be handled or propagated.
-err: ?Val = null,
-
 /// Configuration options for initializing the virtual machine.
 pub const Options = struct {
     /// The allocator to use for memory management within the VM.
     allocator: std.mem.Allocator,
-};
-
-/// Represents a stack frame for procedure calls.
-///
-/// Each frame tracks the start position of its arguments on the stack, enabling
-/// proper scoping and parameter access during procedure execution.
-pub const StackFrame = struct {
-    /// Index into the stack where this frame's local variables and arguments begin.
-    /// Used as the base address for calculating absolute positions of local variables.
-    stack_start: usize = 0,
-    /// Bytecode instructions for this stack frame to execute.
-    /// Contains the compiled procedure's instruction sequence.
-    instructions: []const Instruction = &.{},
-    /// Current instruction pointer within the instructions array.
-    /// Points to the next instruction to be executed in this frame.
-    instruction_idx: usize = 0,
-    /// The currently installed exception handler.
-    exception_handler: Val = Val.init(&default_exception_handler),
-    /// The exception handler to install for the next call.
-    next_exception_handler: Val = Val.init(&default_exception_handler),
-};
-
-const default_exception_handler = Procedure.Native{
-    .name = "szl-default-exception-handler",
-    .func = struct {
-        fn func(ctx: Procedure.Context) Vm.Error!Val {
-            const stack = ctx.localStack();
-            const err = if (stack.len == 0) Val.init({}) else stack[0];
-            ctx.vm.err = err;
-            return Vm.Error.UncaughtException;
-        }
-    }.func,
 };
 
 /// Initializes a new virtual machine with the given options.
@@ -192,8 +149,7 @@ pub fn init(options: Options) error{OutOfMemory}!Vm {
     var vm = Vm{
         .allocator = options.allocator,
         .common_symbols = undefined,
-        .stack = try std.ArrayList(Val).initCapacity(options.allocator, 1024),
-        .stack_frames = try std.ArrayList(StackFrame).initCapacity(options.allocator, 64),
+        .context = try Context.init(options.allocator),
         .interner = interner,
         .reachable_color = Color.blue,
         .pairs = ObjectPool(Pair).init(),
@@ -215,8 +171,7 @@ pub fn init(options: Options) error{OutOfMemory}!Vm {
 /// Args:
 ///   self: Pointer to the VM to deinitialize.
 pub fn deinit(self: *Vm) void {
-    self.stack.deinit(self.allocator);
-    self.stack_frames.deinit(self.allocator);
+    self.context.deinit(self.allocator);
     self.global_values.deinit(self.allocator);
     self.interner.deinit();
     self.pairs.deinit(self.allocator);
@@ -246,6 +201,17 @@ pub fn deinit(self: *Vm) void {
     self.record_type_descriptors.deinit(self.allocator);
 }
 
+/// Determines the appropriate PrettyPrinter type for a given input type.
+///
+/// This compile-time function maps input types to their corresponding PrettyPrinter
+/// return types for the pretty() function. It ensures type safety by validating
+/// that only supported types can be formatted.
+///
+/// Args:
+///   T: The compile-time type to determine the return type for.
+///
+/// Returns:
+///   The appropriate PrettyPrinter type for formatting values of type T.
 fn PrettyReturnType(comptime T: type) type {
     return switch (T) {
         Val => PrettyPrinter,
@@ -331,13 +297,6 @@ pub fn inspector(self: *const Vm) Inspector {
     return Inspector{ .vm = self };
 }
 
-pub fn reset(self: *Vm) void {
-    self.err = null;
-    self.stack.clearRetainingCapacity();
-    self.stack_frames.clearRetainingCapacity();
-    self.current_stack_frame = StackFrame{};
-}
-
 /// Compiles a string of Scheme source code and returns the result.
 /// Parses the source string into expressions using the Reader and compiles
 /// each expression to bytecode, returning a procedure for the last expression.
@@ -392,8 +351,9 @@ test evalStr {
 
 /// Evaluates a compiled procedure by executing its bytecode instructions.
 ///
-/// Loads the procedure into the VM's execution environment and runs it to completion,
-/// managing the call stack and returning the final result value.
+/// This internal function loads the procedure into the VM's execution environment
+/// and runs it to completion, managing the call stack and returning the final result value.
+/// Used internally by evalStr() and the instruction execution system.
 ///
 /// Args:
 ///   self: Pointer to the VM instance.
@@ -404,18 +364,19 @@ test evalStr {
 ///   The final result value after executing all instructions in the procedure.
 ///
 /// Errors:
+///   - UncaughtException if the VM has an unhandled error state.
 ///   - StackUnderflow if the execution stack becomes empty unexpectedly.
 ///   - Any errors that may occur during instruction execution.
 fn evalProc(self: *Vm, proc: Val, args: []const Val) !Val {
-    if (self.err) |_| return Vm.Error.UncaughtException;
+    if (self.context.err) |_| return Vm.Error.UncaughtException;
     try instruction.load(self, proc);
     try instruction.loadMany(self, args);
-    const initial_call_stack_size = self.stack_frames.items.len;
+    const initial_call_stack_size = self.context.stack_frames.items.len;
     try instruction.evalProc(self, args.len);
-    while (self.stack_frames.items.len > initial_call_stack_size) {
+    while (self.context.stack_frames.items.len > initial_call_stack_size) {
         try instruction.executeNext(self);
     }
-    const return_value = self.stack.pop() orelse return error.StackUnderflow;
+    const return_value = self.context.stackPop() orelse return error.StackUnderflow;
     return return_value;
 }
 
@@ -438,8 +399,24 @@ fn evalProc(self: *Vm, proc: Val, args: []const Val) !Val {
 ///   An error if memory allocation fails during the marking process.
 pub fn runGc(self: *Vm) !void {
     try self.runGcMark();
+    try self.runGcSweep();
+    // Prepare for next iteration
+    self.reachable_color = self.reachable_color.other();
+}
 
-    // Sweep
+/// Performs the sweep phase of garbage collection.
+///
+/// This function iterates through all object pools and deallocates objects
+/// that were not marked as reachable during the marking phase.
+/// Objects with a color different from the current reachable_color are
+/// considered unreachable and will be deallocated.
+///
+/// Args:
+///   self: Pointer to the VM instance.
+///
+/// Returns:
+///   An error if deallocation fails for any object.
+pub fn runGcSweep(self: *Vm) !void {
     var string_sweep = self.strings.sweep(self.allocator, self.reachable_color);
     while (try string_sweep.next()) |string| string.deinit(self.allocator);
     var proc_sweep = self.procedures.sweep(self.allocator, self.reachable_color);
@@ -454,21 +431,35 @@ pub fn runGc(self: *Vm) !void {
     while (try record_type_descriptor_sweep.next()) |descriptor| descriptor.deinit(self.allocator);
     var pair_sweep = self.pairs.sweep(self.allocator, self.reachable_color);
     while (try pair_sweep.next()) |_| {} // Pairs don't require cleanup
-
-    // Prepare for next iteration
-    self.reachable_color = self.reachable_color.other();
 }
 
+/// Performs the marking phase of garbage collection without sweeping.
+///
+/// This function marks all reachable objects starting from GC roots (stack values,
+/// global variables, and exception handlers) with the current reachable_color.
+/// This is used internally by runGc() and can also be called independently
+/// for testing or incremental collection strategies.
+///
+/// GC roots include:
+/// - All values currently on the execution stack
+/// - All globally defined variables and functions
+/// - Exception handlers in current and saved stack frames
+///
+/// Args:
+///   self: Pointer to the VM instance.
+///
+/// Returns:
+///   An error if memory allocation fails during the marking process.
 pub fn runGcMark(self: *Vm) !void {
     // Mark phase: mark all reachable objects starting from GC roots
     // Note: Call frames are not marked as GC roots because the executing
     // procedure is always on the stack at position -1, so it's already marked
-    for (self.stack.items) |val| try self.markOne(val);
+    for (self.context.stack()) |val| try self.markOne(val);
     var global_iter = self.global_values.valueIterator();
     while (global_iter.next()) |val| try self.markOne(val.*);
-    try self.markOne(self.current_stack_frame.exception_handler);
-    try self.markOne(self.current_stack_frame.next_exception_handler);
-    for (self.stack_frames.items) |frame| {
+    try self.markOne(self.context.current_stack_frame.exception_handler);
+    try self.markOne(self.context.current_stack_frame.next_exception_handler);
+    for (self.context.stack_frames.items) |frame| {
         try self.markOne(frame.exception_handler);
         try self.markOne(frame.next_exception_handler);
     }
@@ -563,10 +554,10 @@ test runGc {
 ///   - Any errors from parsing the expected value string.
 ///   - Test failure if neither structural equality nor formatted output matches.
 pub fn expectEval(self: *Vm, expected: []const u8, input: []const u8) !void {
-    self.reset();
+    self.context.reset();
     const expected_val = try self.builder().readOne(expected);
     const actual_val = self.evalStr(input) catch |e| {
-        if (self.err) |err| try testing.expectFmt("", "{f}", .{self.pretty(err)});
+        if (self.context.err) |error_val| try testing.expectFmt("", "{f}", .{self.pretty(error_val)});
         return e;
     };
     if (std.meta.eql(expected_val, actual_val)) return;
@@ -598,10 +589,10 @@ pub fn expectEval(self: *Vm, expected: []const u8, input: []const u8) !void {
 ///   - Returns a test failure if the evaluation succeeds unexpectedly,
 ///     or if the VM's error state doesn't match `expected_err`.
 pub fn expectEvalErr(self: *Vm, expected: []const u8, source: []const u8) !void {
-    self.reset();
+    self.context.reset();
     try testing.expectError(Vm.Error.UncaughtException, self.evalStr(source));
     const expected_err = try self.builder().readOne(expected);
-    const actual_err = self.err orelse return error.ErrorNotFound;
+    const actual_err = self.context.err orelse return error.ErrorNotFound;
     if (std.meta.eql(expected_err, actual_err)) return;
     try testing.expectFmt(expected, "{f}", .{self.pretty(actual_err)});
     switch (expected_err.repr) {
@@ -663,7 +654,7 @@ test "garbage collection with reachable strings" {
     const test_string = String.initStatic("hello world");
     const string_handle = try vm.strings.put(vm.allocator, test_string, vm.reachable_color.other());
     const string_val = Val.init(string_handle);
-    try vm.stack.append(vm.allocator, string_val);
+    try vm.context.stackPush(vm.allocator, string_val);
 
     // Create another string that's not on the stack (unreachable)
     const unreachable_string = String.initStatic("unreachable");
@@ -693,7 +684,7 @@ test "garbage collection with reachable pairs" {
     const test_pair = Pair{ .car = car, .cdr = cdr };
     const pair_handle = try vm.pairs.put(vm.allocator, test_pair, vm.reachable_color.other());
     const pair_val = Val.init(pair_handle);
-    try vm.stack.append(vm.allocator, pair_val);
+    try vm.context.stackPush(vm.allocator, pair_val);
 
     // Create an unreachable pair
     const unreachable_pair = Pair{ .car = Val.init(1), .cdr = Val.init(2) };
@@ -722,7 +713,7 @@ test "garbage collection with nested pairs" {
     const outer_handle = try vm.pairs.put(vm.allocator, outer_pair, vm.reachable_color.other());
 
     // Put only the outer pair on the stack
-    try vm.stack.append(vm.allocator, Val.init(outer_handle));
+    try vm.context.stackPush(vm.allocator, Val.init(outer_handle));
 
     // Create an unreachable pair
     const unreachable_pair = Pair{ .car = Val.init(99), .cdr = Val.init(100) };
@@ -757,7 +748,7 @@ test "garbage collection with vectors containing strings" {
     const vector_handle = try vm.vectors.put(vm.allocator, test_vector, vm.reachable_color.other());
 
     // Put vector on stack
-    try vm.stack.append(vm.allocator, Val.init(vector_handle));
+    try vm.context.stackPush(vm.allocator, Val.init(vector_handle));
 
     // Create unreachable string
     const unreachable_string = String.initStatic("unreachable");

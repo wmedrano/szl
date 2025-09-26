@@ -259,7 +259,7 @@ pub fn internStaticVal(self: Builder, symbol: Symbol) !Val {
 ///
 /// Errors:
 ///   Returns an error if symbol interning fails.
-pub fn symbolTable(self: Builder, T: anytype) !T {
+pub fn symbolTable(self: Builder, T: type) !T {
     var symbol_table: T = undefined;
     const type_info = @typeInfo(T);
     if (type_info != .@"struct") {
@@ -548,7 +548,7 @@ test "build with Procedure creates procedure val" {
     const test_procedure = Procedure.Native{
         .name = "test-proc",
         .func = struct {
-            fn testFunc(_: Procedure.Context) Vm.Error!Val {
+            fn testFunc(_: Procedure.NativeContext) Vm.Error!Val {
                 return Val.init(42);
             }
         }.testFunc,

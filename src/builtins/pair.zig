@@ -30,7 +30,7 @@ const Vm = @import("../Vm.zig");
 const pair_predicate_native = Procedure.Native{
     .name = "pair?",
     .func = struct {
-        fn func(ctx: Procedure.Context) Vm.Error!Val {
+        fn func(ctx: Procedure.NativeContext) Vm.Error!Val {
             const args = ctx.localStack();
             if (args.len != 1) {
                 try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
@@ -63,7 +63,7 @@ const pair_predicate_native = Procedure.Native{
 const cons_native = Procedure.Native{
     .name = "cons",
     .func = struct {
-        fn func(ctx: Procedure.Context) Vm.Error!Val {
+        fn func(ctx: Procedure.NativeContext) Vm.Error!Val {
             const args = ctx.localStack();
             if (args.len != 2) {
                 try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
@@ -96,7 +96,7 @@ const cons_native = Procedure.Native{
 const car_native = Procedure.Native{
     .name = "car",
     .func = struct {
-        fn func(ctx: Procedure.Context) Vm.Error!Val {
+        fn func(ctx: Procedure.NativeContext) Vm.Error!Val {
             const args = ctx.localStack();
             if (args.len != 1) {
                 try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
@@ -137,7 +137,7 @@ const car_native = Procedure.Native{
 const cdr_native = Procedure.Native{
     .name = "cdr",
     .func = struct {
-        fn func(ctx: Procedure.Context) Vm.Error!Val {
+        fn func(ctx: Procedure.NativeContext) Vm.Error!Val {
             const args = ctx.localStack();
             if (args.len != 1) {
                 try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));

@@ -31,7 +31,7 @@ const Vm = @import("../Vm.zig");
 const eq_native = Procedure.Native{
     .name = "eq?",
     .func = struct {
-        fn func(ctx: Procedure.Context) Vm.Error!Val {
+        fn func(ctx: Procedure.NativeContext) Vm.Error!Val {
             const args = ctx.localStack();
             if (args.len != 2) {
                 try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
