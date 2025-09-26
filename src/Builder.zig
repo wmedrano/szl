@@ -11,6 +11,7 @@ const object_pool = @import("object_pool.zig");
 const Handle = object_pool.Handle;
 const Procedure = @import("Procedure.zig");
 const ByteVector = @import("types/ByteVector.zig");
+const Continuation = @import("types/Continuation.zig");
 const Pair = @import("types/Pair.zig");
 const Record = @import("types/Record.zig");
 const String = @import("types/String.zig");
@@ -52,6 +53,8 @@ const Error = error{OutOfMemory};
 ///   - Record: Stored in object pool and converted to record values
 ///   - Handle(Record.RecordTypeDescriptor): Direct record type descriptor handles
 ///   - Record.RecordTypeDescriptor: Stored in object pool and converted to record type descriptor values
+///   - Handle(Continuation): Direct continuation handles
+///   - Continuation: Stored in object pool and converted to continuation values
 ///   - Procedure: Stored in object pool and converted to procedure values
 ///   - []const Val, []Val: Converted to proper Scheme lists
 ///
@@ -83,6 +86,7 @@ pub fn build(self: Builder, v: anytype) Error!Val {
         Handle(ByteVector),
         Handle(Record),
         Handle(Record.RecordTypeDescriptor),
+        Handle(Continuation),
         => return Val.init(v),
         *const Procedure.Native => return Val.init(v),
         Procedure.Native,
@@ -99,6 +103,7 @@ pub fn build(self: Builder, v: anytype) Error!Val {
             const handle = try self.vm.record_type_descriptors.put(self.vm.allocator, v, color);
             return Val.init(handle);
         },
+        Continuation => return Val.init(try self.vm.continuations.put(self.vm.allocator, v, color)),
         []const Val, []Val => {
             if (v.len == 0) return self.build({});
             var val = try self.build({});
@@ -134,6 +139,7 @@ pub fn buildHandle(self: Builder, v: anytype) !Handle(@TypeOf(v)) {
         ByteVector => val.repr.bytevector,
         Record => val.repr.record,
         Record.RecordTypeDescriptor => val.repr.record_type_descriptor,
+        Continuation => val.repr.continuation,
         else => @compileError("buildHandle not supported for type " ++ @typeName(@TypeOf(v))),
     };
 }
@@ -792,3 +798,4 @@ test "build with Handle(Record.RecordTypeDescriptor) creates record type descrip
     try testing.expectEqual(.record_type_descriptor, std.meta.activeTag(result.repr));
     try testing.expectEqual(descriptor_handle, result.repr.record_type_descriptor);
 }
+

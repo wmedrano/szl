@@ -225,6 +225,12 @@ fn addIr(self: *Compiler, ir: Ir) Error!void {
         .const_val => |val| try self.addInstruction(Instruction.initLoad(val)),
         .get => |sym| try self.get(sym),
         .proc_call => |p| {
+            // Special case for call-with-current-continuation
+            if (p.proc.* == .get and self.vm.common_symbols.@"call-with-current-continuation".eql(p.proc.get)) {
+                if (p.args.len != 1) return Error.InvalidExpression;
+                try self.addIr(p.args[0]);
+                return self.addInstruction(Instruction.initCallWithCurrentContinuation());
+            }
             try self.addIr(p.proc.*);
             for (p.args) |arg| try self.addIr(arg);
             try self.addInstruction(Instruction.initEvalProc(p.args.len));
@@ -733,6 +739,24 @@ test "compile deeply nested if expressions" {
 
     try vm.expectEval("nested", "(if #t (if #t (if #t 'nested 'no) 'no) 'no)");
     try vm.expectEval("42", "(if #f 1 (if #t 42 99))");
+}
+
+test "compile call-with-current-continuation expression" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try expectInstructions(&[_]Instruction{
+        Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("foo"))),
+        Instruction.initCallWithCurrentContinuation(),
+    }, &vm, "(call-with-current-continuation foo)");
+}
+
+test "call-with-current-continuation execution" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Test that call-with-current-continuation works with a simple lambda
+    try vm.expectEval("42", "(call-with-current-continuation (lambda (k) 42))");
 }
 
 test "compile mixed special forms" {

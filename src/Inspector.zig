@@ -13,6 +13,7 @@ const PrettyPrinter = @import("PrettyPrinter.zig");
 const Procedure = @import("Procedure.zig");
 const ByteVector = @import("types/ByteVector.zig");
 const Char = @import("types/Char.zig");
+const Continuation = @import("types/Continuation.zig");
 const Pair = @import("types/Pair.zig");
 const Record = @import("types/Record.zig");
 const String = @import("types/String.zig");
@@ -285,6 +286,11 @@ pub fn to(self: Inspector, T: type, val: Val) !T {
             *const Procedure.Native => return p,
             else => return error.TypeMismatch,
         },
+        .continuation => |c| switch (T) {
+            Handle(Continuation) => return c,
+            Continuation => return try self.resolve(Continuation, c),
+            else => return error.TypeMismatch,
+        },
     }
 }
 
@@ -306,7 +312,8 @@ pub fn resolve(self: Inspector, T: type, handle: Handle(T)) !T {
         ByteVector => self.vm.bytevectors.get(handle) orelse return error.ObjectNotFound,
         Record => self.vm.records.get(handle) orelse return error.ObjectNotFound,
         Record.RecordTypeDescriptor => self.vm.record_type_descriptors.get(handle) orelse return error.ObjectNotFound,
-        else => @compileError("resolve() only supports Pair, Procedure, String, Vector, ByteVector, Record, and Record.RecordTypeDescriptor, got " ++ @typeName(T)),
+        Continuation => self.vm.continuations.get(handle) orelse return error.ObjectNotFound,
+        else => @compileError("resolve() only supports Pair, Procedure, String, Vector, ByteVector, Record, Record.RecordTypeDescriptor, and Continuation, got " ++ @typeName(T)),
     };
 }
 
@@ -839,3 +846,4 @@ test "takeIfEq multiple sequential matches" {
     // Should be at 2 now
     try testing.expectEqual(try vm.toVal(2), try iter.next());
 }
+

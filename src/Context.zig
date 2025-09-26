@@ -88,6 +88,44 @@ pub fn deinit(self: *Context, allocator: std.mem.Allocator) void {
     self.stack_frames.deinit(allocator);
 }
 
+/// Creates a deep copy of the context with all its current state.
+///
+/// Args:
+///   self: The context to clone.
+///   allocator: The memory allocator to use for the new context.
+///
+/// Returns:
+///   A new Context instance that is an exact copy of the original.
+pub fn clone(self: *const Context, allocator: std.mem.Allocator) std.mem.Allocator.Error!Context {
+    const new_context = Context{
+        .stack_vals = try self.stack_vals.clone(allocator),
+        .stack_frames = try self.stack_frames.clone(allocator),
+        .current_stack_frame = self.current_stack_frame,
+        .err = self.err,
+    };
+    return new_context;
+}
+
+/// Copies state from another context into this context.
+///
+/// Args:
+///   self: The destination context to copy into.
+///   allocator: The memory allocator to use for allocations.
+///   other: The source context to copy from.
+///
+/// Returns:
+///   An error if memory allocation fails during copying.
+pub fn copyFrom(self: *Context, allocator: std.mem.Allocator, other: Context) !void {
+    self.stack_vals.clearRetainingCapacity();
+    self.stack_frames.clearRetainingCapacity();
+
+    try self.stack_vals.appendSlice(allocator, other.stack_vals.items);
+    try self.stack_frames.appendSlice(allocator, other.stack_frames.items);
+
+    self.current_stack_frame = other.current_stack_frame;
+    self.err = other.err;
+}
+
 /// Resets the context to its initial state, clearing all runtime data.
 ///
 /// Clears the error state, empties the stack while retaining capacity for performance,
@@ -109,6 +147,10 @@ pub fn reset(self: *Context) void {
 /// Returns:
 ///   A slice containing all values on the stack from bottom to top.
 pub fn stack(self: *Context) []Val {
+    return self.stack_vals.items;
+}
+
+pub fn constStack(self: Context) []const Val {
     return self.stack_vals.items;
 }
 

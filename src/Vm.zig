@@ -21,6 +21,7 @@ const ObjectPool = @import("object_pool.zig").ObjectPool;
 const PrettyPrinter = @import("PrettyPrinter.zig");
 const Procedure = @import("Procedure.zig");
 const ByteVector = @import("types/ByteVector.zig");
+const Continuation = @import("types/Continuation.zig");
 const Pair = @import("types/Pair.zig");
 const Record = @import("types/Record.zig");
 const String = @import("types/String.zig");
@@ -62,6 +63,7 @@ const CommonSymbolTable = struct {
     @"let*": Symbol.Interned,
     @"szl-define": Symbol.Interned,
     begin: Symbol.Interned,
+    @"call-with-current-continuation": Symbol.Interned,
     cond: Symbol.Interned,
     define: Symbol.Interned,
     lambda: Symbol.Interned,
@@ -128,6 +130,10 @@ records: ObjectPool(Record),
 /// Provides efficient allocation and deallocation of record type descriptors.
 record_type_descriptors: ObjectPool(Record.RecordTypeDescriptor),
 
+/// Object pool for managing Continuation objects with automatic memory recycling.
+/// Provides efficient allocation and deallocation of continuation values.
+continuations: ObjectPool(Continuation),
+
 /// Configuration options for initializing the virtual machine.
 pub const Options = struct {
     /// The allocator to use for memory management within the VM.
@@ -159,6 +165,7 @@ pub fn init(options: Options) error{OutOfMemory}!Vm {
         .bytevectors = ObjectPool(ByteVector).init(),
         .records = ObjectPool(Record).init(),
         .record_type_descriptors = ObjectPool(Record.RecordTypeDescriptor).init(),
+        .continuations = ObjectPool(Continuation).init(),
     };
     vm.common_symbols = try vm.builder().symbolTable(CommonSymbolTable);
     try builtins.register(&vm);
@@ -199,6 +206,10 @@ pub fn deinit(self: *Vm) void {
     var record_type_descriptor_iter = self.record_type_descriptors.iterator();
     while (record_type_descriptor_iter.next()) |descriptor| descriptor.deinit(self.allocator);
     self.record_type_descriptors.deinit(self.allocator);
+
+    var continuation_iter = self.continuations.iterator();
+    while (continuation_iter.next()) |continuation| continuation.deinit(self.allocator);
+    self.continuations.deinit(self.allocator);
 }
 
 /// Determines the appropriate PrettyPrinter type for a given input type.
@@ -429,6 +440,8 @@ pub fn runGcSweep(self: *Vm) !void {
     while (try record_sweep.next()) |record| record.deinit(self.allocator);
     var record_type_descriptor_sweep = self.record_type_descriptors.sweep(self.allocator, self.reachable_color);
     while (try record_type_descriptor_sweep.next()) |descriptor| descriptor.deinit(self.allocator);
+    var continuation_sweep = self.continuations.sweep(self.allocator, self.reachable_color);
+    while (try continuation_sweep.next()) |continuation| continuation.deinit(self.allocator);
     var pair_sweep = self.pairs.sweep(self.allocator, self.reachable_color);
     while (try pair_sweep.next()) |_| {} // Pairs don't require cleanup
 }
@@ -452,14 +465,33 @@ pub fn runGcSweep(self: *Vm) !void {
 ///   An error if memory allocation fails during the marking process.
 pub fn runGcMark(self: *Vm) !void {
     // Mark phase: mark all reachable objects starting from GC roots
-    // Note: Call frames are not marked as GC roots because the executing
-    // procedure is always on the stack at position -1, so it's already marked
-    for (self.context.stack()) |val| try self.markOne(val);
     var global_iter = self.global_values.valueIterator();
     while (global_iter.next()) |val| try self.markOne(val.*);
-    try self.markOne(self.context.current_stack_frame.exception_handler);
-    try self.markOne(self.context.current_stack_frame.next_exception_handler);
-    for (self.context.stack_frames.items) |frame| {
+    try self.markContext(self.context);
+}
+
+/// Marks all values in a context as reachable during garbage collection.
+///
+/// This function marks all values contained within a given execution context,
+/// including values on the stack and exception handlers in both the current
+/// stack frame and all saved stack frames. This is used during the marking
+/// phase of garbage collection to ensure that all values accessible through
+/// the execution context are preserved.
+///
+/// Args:
+///   self: Pointer to the VM instance.
+///   context: The execution context to mark values from.
+///
+/// Returns:
+///   An error if memory allocation fails during the marking process.
+fn markContext(self: *Vm, context: Context) !void {
+    // Note: Call frames are not marked as GC roots because the executing
+    // procedure is always on the stack at position -1, so it's already marked
+    // if (context.err) |err| try self.markOne(err);
+    for (context.constStack()) |val| try self.markOne(val);
+    try self.markOne(context.current_stack_frame.exception_handler);
+    try self.markOne(context.current_stack_frame.next_exception_handler);
+    for (context.stack_frames.items) |frame| {
         try self.markOne(frame.exception_handler);
         try self.markOne(frame.next_exception_handler);
     }
@@ -485,7 +517,7 @@ pub fn runGcMark(self: *Vm) !void {
 ///
 /// Returns:
 ///   An error if recursive marking encounters memory allocation issues.
-fn markOne(self: *Vm, val: Val) !void {
+fn markOne(self: *Vm, val: Val) error{}!void {
     switch (val.repr) {
         // These types don't require marking:
         // - Primitive values (.nil, .boolean, .i64, .f64, .char) are stored inline
@@ -527,6 +559,11 @@ fn markOne(self: *Vm, val: Val) !void {
         .record_type_descriptor => |h| {
             _ = self.record_type_descriptors.setColor(h, self.reachable_color);
         },
+        .continuation => |h| {
+            if (self.continuations.setColor(h, self.reachable_color)) |continuation| {
+                try self.markContext(continuation.context);
+            }
+        },
     }
 }
 
@@ -563,7 +600,7 @@ pub fn expectEval(self: *Vm, expected: []const u8, input: []const u8) !void {
     if (std.meta.eql(expected_val, actual_val)) return;
     try testing.expectFmt(expected, "{f}", .{self.pretty(actual_val)});
     switch (expected_val.repr) {
-        .nil, .boolean, .i64, .f64, .char, .symbol, .native_proc => try testing.expectEqual(expected_val, actual_val),
+        .nil, .boolean, .i64, .f64, .char, .symbol, .native_proc, .continuation => try testing.expectEqual(expected_val, actual_val),
         .string, .pair, .proc, .vector, .bytevector, .record, .record_type_descriptor => {},
     }
 }
@@ -596,7 +633,7 @@ pub fn expectEvalErr(self: *Vm, expected: []const u8, source: []const u8) !void 
     if (std.meta.eql(expected_err, actual_err)) return;
     try testing.expectFmt(expected, "{f}", .{self.pretty(actual_err)});
     switch (expected_err.repr) {
-        .nil, .boolean, .i64, .f64, .char, .symbol, .native_proc => try testing.expectEqual(expected_err, actual_err),
+        .nil, .boolean, .i64, .f64, .char, .symbol, .native_proc, .continuation => try testing.expectEqual(expected_err, actual_err),
         .string, .pair, .proc, .vector, .bytevector, .record, .record_type_descriptor => {},
     }
 }

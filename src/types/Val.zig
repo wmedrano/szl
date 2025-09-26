@@ -14,6 +14,7 @@ const Procedure = @import("../Procedure.zig");
 const Vm = @import("../Vm.zig");
 const ByteVector = @import("ByteVector.zig");
 const Char = @import("Char.zig");
+const Continuation = @import("Continuation.zig");
 const Pair = @import("Pair.zig");
 const Record = @import("Record.zig");
 const String = @import("String.zig");
@@ -85,6 +86,10 @@ pub const Repr = union(enum) {
     /// Represents a record type descriptor using a handle to an object pool.
     /// Record type descriptors define the structure and behavior of record types.
     record_type_descriptor: Handle(Record.RecordTypeDescriptor),
+
+    /// Represents a continuation using a handle to an object pool.
+    /// Continuations capture the execution context for non-local control flow.
+    continuation: Handle(Continuation),
 };
 
 /// Create a new `Val` for a supported type.
@@ -104,6 +109,7 @@ pub const Repr = union(enum) {
 ///   - Handle(ByteVector): Converted to bytevector values
 ///   - Handle(Record): Converted to record values
 ///   - Handle(Record.RecordTypeDescriptor): Converted to record type descriptor values
+///   - Handle(Continuation): Converted to continuation values
 ///
 /// For more complex types like Symbol, Pair, Procedure, Vector, ByteVector, or Record structs, use `Vm.builder()`.
 pub fn init(v: anytype) Val {
@@ -125,6 +131,7 @@ pub fn init(v: anytype) Val {
         Handle(ByteVector) => return init(Val.Repr{ .bytevector = v }),
         Handle(Record) => return init(Val.Repr{ .record = v }),
         Handle(Record.RecordTypeDescriptor) => return init(Val.Repr{ .record_type_descriptor = v }),
+        Handle(Continuation) => return init(Val.Repr{ .continuation = v }),
         else => @compileError("type " ++ @typeName(type_info) ++ " not supported for Val.init."),
     }
 }
@@ -266,6 +273,20 @@ pub fn isRecord(self: Val) bool {
 pub fn isRecordTypeDescriptor(self: Val) bool {
     return switch (self.repr) {
         .record_type_descriptor => true,
+        else => false,
+    };
+}
+
+/// Determines if a value is a continuation.
+///
+/// Args:
+///   self: The value to test for continuation type.
+///
+/// Returns:
+///   true if the value is a continuation, false otherwise.
+pub fn isContinuation(self: Val) bool {
+    return switch (self.repr) {
+        .continuation => true,
         else => false,
     };
 }
@@ -652,3 +673,4 @@ test "record type descriptor values are truthy" {
 
     try testing.expectEqual(true, descriptor_val.isTruthy());
 }
+

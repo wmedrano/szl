@@ -3,6 +3,7 @@ const testing = std.testing;
 
 const Context = @import("Context.zig");
 const Procedure = @import("Procedure.zig");
+const Continuation = @import("types/Continuation.zig");
 const Symbol = @import("types/Symbol.zig");
 const Val = @import("types/Val.zig");
 const Vm = @import("Vm.zig");
@@ -52,6 +53,9 @@ pub const Instruction = union(enum) {
     /// Instruction to swap the top two values on the stack.
     /// Exchanges the positions of the topmost and second-topmost stack values.
     swap,
+    /// Instruction to capture the current continuation.
+    /// Creates a continuation object representing the current execution state.
+    call_with_current_continuation,
 
     /// Creates a new load instruction with the given value.
     ///
@@ -160,6 +164,14 @@ pub const Instruction = union(enum) {
         return Instruction{ .swap = {} };
     }
 
+    /// Creates a new capture_continuation instruction.
+    ///
+    /// Returns:
+    ///   A new call_with_current_continuation instruction.
+    pub fn initCallWithCurrentContinuation() Instruction {
+        return .call_with_current_continuation;
+    }
+
     /// Executes this instruction on the given virtual machine.
     /// Dispatches to the appropriate instruction handler based on the instruction type.
     ///
@@ -175,6 +187,7 @@ pub const Instruction = union(enum) {
     ///   - jump_if_not: Conditionally jumps by a specified offset if the popped stack value is falsy
     ///   - squash: Squashes the top n values on the stack, keeping only the topmost value
     ///   - swap: Swaps the top two values on the stack
+    ///   - capture_continuation: Captures the current continuation and pushes it onto the stack
     ///
     /// Args:
     ///   self: The instruction to execute.
@@ -197,6 +210,7 @@ pub const Instruction = union(enum) {
             .jump_if_not => |params| return jumpIfNot(vm, params.steps, params.pop),
             .squash => |count| return squash(vm, count),
             .swap => return swap(vm),
+            .call_with_current_continuation => return callWithCurrentContinuation(vm),
         }
     }
 };
@@ -229,7 +243,7 @@ pub fn executeNext(vm: *Vm) !void {
 ///
 /// Errors:
 ///   - May return memory allocation errors if the stack cannot be expanded.
-pub fn load(vm: *Vm, val: Val) !void {
+pub inline fn load(vm: *Vm, val: Val) !void {
     return vm.context.stackPush(vm.allocator, val);
 }
 
@@ -242,7 +256,7 @@ pub fn load(vm: *Vm, val: Val) !void {
 ///
 /// Errors:
 ///   - May return memory allocation errors if the stack cannot be expanded.
-pub fn loadMany(vm: *Vm, vals: []const Val) !void {
+pub inline fn loadMany(vm: *Vm, vals: []const Val) !void {
     try vm.context.stackPushMany(vm.allocator, vals);
 }
 
@@ -348,6 +362,17 @@ pub fn evalProc(vm: *Vm, arg_count: usize) !void {
             try vm.context.stackPush(vm.allocator, return_val);
             try returnValue(vm);
         },
+        .continuation => |cont_handle| {
+            if (arg_count != 1) {
+                try raiseWithError(vm, Val.init(vm.common_symbols.@"wrong-number-of-arguments"));
+                return Vm.Error.UncaughtException;
+            }
+            const cont = vm.inspector().resolve(Continuation, cont_handle) catch return Vm.Error.UncaughtException;
+            const local_stack = vm.context.constStack();
+            const return_value = local_stack[local_stack.len - 1];
+            try vm.context.copyFrom(vm.allocator, cont.context);
+            try load(vm, return_value);
+        },
         else => {
             try raiseWithError(vm, Val.init(vm.common_symbols.@"type-error"));
             return Vm.Error.UncaughtException;
@@ -446,6 +471,28 @@ pub fn swap(vm: *Vm) void {
     const a_idx = vm.context.stack().len - 1;
     const b_idx = vm.context.stack().len - 2;
     std.mem.swap(Val, &vm.context.stack()[a_idx], &vm.context.stack()[b_idx]);
+}
+
+/// Captures the current continuation and pushes it onto the stack.
+/// Creates a continuation object representing the current execution state.
+///
+/// Args:
+///   vm: Pointer to the virtual machine whose continuation will be captured.
+///
+/// Errors:
+///   - May return memory allocation errors if continuation creation fails.
+pub fn callWithCurrentContinuation(vm: *Vm) !void {
+    // Get the lambda and continuation.
+    const continuation = try vm.toVal(Continuation{
+        .context = try vm.context.clone(vm.allocator),
+    });
+
+    // Set up the stack for calling the provided procedure.
+    // Before: [proc]
+    // After:  [proc continuation-proc]
+    try load(vm, continuation);
+
+    try evalProc(vm, 1);
 }
 
 test "Instruction size is 24 bytes" {
