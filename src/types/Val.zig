@@ -71,6 +71,11 @@ pub const Repr = union(enum) {
     /// Similar to `proc`, but implemented in natively in Zig.
     native_proc: *const Procedure.Native,
 
+    /// Optimized operator procedure for common Scheme operations.
+    /// Operators provide more efficient implementations than bytecode
+    /// for frequently used operations like call-with-current-continuation.
+    operator: Procedure.Operator,
+
     /// Represents a vector using a handle to an object pool.
     /// Vectors in Scheme are sequences of values that can be accessed by index.
     vector: Handle(Vector),
@@ -123,6 +128,7 @@ pub fn init(v: anytype) Val {
         f64, comptime_float => return init(Val.Repr{ .f64 = v }),
         Char => return init(Val.Repr{ .char = v }),
         Symbol.Interned => return init(Val.Repr{ .symbol = v }),
+        Procedure.Operator => return init(Val.Repr{ .operator = v }),
         Handle(String) => return init(Val.Repr{ .string = v }),
         Handle(Pair) => return init(Val.Repr{ .pair = v }),
         Handle(Procedure) => return init(Val.Repr{ .proc = v }),
@@ -673,4 +679,3 @@ test "record type descriptor values are truthy" {
 
     try testing.expectEqual(true, descriptor_val.isTruthy());
 }
-

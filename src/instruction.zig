@@ -2,11 +2,21 @@ const std = @import("std");
 const testing = std.testing;
 
 const Context = @import("Context.zig");
+const Handle = @import("object_pool.zig").Handle;
 const Procedure = @import("Procedure.zig");
 const Continuation = @import("types/Continuation.zig");
 const Symbol = @import("types/Symbol.zig");
 const Val = @import("types/Val.zig");
 const Vm = @import("Vm.zig");
+
+/// Operators for optimized VM operations.
+/// These represent specialized operations that can be executed more efficiently
+/// than through normal bytecode compilation.
+pub const Operator = enum {
+    /// Call-with-current-continuation operator.
+    /// Captures the current continuation and passes it to a procedure.
+    call_with_cc,
+};
 
 /// Instruction representation and execution for the Scheme virtual machine.
 ///
@@ -50,153 +60,20 @@ pub const Instruction = union(enum) {
     /// Instruction to squash the top n values on the stack, keeping only the topmost value.
     /// Takes n values from the stack and leaves only the top one.
     squash: usize,
-    /// Instruction to swap the top two values on the stack.
-    /// Exchanges the positions of the topmost and second-topmost stack values.
-    swap,
     /// Instruction to capture the current continuation.
     /// Creates a continuation object representing the current execution state.
-    call_with_current_continuation,
+    call_operator: Operator,
 
-    /// Creates a new load instruction with the given value.
-    ///
-    /// Args:
-    ///   val: The value to be loaded onto the stack when this instruction executes.
-    ///
-    /// Returns:
-    ///   A new load instruction containing the specified value.
-    pub fn initLoad(val: Val) Instruction {
-        return Instruction{ .load = val };
-    }
 
-    /// Creates a new eval_procedure instruction with the given argument count.
-    ///
-    /// Args:
-    ///   arg_count: The number of arguments to pass to the procedure being evaluated.
-    ///
-    /// Returns:
-    ///   A new eval_proc instruction with the specified argument count.
-    pub fn initEvalProc(arg_count: usize) Instruction {
-        return Instruction{ .eval_proc = arg_count };
-    }
-
-    /// Creates a new get_global instruction with the given symbol.
-    ///
-    /// Args:
-    ///   symbol: The interned symbol identifying the global variable to retrieve.
-    ///
-    /// Returns:
-    ///   A new get_global instruction for the specified symbol.
-    pub fn initGetGlobal(symbol: Symbol.Interned) Instruction {
-        return Instruction{ .get_global = symbol };
-    }
-
-    /// Creates a new get_local instruction with the given local variable index.
-    /// The index is relative to the current stack frame's starting position.
-    ///
-    /// Args:
-    ///   index: The local variable index relative to the stack frame start.
-    ///
-    /// Returns:
-    ///   A new get_local instruction for the specified local variable.
-    pub fn initGetLocal(index: isize) Instruction {
-        return Instruction{ .get_local = index };
-    }
-
-    /// Creates a new set_local instruction with the given local variable index.
-    /// The index is relative to the current stack frame's starting position.
-    ///
-    /// Args:
-    ///   index: The local variable index relative to the stack frame start.
-    ///
-    /// Returns:
-    ///   A new set_local instruction for the specified local variable.
-    pub fn initSetLocal(index: isize) Instruction {
-        return Instruction{ .set_local = index };
-    }
-
-    /// Creates a new return_value instruction.
-    ///
-    /// Returns:
-    ///   A new return_value instruction for returning from the current procedure.
-    pub fn initReturnValue() Instruction {
-        return .return_value;
-    }
-
-    /// Creates a new jump instruction with the given offset.
-    ///
-    /// Args:
-    ///   offset: The instruction offset to jump by (can be positive or negative).
-    ///
-    /// Returns:
-    ///   A new jump instruction with the specified offset.
-    pub fn initJump(offset: isize) Instruction {
-        return Instruction{ .jump = offset };
-    }
-
-    /// Creates a new jump_if_not instruction with the given parameters.
-    ///
-    /// Args:
-    ///   params: The conditional jump parameters including step count and pop behavior.
-    ///
-    /// Returns:
-    ///   A new jump_if_not instruction with the specified parameters.
-    pub fn initJumpIfNot(params: ConditionalJumpParams) Instruction {
-        return Instruction{ .jump_if_not = params };
-    }
-
-    /// Creates a new squash instruction with the given count.
-    ///
-    /// Args:
-    ///   count: The number of stack values to squash, keeping only the topmost.
-    ///
-    /// Returns:
-    ///   A new squash instruction with the specified count.
-    pub fn initSquash(count: usize) Instruction {
-        return Instruction{ .squash = count };
-    }
-
-    /// Creates a new swap instruction.
-    /// Swaps the top two values on the stack when executed.
-    ///
-    /// Returns:
-    ///   A new swap instruction.
-    pub fn initSwap() Instruction {
-        return Instruction{ .swap = {} };
-    }
-
-    /// Creates a new capture_continuation instruction.
-    ///
-    /// Returns:
-    ///   A new call_with_current_continuation instruction.
-    pub fn initCallWithCurrentContinuation() Instruction {
-        return .call_with_current_continuation;
-    }
-
-    /// Executes this instruction on the given virtual machine.
-    /// Dispatches to the appropriate instruction handler based on the instruction type.
-    ///
-    /// Supported instructions:
-    ///   - load: Pushes a value onto the stack
-    ///   - get_global: Retrieves a global variable and pushes its value onto the stack
-    ///   - get_local: Retrieves a local variable and pushes its value onto the stack
-    ///   - set_local: Sets a local variable to the value popped from the stack
-    ///   - eval_proc: Calls a procedure with specified number of arguments
-    ///   - return_value: Returns from the current procedure, restoring the previous stack frame
-    ///   - raise_error: Pops a value from the stack and sets it as the VM's error state
-    ///   - jump: Jumps by a specified offset in the instruction sequence
-    ///   - jump_if_not: Conditionally jumps by a specified offset if the popped stack value is falsy
-    ///   - squash: Squashes the top n values on the stack, keeping only the topmost value
-    ///   - swap: Swaps the top two values on the stack
-    ///   - capture_continuation: Captures the current continuation and pushes it onto the stack
+    /// Executes the instruction on the given virtual machine.
+    /// Dispatches to the appropriate instruction implementation based on the instruction type.
     ///
     /// Args:
     ///   self: The instruction to execute.
     ///   vm: Pointer to the virtual machine that will execute the instruction.
     ///
     /// Errors:
-    ///   - May return memory allocation errors if stack operations fail.
-    ///   - May return StackUnderflow if stack frame operations fail.
-    ///   - May return Szl if the VM is in an error state.
+    ///   - May return any VM execution error depending on the instruction type.
     pub fn execute(self: Instruction, vm: *Vm) Vm.Error!void {
         switch (self) {
             .load => |val| return load(vm, val),
@@ -209,8 +86,7 @@ pub const Instruction = union(enum) {
             .jump => |offset| return jump(vm, offset),
             .jump_if_not => |params| return jumpIfNot(vm, params.steps, params.pop),
             .squash => |count| return squash(vm, count),
-            .swap => return swap(vm),
-            .call_with_current_continuation => return callWithCurrentContinuation(vm),
+            .call_operator => |op| return callOperator(vm, op),
         }
     }
 };
@@ -230,7 +106,7 @@ pub fn executeNext(vm: *Vm) !void {
     const instruction = if (instruction_idx < vm.context.current_stack_frame.instructions.len) blk: {
         vm.context.current_stack_frame.instruction_idx += 1;
         break :blk vm.context.current_stack_frame.instructions[instruction_idx];
-    } else Instruction.initReturnValue();
+    } else .return_value;
     try instruction.execute(vm);
 }
 
@@ -323,7 +199,8 @@ pub fn returnValue(vm: *Vm) !void {
 }
 
 /// Evaluates a procedure with the specified number of arguments.
-/// Handles both native and bytecode procedures, managing the execution context appropriately.
+/// Handles operators, bytecode procedures, native procedures, and continuations,
+/// managing the execution context appropriately for each type.
 ///
 /// Args:
 ///   vm: Pointer to the virtual machine that will execute the procedure.
@@ -332,52 +209,165 @@ pub fn returnValue(vm: *Vm) !void {
 /// Errors:
 ///   - May return memory allocation errors if stack frame operations fail.
 ///   - May return StackUnderflow if there are no stack frames to restore.
-pub fn evalProc(vm: *Vm, arg_count: usize) !void {
+///   - May return UncaughtException if the procedure type is invalid.
+pub fn evalProc(vm: *Vm, arg_count: usize) Vm.Error!void {
     const stack_start = vm.context.stack().len - arg_count;
     const proc_idx = stack_start - 1;
-    const proc_val = vm.context.stack()[proc_idx];
+    const proc_val = vm.context.constStack()[proc_idx];
+    switch (proc_val.repr) {
+        .operator => |o| try evalOperator(vm, o, arg_count),
+        .proc => |proc_handle| try evalBytecodeProc(vm, proc_handle, arg_count, stack_start),
+        .native_proc => |proc| try evalNativeProc(vm, proc.*, stack_start),
+        .continuation => |cont_handle| try evalContinuation(vm, cont_handle, arg_count),
+        else => {
+            try raiseWithError(vm, Val.init(vm.common_symbols.@"type-error"));
+            return Vm.Error.UncaughtException;
+        },
+    }
+}
+
+/// Evaluates an operator procedure (like call-with-current-continuation).
+///
+/// Args:
+///   vm: Pointer to the virtual machine that will execute the operator.
+///   operator: The operator to evaluate.
+///   arg_count: Number of arguments to pass to the operator.
+///
+/// Errors:
+///   - May return memory allocation errors if stack operations fail.
+/// Evaluates an operator procedure (like call-with-current-continuation).
+///
+/// Args:
+///   vm: Pointer to the virtual machine that will execute the operator.
+///   operator: The operator to evaluate.
+///   arg_count: Number of arguments to pass to the operator.
+///
+/// Errors:
+///   - May return memory allocation errors if stack operations fail.
+inline fn evalOperator(vm: *Vm, operator: Procedure.Operator, arg_count: usize) !void {
+    switch (operator) {
+        .unary_call_with_cc => {
+            if (arg_count != 1)
+                try raiseWithError(vm, Val.init(vm.common_symbols.@"wrong-number-of-arguments"));
+            const continuation = try vm.toVal(Continuation{
+                .context = try vm.context.clone(vm.allocator),
+            });
+            // Set up the stack for calling the provided procedure.
+            // Before: [call-with-cc proc-arg]
+            // After:  [proc-arg continuation-proc]
+            const proc_arg = vm.context.stackPop() orelse unreachable;
+            _ = vm.context.stackPop() orelse unreachable;
+            try loadMany(vm, &.{ proc_arg, continuation });
+            return evalProc(vm, 1);
+        },
+    }
+}
+
+/// Evaluates a bytecode procedure by setting up a new stack frame.
+///
+/// Args:
+///   vm: Pointer to the virtual machine that will execute the procedure.
+///   proc_handle: Handle to the bytecode procedure.
+///   arg_count: Number of arguments to pass to the procedure.
+///   stack_start: Starting position for the new stack frame.
+///
+/// Errors:
+///   - May return memory allocation errors if stack frame operations fail.
+///   - May return UncaughtException if procedure validation fails.
+/// Evaluates a bytecode procedure by setting up a new stack frame.
+///
+/// Args:
+///   vm: Pointer to the virtual machine that will execute the procedure.
+///   proc_handle: Handle to the bytecode procedure.
+///   arg_count: Number of arguments to pass to the procedure.
+///   stack_start: Starting position for the new stack frame.
+///
+/// Errors:
+///   - May return memory allocation errors if stack frame operations fail.
+///   - May return UncaughtException if procedure validation fails.
+inline fn evalBytecodeProc(vm: *Vm, proc_handle: Handle(Procedure), arg_count: usize, stack_start: usize) !void {
     try vm.context.stack_frames.append(vm.allocator, vm.context.current_stack_frame);
     vm.context.current_stack_frame = Context.StackFrame{
         .stack_start = stack_start,
         .exception_handler = vm.context.current_stack_frame.next_exception_handler,
         .next_exception_handler = vm.context.current_stack_frame.next_exception_handler,
     };
-    switch (proc_val.repr) {
-        .proc => |proc_handle| {
-            const proc = vm.inspector().resolve(Procedure, proc_handle) catch return Vm.Error.UncaughtException;
-            if (arg_count != proc.args) {
-                try raiseWithError(vm, Val.init(vm.common_symbols.@"wrong-number-of-arguments"));
-                return Vm.Error.UncaughtException;
-            }
-            if (proc.locals_count < proc.args) {
-                try raiseWithError(vm, Val.init(vm.common_symbols.@"invalid-procedure"));
-                return Vm.Error.UncaughtException;
-            }
-            const placeholder_count = proc.locals_count - proc.args;
-            try vm.context.stack_vals.appendNTimes(vm.allocator, Val.init({}), placeholder_count);
-            vm.context.current_stack_frame.instructions = proc.instructions;
-        },
-        .native_proc => |proc| {
-            const return_val = try proc.func(Procedure.NativeContext{ .vm = vm });
-            try vm.context.stackPush(vm.allocator, return_val);
-            try returnValue(vm);
-        },
-        .continuation => |cont_handle| {
-            if (arg_count != 1) {
-                try raiseWithError(vm, Val.init(vm.common_symbols.@"wrong-number-of-arguments"));
-                return Vm.Error.UncaughtException;
-            }
-            const cont = vm.inspector().resolve(Continuation, cont_handle) catch return Vm.Error.UncaughtException;
-            const local_stack = vm.context.constStack();
-            const return_value = local_stack[local_stack.len - 1];
-            try vm.context.copyFrom(vm.allocator, cont.context);
-            try load(vm, return_value);
-        },
-        else => {
-            try raiseWithError(vm, Val.init(vm.common_symbols.@"type-error"));
-            return Vm.Error.UncaughtException;
-        },
+    const proc = vm.inspector().resolve(Procedure, proc_handle) catch return Vm.Error.UncaughtException;
+    if (arg_count != proc.args) {
+        try raiseWithError(vm, Val.init(vm.common_symbols.@"wrong-number-of-arguments"));
+        return Vm.Error.UncaughtException;
     }
+    if (proc.locals_count < proc.args) {
+        try raiseWithError(vm, Val.init(vm.common_symbols.@"invalid-procedure"));
+        return Vm.Error.UncaughtException;
+    }
+    const placeholder_count = proc.locals_count - proc.args;
+    try vm.context.stack_vals.appendNTimes(vm.allocator, Val.init({}), placeholder_count);
+    vm.context.current_stack_frame.instructions = proc.instructions;
+}
+
+/// Evaluates a native procedure by calling its function and returning the result.
+///
+/// Args:
+///   vm: Pointer to the virtual machine that will execute the procedure.
+///   proc: The native procedure to execute.
+///   stack_start: Starting position for the new stack frame.
+///
+/// Errors:
+///   - May return memory allocation errors if stack frame operations fail.
+///   - May return StackUnderflow if there are no stack frames to restore.
+/// Evaluates a native procedure by calling its function and returning the result.
+///
+/// Args:
+///   vm: Pointer to the virtual machine that will execute the procedure.
+///   proc: The native procedure to execute.
+///   stack_start: Starting position for the new stack frame.
+///
+/// Errors:
+///   - May return memory allocation errors if stack frame operations fail.
+///   - May return StackUnderflow if there are no stack frames to restore.
+inline fn evalNativeProc(vm: *Vm, proc: Procedure.Native, stack_start: usize) !void {
+    try vm.context.stack_frames.append(vm.allocator, vm.context.current_stack_frame);
+    vm.context.current_stack_frame = Context.StackFrame{
+        .stack_start = stack_start,
+        .exception_handler = vm.context.current_stack_frame.next_exception_handler,
+        .next_exception_handler = vm.context.current_stack_frame.next_exception_handler,
+    };
+    const return_val = try proc.func(Procedure.NativeContext{ .vm = vm });
+    try vm.context.stackPush(vm.allocator, return_val);
+    try returnValue(vm);
+}
+
+/// Evaluates a continuation by restoring its execution context.
+///
+/// Args:
+///   vm: Pointer to the virtual machine that will execute the continuation.
+///   cont_handle: Handle to the continuation.
+///   arg_count: Number of arguments to pass to the continuation.
+///
+/// Errors:
+///   - May return memory allocation errors if context operations fail.
+///   - May return UncaughtException if continuation validation fails.
+/// Evaluates a continuation by restoring its execution context.
+///
+/// Args:
+///   vm: Pointer to the virtual machine that will execute the continuation.
+///   cont_handle: Handle to the continuation.
+///   arg_count: Number of arguments to pass to the continuation.
+///
+/// Errors:
+///   - May return memory allocation errors if context operations fail.
+///   - May return UncaughtException if continuation validation fails.
+inline fn evalContinuation(vm: *Vm, cont_handle: Handle(Continuation), arg_count: usize) !void {
+    if (arg_count != 1) {
+        try raiseWithError(vm, Val.init(vm.common_symbols.@"wrong-number-of-arguments"));
+        return Vm.Error.UncaughtException;
+    }
+    const cont = vm.inspector().resolve(Continuation, cont_handle) catch return Vm.Error.UncaughtException;
+    const local_stack = vm.context.constStack();
+    const return_value = local_stack[local_stack.len - 1];
+    try vm.context.copyFrom(vm.allocator, cont.context);
+    try load(vm, return_value);
 }
 
 /// Raises an error by setting the given value as the VM's error state.
@@ -458,41 +448,29 @@ pub fn squash(vm: *Vm, count: usize) !void {
     try vm.context.stack_vals.resize(vm.allocator, new_len);
 }
 
-/// Swaps the top two values on the virtual machine's stack.
-/// Exchanges the positions of the topmost and second-topmost values.
+/// Executes an operator instruction on the virtual machine.
+/// Operators provide optimized implementations for common Scheme operations.
 ///
 /// Args:
-///   vm: Pointer to the virtual machine whose stack will be modified.
-///
-/// Note:
-///   This function assumes there are at least 2 values on the stack.
-///   Behavior is undefined if the stack has fewer than 2 values.
-pub fn swap(vm: *Vm) void {
-    const a_idx = vm.context.stack().len - 1;
-    const b_idx = vm.context.stack().len - 2;
-    std.mem.swap(Val, &vm.context.stack()[a_idx], &vm.context.stack()[b_idx]);
-}
-
-/// Captures the current continuation and pushes it onto the stack.
-/// Creates a continuation object representing the current execution state.
-///
-/// Args:
-///   vm: Pointer to the virtual machine whose continuation will be captured.
+///   vm: Pointer to the virtual machine that will execute the operator.
+///   operator: The specific operator to execute.
 ///
 /// Errors:
-///   - May return memory allocation errors if continuation creation fails.
-pub fn callWithCurrentContinuation(vm: *Vm) !void {
-    // Get the lambda and continuation.
-    const continuation = try vm.toVal(Continuation{
-        .context = try vm.context.clone(vm.allocator),
-    });
-
-    // Set up the stack for calling the provided procedure.
-    // Before: [proc]
-    // After:  [proc continuation-proc]
-    try load(vm, continuation);
-
-    try evalProc(vm, 1);
+///   - May return memory allocation errors if continuation creation or stack operations fail.
+///   - May return procedure execution errors from the called procedure.
+pub fn callOperator(vm: *Vm, operator: Operator) !void {
+    switch (operator) {
+        .call_with_cc => {
+            // 1. Get the continuation
+            const continuation = try vm.toVal(Continuation{ .context = try vm.context.clone(vm.allocator) });
+            // 2. Set up the stack for calling the provided procedure.
+            // Before: [proc]
+            // After:  [proc continuation-proc]
+            try load(vm, continuation);
+            // 3. Call the procedure
+            try evalProc(vm, 1);
+        },
+    }
 }
 
 test "Instruction size is 24 bytes" {
@@ -503,9 +481,9 @@ test "execute load instruction pushes value onto stack" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try Instruction.execute(Instruction.initLoad(Val.init(10)), &vm);
-    try Instruction.execute(Instruction.initLoad(Val.init(20)), &vm);
-    try Instruction.execute(Instruction.initLoad(Val.init(30)), &vm);
+    try Instruction.execute(.{ .load = Val.init(10) }, &vm);
+    try Instruction.execute(.{ .load = Val.init(20) }, &vm);
+    try Instruction.execute(.{ .load = Val.init(30) }, &vm);
 
     try testing.expectFmt(
         "(10 20 30)",
@@ -532,7 +510,7 @@ test "execute eval_procedure instruction calls procedure with arguments" {
         Val.init(20),
     });
 
-    try Instruction.execute(Instruction.initEvalProc(2), &vm);
+    try Instruction.execute(.{ .eval_proc = 2 }, &vm);
     try testing.expectFmt(
         "(30)",
         "{f}",
@@ -545,8 +523,8 @@ test "execute bytecode procedure loads instructions into stack frame" {
     defer vm.deinit();
 
     const instructions = &[_]Instruction{
-        Instruction.initLoad(Val.init(5)),
-        Instruction.initLoad(Val.init(7)),
+        .{ .load = Val.init(5) },
+        .{ .load = Val.init(7) },
     };
     const proc = try vm.toVal(Procedure{
         .instructions = try vm.allocator.dupe(Instruction, instructions),
@@ -554,13 +532,13 @@ test "execute bytecode procedure loads instructions into stack frame" {
     try load(&vm, proc);
 
     // Call procedure with 0 arguments - should set up new stack frame with the bytecode instructions
-    try Instruction.execute(Instruction.initEvalProc(0), &vm);
+    try Instruction.execute(.{ .eval_proc = 0 }, &vm);
     try testing.expectEqualDeep(
         Context.StackFrame{
             .stack_start = 1,
             .instructions = &[_]Instruction{
-                Instruction.initLoad(Val.init(5)),
-                Instruction.initLoad(Val.init(7)),
+                .{ .load = Val.init(5) },
+                .{ .load = Val.init(7) },
             },
         },
         vm.context.current_stack_frame,
@@ -572,7 +550,7 @@ test "execute bytecode procedure with arguments sets correct stack start" {
     defer vm.deinit();
 
     const instructions = &[_]Instruction{
-        Instruction.initLoad(Val.init(42)),
+        .{ .load = Val.init(42) },
     };
     const proc = Procedure{
         .args = 3,
@@ -586,7 +564,7 @@ test "execute bytecode procedure with arguments sets correct stack start" {
         Val.init(30),
     });
 
-    try Instruction.execute(Instruction.initEvalProc(3), &vm);
+    try Instruction.execute(.{ .eval_proc = 3 }, &vm);
     try testing.expectEqualDeep(
         Context.StackFrame{
             .stack_start = 1,
@@ -601,7 +579,7 @@ test "return_value restores previous stack frame and places return value on top"
     defer vm.deinit();
 
     const instructions = &[_]Instruction{
-        Instruction.initLoad(Val.init(42)),
+        .{ .load = Val.init(42) },
     };
     const proc = Procedure{
         .args = 2,
@@ -626,7 +604,7 @@ test "return_value restores previous stack frame and places return value on top"
     );
 
     // Return should place 999 where the procedure was (position 2) and resize stack to [100, 200, 999]
-    try Instruction.execute(Instruction.initReturnValue(), &vm);
+    try Instruction.execute(.return_value, &vm);
     try testing.expectEqual(0, vm.context.stack_frames.items.len);
     try testing.expectEqualDeep(Context.StackFrame{}, vm.context.current_stack_frame);
     try testing.expectFmt(
@@ -641,8 +619,8 @@ test "executeNext executes instruction and advances pointer" {
     defer vm.deinit();
 
     vm.context.current_stack_frame.instructions = &[_]Instruction{
-        Instruction.initLoad(Val.init(42)),
-        Instruction.initLoad(Val.init(99)),
+        .{ .load = Val.init(42) },
+        .{ .load = Val.init(99) },
     };
 
     try executeNext(&vm);
@@ -683,9 +661,9 @@ test "executeNext executes multiple instructions in sequence" {
     defer vm.deinit();
 
     vm.context.current_stack_frame.instructions = &[_]Instruction{
-        Instruction.initLoad(Val.init(1)),
-        Instruction.initLoad(Val.init(2)),
-        Instruction.initLoad(Val.init(3)),
+        .{ .load = Val.init(1) },
+        .{ .load = Val.init(2) },
+        .{ .load = Val.init(3) },
     };
 
     try executeNext(&vm);
@@ -706,7 +684,7 @@ test "executeNext handles instruction pointer at boundary correctly" {
     vm.context.current_stack_frame = Context.StackFrame{
         .stack_start = 1,
         .instructions = &[_]Instruction{
-            Instruction.initLoad(Val.init(100)),
+            .{ .load = Val.init(100) },
         },
         .instruction_idx = 0,
     };
@@ -739,7 +717,7 @@ test "execute get_global instruction loads global value onto stack" {
     const interned_symbol = try vm.interner.intern(symbol);
 
     // Execute get_global instruction
-    try Instruction.execute(Instruction.initGetGlobal(interned_symbol), &vm);
+    try Instruction.execute(.{ .get_global = interned_symbol }, &vm);
 
     // Verify the value was loaded onto the stack
     try testing.expectFmt(
@@ -764,9 +742,9 @@ test "execute get_global instruction with multiple values" {
     const symbol3 = try vm.interner.intern(Symbol.init("var3"));
 
     // Execute get_global instructions
-    try Instruction.execute(Instruction.initGetGlobal(symbol1), &vm);
-    try Instruction.execute(Instruction.initGetGlobal(symbol2), &vm);
-    try Instruction.execute(Instruction.initGetGlobal(symbol3), &vm);
+    try Instruction.execute(.{ .get_global = symbol1 }, &vm);
+    try Instruction.execute(.{ .get_global = symbol2 }, &vm);
+    try Instruction.execute(.{ .get_global = symbol3 }, &vm);
 
     // Verify all values were loaded onto the stack in order
     try testing.expectFmt(
@@ -788,8 +766,8 @@ test "get_global instruction works with different value types" {
     const symbol_symbol = try vm.interner.intern(Symbol.init("symbol-var"));
 
     // Execute get_global instructions
-    try Instruction.execute(Instruction.initGetGlobal(bool_symbol), &vm);
-    try Instruction.execute(Instruction.initGetGlobal(symbol_symbol), &vm);
+    try Instruction.execute(.{ .get_global = bool_symbol }, &vm);
+    try Instruction.execute(.{ .get_global = symbol_symbol }, &vm);
 
     // Verify the values were loaded correctly
     try testing.expectFmt(
@@ -813,7 +791,7 @@ test "execute get_local instruction loads local value onto stack" {
     });
 
     // Execute get_local instruction for local variable 0
-    try Instruction.execute(Instruction.initGetLocal(0), &vm);
+    try Instruction.execute(.{ .get_local = 0 }, &vm);
 
     // Verify the local value was loaded onto the stack
     try testing.expectFmt(
@@ -837,9 +815,9 @@ test "execute get_local instruction with multiple local variables" {
     });
 
     // Execute get_local instructions for all local variables
-    try Instruction.execute(Instruction.initGetLocal(0), &vm);
-    try Instruction.execute(Instruction.initGetLocal(1), &vm);
-    try Instruction.execute(Instruction.initGetLocal(2), &vm);
+    try Instruction.execute(.{ .get_local = 0 }, &vm);
+    try Instruction.execute(.{ .get_local = 1 }, &vm);
+    try Instruction.execute(.{ .get_local = 2 }, &vm);
 
     // Verify all local values were loaded onto the stack in order
     try testing.expectFmt(
@@ -861,7 +839,7 @@ test "execute get_local instruction with zero stack frame start" {
     });
 
     // Execute get_local instruction for local variable 1
-    try Instruction.execute(Instruction.initGetLocal(1), &vm);
+    try Instruction.execute(.{ .get_local = 1 }, &vm);
 
     // Verify the local value was loaded onto the stack
     try testing.expectFmt(
@@ -884,9 +862,9 @@ test "get_local instruction works with different value types" {
     });
 
     // Execute get_local instructions for different types
-    try Instruction.execute(Instruction.initGetLocal(0), &vm);
-    try Instruction.execute(Instruction.initGetLocal(1), &vm);
-    try Instruction.execute(Instruction.initGetLocal(2), &vm);
+    try Instruction.execute(.{ .get_local = 0 }, &vm);
+    try Instruction.execute(.{ .get_local = 1 }, &vm);
+    try Instruction.execute(.{ .get_local = 2 }, &vm);
 
     // Verify the values were loaded correctly
     try testing.expectFmt(
@@ -904,15 +882,15 @@ test "execute jump instruction modifies instruction pointer" {
     vm.context.current_stack_frame.instruction_idx = 5;
 
     // Execute jump with positive offset
-    try Instruction.execute(Instruction.initJump(3), &vm);
+    try Instruction.execute(.{ .jump = 3 }, &vm);
     try testing.expectEqual(8, vm.context.current_stack_frame.instruction_idx);
 
     // Execute jump with negative offset
-    try Instruction.execute(Instruction.initJump(-2), &vm);
+    try Instruction.execute(.{ .jump = -2 }, &vm);
     try testing.expectEqual(6, vm.context.current_stack_frame.instruction_idx);
 
     // Execute jump with zero offset
-    try Instruction.execute(Instruction.initJump(0), &vm);
+    try Instruction.execute(.{ .jump = 0 }, &vm);
     try testing.expectEqual(6, vm.context.current_stack_frame.instruction_idx);
 }
 
@@ -925,7 +903,7 @@ test "execute jump_if_not instruction with falsy value jumps" {
 
     // Push falsy value (false)
     try load(&vm, Val.init(false));
-    try Instruction.execute(Instruction.initJumpIfNot(.{ .steps = 3 }), &vm);
+    try Instruction.execute(.{ .jump_if_not = .{ .steps = 3 } }, &vm);
     try testing.expectEqual(8, vm.context.current_stack_frame.instruction_idx);
 
     // Verify stack is empty after popping condition
@@ -941,17 +919,17 @@ test "execute jump_if_not instruction with truthy value does not jump" {
 
     // Push truthy value (true)
     try load(&vm, Val.init(true));
-    try Instruction.execute(Instruction.initJumpIfNot(.{ .steps = 10 }), &vm);
+    try Instruction.execute(.{ .jump_if_not = .{ .steps = 10 } }, &vm);
     try testing.expectEqual(5, vm.context.current_stack_frame.instruction_idx);
 
     // Push truthy value (any integer)
     try load(&vm, Val.init(42));
-    try Instruction.execute(Instruction.initJumpIfNot(.{ .steps = -2 }), &vm);
+    try Instruction.execute(.{ .jump_if_not = .{ .steps = -2 } }, &vm);
     try testing.expectEqual(5, vm.context.current_stack_frame.instruction_idx);
 
     // Push truthy value (symbol)
     try load(&vm, try vm.builder().internVal(Symbol.init("test")));
-    try Instruction.execute(Instruction.initJumpIfNot(.{ .steps = 1 }), &vm);
+    try Instruction.execute(.{ .jump_if_not = .{ .steps = 1 } }, &vm);
     try testing.expectEqual(5, vm.context.current_stack_frame.instruction_idx);
 
     // Verify stack is empty after popping all conditions
@@ -963,7 +941,7 @@ test "execute jump_if_not instruction with empty stack returns error" {
     defer vm.deinit();
 
     // Attempt to execute jump_if_not with empty stack
-    try testing.expectError(error.StackUnderflow, Instruction.execute(Instruction.initJumpIfNot(.{ .steps = 5 }), &vm));
+    try testing.expectError(error.StackUnderflow, Instruction.execute(.{ .jump_if_not = .{ .steps = 5 } }, &vm));
 }
 
 test "execute squash instruction removes specified number of values" {
@@ -974,15 +952,15 @@ test "execute squash instruction removes specified number of values" {
     try loadMany(&vm, &.{ Val.init(1), Val.init(2), Val.init(3), Val.init(4) });
 
     // Test squash(1) => (1 2 3 4) - no change
-    try Instruction.execute(Instruction.initSquash(1), &vm);
+    try Instruction.execute(.{ .squash = 1 }, &vm);
     try testing.expectFmt("(1 2 3 4)", "{f}", .{vm.pretty(vm.context.stack())});
 
     // Test squash(2) => (1 2 4) - removes 3, keeps 4
-    try Instruction.execute(Instruction.initSquash(2), &vm);
+    try Instruction.execute(.{ .squash = 2 }, &vm);
     try testing.expectFmt("(1 2 4)", "{f}", .{vm.pretty(vm.context.stack())});
 
     // Test squash(3) => (4) - removes 1 and 2, keeps 4
-    try Instruction.execute(Instruction.initSquash(3), &vm);
+    try Instruction.execute(.{ .squash = 3 }, &vm);
     try testing.expectFmt("(4)", "{f}", .{vm.pretty(vm.context.stack())});
 }
 
@@ -994,7 +972,7 @@ test "execute squash instruction with count 4 leaves only top value" {
     try loadMany(&vm, &.{ Val.init(1), Val.init(2), Val.init(3), Val.init(4) });
 
     // Test squash(4) => (4) - removes all but top
-    try Instruction.execute(Instruction.initSquash(4), &vm);
+    try Instruction.execute(.{ .squash = 4 }, &vm);
     try testing.expectFmt("(4)", "{f}", .{vm.pretty(vm.context.stack())});
 }
 
@@ -1006,7 +984,7 @@ test "execute squash instruction with count 0 does nothing" {
     try loadMany(&vm, &.{ Val.init(1), Val.init(2), Val.init(3) });
 
     // Test squash(0) - should do nothing
-    try Instruction.execute(Instruction.initSquash(0), &vm);
+    try Instruction.execute(.{ .squash = 0 }, &vm);
     try testing.expectFmt("(1 2 3)", "{f}", .{vm.pretty(vm.context.stack())});
 }
 
@@ -1018,7 +996,7 @@ test "execute squash instruction with insufficient stack returns error" {
     try loadMany(&vm, &.{ Val.init(1), Val.init(2) });
 
     // Attempt to squash 3 values - should fail
-    try testing.expectError(error.StackUnderflow, Instruction.execute(Instruction.initSquash(3), &vm));
+    try testing.expectError(error.StackUnderflow, Instruction.execute(.{ .squash = 3 }, &vm));
 }
 
 test "execute squash instruction with empty stack returns error" {
@@ -1026,7 +1004,7 @@ test "execute squash instruction with empty stack returns error" {
     defer vm.deinit();
 
     // Attempt to squash with empty stack
-    try testing.expectError(error.StackUnderflow, Instruction.execute(Instruction.initSquash(1), &vm));
+    try testing.expectError(error.StackUnderflow, Instruction.execute(.{ .squash = 1 }, &vm));
 }
 
 test "execute jump_if_not with pop=false does not remove condition from stack" {
@@ -1038,7 +1016,7 @@ test "execute jump_if_not with pop=false does not remove condition from stack" {
 
     // Push falsy value (false)
     try load(&vm, Val.init(false));
-    try Instruction.execute(Instruction.initJumpIfNot(.{ .steps = 3, .pop = false }), &vm);
+    try Instruction.execute(.{ .jump_if_not = .{ .steps = 3, .pop = false } }, &vm);
     try testing.expectEqual(8, vm.context.current_stack_frame.instruction_idx);
 
     // Verify stack still contains the condition value
@@ -1055,7 +1033,7 @@ test "execute jump_if_not with pop=true removes condition from stack" {
 
     // Push falsy value (false)
     try load(&vm, Val.init(false));
-    try Instruction.execute(Instruction.initJumpIfNot(.{ .steps = 3, .pop = true }), &vm);
+    try Instruction.execute(.{ .jump_if_not = .{ .steps = 3, .pop = true } }, &vm);
     try testing.expectEqual(8, vm.context.current_stack_frame.instruction_idx);
 
     // Verify stack is empty after popping condition
@@ -1071,7 +1049,7 @@ test "execute jump_if_not with pop=false and truthy value does not jump" {
 
     // Push truthy value (42)
     try load(&vm, Val.init(42));
-    try Instruction.execute(Instruction.initJumpIfNot(.{ .steps = 10, .pop = false }), &vm);
+    try Instruction.execute(.{ .jump_if_not = .{ .steps = 10, .pop = false } }, &vm);
     try testing.expectEqual(5, vm.context.current_stack_frame.instruction_idx);
 
     // Verify stack still contains the condition value
@@ -1084,7 +1062,7 @@ test "execute jump_if_not with pop=false and empty stack returns error" {
     defer vm.deinit();
 
     // Attempt to execute jump_if_not with empty stack and pop=false
-    try testing.expectError(error.StackUnderflow, Instruction.execute(Instruction.initJumpIfNot(.{ .steps = 5, .pop = false }), &vm));
+    try testing.expectError(error.StackUnderflow, Instruction.execute(.{ .jump_if_not = .{ .steps = 5, .pop = false } }, &vm));
 }
 
 test "ConditionalJumpParams default pop value is true" {
@@ -1092,8 +1070,8 @@ test "ConditionalJumpParams default pop value is true" {
     try testing.expectEqual(true, params.pop);
 }
 
-test "initJumpIfNot creates instruction with default pop=true" {
-    const instruction = Instruction.initJumpIfNot(.{ .steps = 10 });
+test "jump_if_not instruction has default pop=true" {
+    const instruction: Instruction = .{ .jump_if_not = .{ .steps = 10 } };
     try testing.expectEqual(10, instruction.jump_if_not.steps);
     try testing.expectEqual(true, instruction.jump_if_not.pop);
 }
@@ -1115,7 +1093,7 @@ test "execute set_local instruction sets local variable from stack" {
     try load(&vm, Val.init(777));
 
     // Execute set_local instruction for local variable 0
-    try Instruction.execute(Instruction.initSetLocal(0), &vm);
+    try Instruction.execute(.{ .set_local = 0 }, &vm);
 
     // Verify the local variable was set and the value was popped from stack
     try testing.expectFmt(
@@ -1140,13 +1118,13 @@ test "execute set_local instruction with multiple local variables" {
 
     // Set local variables in different order
     try load(&vm, Val.init(111));
-    try Instruction.execute(Instruction.initSetLocal(1), &vm); // Set local var 1 to 111
+    try Instruction.execute(.{ .set_local = 1 }, &vm); // Set local var 1 to 111
 
     try load(&vm, Val.init(222));
-    try Instruction.execute(Instruction.initSetLocal(0), &vm); // Set local var 0 to 222
+    try Instruction.execute(.{ .set_local = 0 }, &vm); // Set local var 0 to 222
 
     try load(&vm, Val.init(333));
-    try Instruction.execute(Instruction.initSetLocal(2), &vm); // Set local var 2 to 333
+    try Instruction.execute(.{ .set_local = 2 }, &vm); // Set local var 2 to 333
 
     // Verify all local variables were set correctly
     try testing.expectFmt(
@@ -1169,7 +1147,7 @@ test "execute set_local instruction with zero stack frame start" {
 
     // Set local variable 1
     try load(&vm, Val.init(555));
-    try Instruction.execute(Instruction.initSetLocal(1), &vm);
+    try Instruction.execute(.{ .set_local = 1 }, &vm);
 
     // Verify the local variable was set
     try testing.expectFmt(
@@ -1193,13 +1171,13 @@ test "set_local instruction works with different value types" {
 
     // Set different types of values
     try load(&vm, Val.init(false));
-    try Instruction.execute(Instruction.initSetLocal(0), &vm); // Set boolean to false
+    try Instruction.execute(.{ .set_local = 0 }, &vm); // Set boolean to false
 
     try load(&vm, try vm.builder().internVal(Symbol.init("new-symbol")));
-    try Instruction.execute(Instruction.initSetLocal(1), &vm); // Set symbol to new-symbol
+    try Instruction.execute(.{ .set_local = 1 }, &vm); // Set symbol to new-symbol
 
     try load(&vm, Val.init(456));
-    try Instruction.execute(Instruction.initSetLocal(2), &vm); // Set integer to 456
+    try Instruction.execute(.{ .set_local = 2 }, &vm); // Set integer to 456
 
     // Verify the values were set correctly
     try testing.expectFmt(
@@ -1217,7 +1195,7 @@ test "execute set_local instruction with empty stack returns error" {
     vm.context.current_stack_frame.stack_start = 0;
 
     // Attempt to execute set_local with empty stack
-    try testing.expectError(error.StackUnderflow, Instruction.execute(Instruction.initSetLocal(0), &vm));
+    try testing.expectError(error.StackUnderflow, Instruction.execute(.{ .set_local = 0 }, &vm));
 }
 
 test "set_local and get_local work together" {
@@ -1234,10 +1212,10 @@ test "set_local and get_local work together" {
 
     // Set local variable 0 to a new value
     try load(&vm, Val.init(777));
-    try Instruction.execute(Instruction.initSetLocal(0), &vm);
+    try Instruction.execute(.{ .set_local = 0 }, &vm);
 
     // Get the value back
-    try Instruction.execute(Instruction.initGetLocal(0), &vm);
+    try Instruction.execute(.{ .get_local = 0 }, &vm);
 
     // Verify we got the new value
     try testing.expectFmt(
@@ -1255,10 +1233,10 @@ test "bytecode procedure with locals_count > args allocates additional local var
         .args = 2,
         .locals_count = 4, // 2 more locals than args
         .instructions = try vm.allocator.dupe(Instruction, &.{
-            Instruction.initGetLocal(0), // Get first argument
-            Instruction.initGetLocal(1), // Get second argument
-            Instruction.initGetLocal(2), // Get first additional local (should be {})
-            Instruction.initGetLocal(3), // Get second additional local (should be {})
+            .{ .get_local = 0 }, // Get first argument
+            .{ .get_local = 1 }, // Get second argument
+            .{ .get_local = 2 }, // Get first additional local (should be {})
+            .{ .get_local = 3 }, // Get second additional local (should be {})
         }),
     };
     try loadMany(&vm, &.{
@@ -1267,7 +1245,7 @@ test "bytecode procedure with locals_count > args allocates additional local var
         Val.init(20), // second argument
     });
 
-    try Instruction.execute(Instruction.initEvalProc(2), &vm);
+    try Instruction.execute(.{ .eval_proc = 2 }, &vm);
 
     // Execute the get_local instructions to verify local variables
     try executeNext(&vm); // Get local 0 (arg 0)
@@ -1291,8 +1269,8 @@ test "bytecode procedure with locals_count equal to args works correctly" {
         .args = 2,
         .locals_count = 2, // same as args
         .instructions = try vm.allocator.dupe(Instruction, &.{
-            Instruction.initGetLocal(0),
-            Instruction.initGetLocal(1),
+            .{ .get_local = 0 },
+            .{ .get_local = 1 },
         }),
     };
     try loadMany(&vm, &.{
@@ -1301,7 +1279,7 @@ test "bytecode procedure with locals_count equal to args works correctly" {
         Val.init(99),
     });
 
-    try Instruction.execute(Instruction.initEvalProc(2), &vm);
+    try Instruction.execute(.{ .eval_proc = 2 }, &vm);
 
     // Should work without allocating additional locals
     try testing.expectEqual(.proc, std.meta.activeTag(vm.context.stack()[0].repr));
@@ -1321,7 +1299,7 @@ test "bytecode procedure with locals_count < args raises error" {
         .locals_count = 2, // less than args - invalid
         .instructions = try vm.allocator.dupe(
             Instruction,
-            &.{Instruction.initLoad(Val.init(42))},
+            &.{.{ .load = Val.init(42) }},
         ),
     };
     try loadMany(&vm, &.{
@@ -1331,7 +1309,7 @@ test "bytecode procedure with locals_count < args raises error" {
         Val.init(30),
     });
 
-    try testing.expectError(Vm.Error.UncaughtException, Instruction.execute(Instruction.initEvalProc(3), &vm));
+    try testing.expectError(Vm.Error.UncaughtException, Instruction.execute(.{ .eval_proc = 3 }, &vm));
     // Verify error was set
     try testing.expect(vm.context.err != null);
 }
@@ -1345,7 +1323,7 @@ test "bytecode procedure with wrong argument count raises error" {
         .locals_count = 3,
         .instructions = try vm.allocator.dupe(
             Instruction,
-            &.{Instruction.initLoad(Val.init(42))},
+            &.{.{ .load = Val.init(42) }},
         ),
     };
     try loadMany(&vm, &.{
@@ -1353,7 +1331,7 @@ test "bytecode procedure with wrong argument count raises error" {
         Val.init(10), // only 1 argument, but procedure expects 2
     });
 
-    try testing.expectError(Vm.Error.UncaughtException, Instruction.execute(Instruction.initEvalProc(1), &vm));
+    try testing.expectError(Vm.Error.UncaughtException, Instruction.execute(.{ .eval_proc = 1 }, &vm));
     // Verify error was set
     try testing.expect(vm.context.err != null);
 }
@@ -1366,8 +1344,8 @@ test "bytecode procedure initializes additional locals to unit values" {
         .args = 1,
         .locals_count = 2, // 1 additional local
         .instructions = try vm.allocator.dupe(Instruction, &.{
-            Instruction.initSetLocal(1), // Set additional local to value from stack
-            Instruction.initGetLocal(1), // Get the value back
+            .{ .set_local = 1 }, // Set additional local to value from stack
+            .{ .get_local = 1 }, // Get the value back
         }),
     };
     try loadMany(&vm, &.{
@@ -1375,7 +1353,7 @@ test "bytecode procedure initializes additional locals to unit values" {
         Val.init(42), // argument
     });
 
-    try Instruction.execute(Instruction.initEvalProc(1), &vm);
+    try Instruction.execute(.{ .eval_proc = 1 }, &vm);
 
     // Push a value to set the additional local
     try load(&vm, Val.init(777));

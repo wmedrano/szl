@@ -522,7 +522,7 @@ fn markOne(self: *Vm, val: Val) error{}!void {
         // These types don't require marking:
         // - Primitive values (.nil, .boolean, .i64, .f64, .char) are stored inline
         // - Symbols are never garbage collected and live for the program's lifetime
-        .nil, .boolean, .i64, .f64, .char, .symbol, .native_proc => {},
+        .nil, .boolean, .i64, .f64, .char, .symbol, .native_proc, .operator => {},
         .string => |h| {
             _ = self.strings.setColor(h, self.reachable_color);
         },
@@ -600,7 +600,7 @@ pub fn expectEval(self: *Vm, expected: []const u8, input: []const u8) !void {
     if (std.meta.eql(expected_val, actual_val)) return;
     try testing.expectFmt(expected, "{f}", .{self.pretty(actual_val)});
     switch (expected_val.repr) {
-        .nil, .boolean, .i64, .f64, .char, .symbol, .native_proc, .continuation => try testing.expectEqual(expected_val, actual_val),
+        .nil, .boolean, .i64, .f64, .char, .symbol, .native_proc, .continuation, .operator => try testing.expectEqual(expected_val, actual_val),
         .string, .pair, .proc, .vector, .bytevector, .record, .record_type_descriptor => {},
     }
 }
@@ -633,7 +633,7 @@ pub fn expectEvalErr(self: *Vm, expected: []const u8, source: []const u8) !void 
     if (std.meta.eql(expected_err, actual_err)) return;
     try testing.expectFmt(expected, "{f}", .{self.pretty(actual_err)});
     switch (expected_err.repr) {
-        .nil, .boolean, .i64, .f64, .char, .symbol, .native_proc, .continuation => try testing.expectEqual(expected_err, actual_err),
+        .nil, .boolean, .i64, .f64, .char, .symbol, .native_proc, .continuation, .operator => try testing.expectEqual(expected_err, actual_err),
         .string, .pair, .proc, .vector, .bytevector, .record, .record_type_descriptor => {},
     }
 }

@@ -148,6 +148,7 @@ pub fn build(self: IrBuilder, expr: Val) Error!Ir {
         .record,
         .record_type_descriptor,
         .continuation,
+        .operator,
         => return Ir{ .const_val = expr },
         .nil => return Error.InvalidExpression,
         .symbol => |s| return Ir{ .get = s },

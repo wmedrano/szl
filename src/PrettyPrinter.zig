@@ -8,13 +8,13 @@
 const std = @import("std");
 const testing = std.testing;
 
+const object_pool = @import("object_pool.zig");
+const Handle = object_pool.Handle;
+const Procedure = @import("Procedure.zig");
 const ByteVector = @import("types/ByteVector.zig");
 const Char = @import("types/Char.zig");
 const Continuation = @import("types/Continuation.zig");
-const object_pool = @import("object_pool.zig");
-const Handle = object_pool.Handle;
 const Pair = @import("types/Pair.zig");
-const Procedure = @import("Procedure.zig");
 const Record = @import("types/Record.zig");
 const String = @import("types/String.zig");
 const Symbol = @import("types/Symbol.zig");
@@ -238,6 +238,7 @@ fn formatValue(self: PrettyPrinter, writer: *std.Io.Writer, val: Val) error{Writ
         },
         .proc => |proc_handle| try self.formatProcedure(writer, proc_handle),
         .native_proc => |proc| try writer.print("#<procedure:{s}>", .{proc.name}),
+        .operator => |op| try writer.print("<operator:{s}>", .{@tagName(op)}),
         .continuation => |_| try writer.writeAll("#<procedure:continuation>"),
     }
 }
@@ -760,4 +761,3 @@ test "empty record type descriptor formats correctly" {
         .{PrettyPrinter{ .vm = &vm, .val = val }},
     );
 }
-

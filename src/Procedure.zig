@@ -55,6 +55,23 @@ pub const NativeContext = struct {
     }
 };
 
+/// Optimized operator procedures for common Scheme operations.
+/// These operators provide more efficient implementations than bytecode
+/// for frequently used operations like call-with-current-continuation.
+pub const Operator = enum {
+    /// Unary call-with-current-continuation operator.
+    /// Captures the current continuation and passes it to a procedure.
+    unary_call_with_cc,
+
+    /// Converts this operator to a Val for VM usage.
+    ///
+    /// Returns:
+    ///   A Val containing this operator.
+    pub fn toVal(self: Operator) Val {
+        return Val.init(self);
+    }
+};
+
 /// Deallocates resources associated with this procedure.
 /// Frees the instructions array and resets the procedure to an empty state.
 pub fn deinit(self: *Procedure, allocator: std.mem.Allocator) void {

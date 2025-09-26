@@ -7,7 +7,8 @@ const testing = std.testing;
 
 const define_fn = @import("../builtins/define.zig").define_fn;
 const Inspector = @import("../Inspector.zig");
-const Instruction = @import("../instruction.zig").Instruction;
+const instruction_mod = @import("../instruction.zig");
+const Instruction = instruction_mod.Instruction;
 const Procedure = @import("../Procedure.zig");
 const Pair = @import("../types/Pair.zig");
 const Symbol = @import("../types/Symbol.zig");
@@ -108,9 +109,9 @@ fn addInstruction(self: *Compiler, instruction: Instruction) Error!void {
 ///   - OutOfMemory if instruction allocation fails.
 fn get(self: *Compiler, symbol: Symbol.Interned) !void {
     if (self.scope.resolve(symbol)) |binding|
-        try self.addInstruction(Instruction.initGetLocal(binding.index))
+        try self.addInstruction(.{ .get_local = binding.index })
     else
-        try self.addInstruction(Instruction.initGetGlobal(symbol));
+        try self.addInstruction(.{ .get_global = symbol });
 }
 
 /// Calculates the jump distance between two instruction positions.
@@ -139,16 +140,16 @@ fn jump(start: usize, end: usize) isize {
 fn addIf(self: *Compiler, if_def: IfDef) Error!void {
     try self.addIr(if_def.@"test".*);
     const test_jump_idx = self.instructions.items.len;
-    try self.addInstruction(Instruction.initJumpIfNot(.{ .pop = true, .steps = 0 }));
+    try self.addInstruction(.{ .jump_if_not = .{ .pop = true, .steps = 0 } });
     try self.addIr(if_def.true.*);
     const true_jump_idx = self.instructions.items.len;
-    try self.addInstruction(Instruction.initJump(0));
+    try self.addInstruction(.{ .jump = 0 });
     try self.addIr(if_def.false.*);
     const end_idx = self.instructions.items.len;
     self.instructions.items[test_jump_idx] =
-        Instruction.initJumpIfNot(.{ .pop = true, .steps = jump(test_jump_idx, true_jump_idx) });
+        .{ .jump_if_not = .{ .pop = true, .steps = jump(test_jump_idx, true_jump_idx) } };
     self.instructions.items[true_jump_idx] =
-        Instruction.initJump(jump(true_jump_idx + 1, end_idx));
+        .{ .jump = jump(true_jump_idx + 1, end_idx) };
 }
 
 /// Compiles a lambda (procedure definition) IR node into bytecode instructions.
@@ -180,7 +181,7 @@ fn addLambda(self: *Compiler, lambda: LambdaDef) Error!void {
         );
     }
     const proc = try sub_compiler.compileIr(lambda.name, lambda.body.*);
-    try self.addInstruction(Instruction.initLoad(proc));
+    try self.addInstruction(.{ .load = proc });
 }
 
 /// Compiles a let binding construct IR node into bytecode instructions.
@@ -201,7 +202,7 @@ fn addLet(self: *Compiler, let_def: LetDef) Error!void {
         const id = try self.scope.addLocal(self.arena.allocator(), binding.name, initial_state);
         try bindings.append(self.arena.allocator(), id);
         try self.addIr(binding.expr);
-        try self.addInstruction(Instruction.initSetLocal(self.scope.getBinding(id).?.index));
+        try self.addInstruction(.{ .set_local = self.scope.getBinding(id).?.index });
     }
     if (!let_def.star) {
         for (bindings.items) |binding| {
@@ -223,7 +224,7 @@ fn addLet(self: *Compiler, let_def: LetDef) Error!void {
 ///   - InvalidExpression if the IR cannot be compiled.
 fn addIr(self: *Compiler, ir: Ir) Error!void {
     switch (ir) {
-        .const_val => |val| try self.addInstruction(Instruction.initLoad(val)),
+        .const_val => |val| try self.addInstruction(.{ .load = val }),
         .get => |sym| try self.get(sym),
         .proc_call => |p| {
             // Special case for call-with-current-continuation
@@ -233,28 +234,28 @@ fn addIr(self: *Compiler, ir: Ir) Error!void {
                 {
                     if (p.args.len != 1) return Error.InvalidExpression;
                     try self.addIr(p.args[0]);
-                    return self.addInstruction(Instruction.initCallWithCurrentContinuation());
+                    return self.addInstruction(.{ .call_operator = instruction_mod.Operator.call_with_cc });
                 }
             }
             try self.addIr(p.proc.*);
             for (p.args) |arg| try self.addIr(arg);
-            try self.addInstruction(Instruction.initEvalProc(p.args.len));
+            try self.addInstruction(.{ .eval_proc = p.args.len });
         },
         .@"if" => |def| try self.addIf(def),
         .body => |body| {
             for (body) |expr| try self.addIr(expr);
             switch (body.len) {
-                0 => try self.addInstruction(Instruction.initLoad(Val.init({}))),
+                0 => try self.addInstruction(.{ .load = Val.init({}) }),
                 1 => {},
-                else => try self.addInstruction(Instruction.initSquash(body.len)),
+                else => try self.addInstruction(.{ .squash = body.len }),
             }
         },
         .define => |def| {
             const define_val = Val.init(&define_fn);
-            try self.addInstruction(Instruction.initLoad(define_val));
-            try self.addInstruction(Instruction.initLoad(Val.init(def.symbol)));
+            try self.addInstruction(.{ .load = define_val });
+            try self.addInstruction(.{ .load = Val.init(def.symbol) });
             try self.addIr(def.expr.*);
-            try self.addInstruction(Instruction.initEvalProc(2));
+            try self.addInstruction(.{ .eval_proc = 2 });
         },
         .lambda => |lambda| try self.addLambda(lambda),
         .let => |let_def| try self.addLet(let_def),
@@ -289,10 +290,10 @@ test "compile with expression is function call" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
     try expectInstructions(&[_]Instruction{
-        Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("+"))),
-        Instruction.initLoad(Val.init(1)),
-        Instruction.initLoad(Val.init(2)),
-        Instruction.initEvalProc(2),
+        .{ .get_global = try vm.builder().internStatic(Symbol.init("+")) },
+        .{ .load = Val.init(1) },
+        .{ .load = Val.init(2) },
+        Instruction{ .eval_proc = 2 },
     }, &vm, "(+ 1 2)");
 }
 
@@ -300,14 +301,14 @@ test "compile with nested expression is multiple function calls" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
     try expectInstructions(&[_]Instruction{
-        Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("foo"))),
-        Instruction.initLoad(Val.init(1)),
-        Instruction.initLoad(Val.init(2)),
-        Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("bar"))),
-        Instruction.initLoad(Val.init(3)),
-        Instruction.initLoad(Val.init(4)),
-        Instruction.initEvalProc(2),
-        Instruction.initEvalProc(3),
+        .{ .get_global = try vm.builder().internStatic(Symbol.init("foo")) },
+        .{ .load = Val.init(1) },
+        .{ .load = Val.init(2) },
+        .{ .get_global = try vm.builder().internStatic(Symbol.init("bar")) },
+        .{ .load = Val.init(3) },
+        .{ .load = Val.init(4) },
+        Instruction{ .eval_proc = 2 },
+        .{ .eval_proc = 3 },
     }, &vm, "(foo 1 2 (bar 3 4))");
 }
 
@@ -315,10 +316,10 @@ test "compile define expression" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
     try expectInstructions(&[_]Instruction{
-        Instruction.initLoad(Val.init(&define_fn)),
-        Instruction.initLoad(try vm.builder().internStaticVal(Symbol.init("x"))),
-        Instruction.initLoad(Val.init(42)),
-        Instruction.initEvalProc(2),
+        Instruction{ .load = Val.init(&define_fn) },
+        .{ .load = try vm.builder().internStaticVal(Symbol.init("x")) },
+        .{ .load = Val.init(42) },
+        Instruction{ .eval_proc = 2 },
     }, &vm, "(define x 42)");
 }
 
@@ -335,11 +336,11 @@ test "compile define procedure expression" {
 
     try testing.expectEqual(4, instructions.len);
     try testing.expectEqual(
-        Instruction.initLoad(Val.init(&define_fn)),
+        Instruction{ .load = Val.init(&define_fn) },
         instructions[0],
     );
     try testing.expectEqual(
-        Instruction.initLoad(try vm.builder().internStaticVal(Symbol.init("foo"))),
+        Instruction{ .load = try vm.builder().internStaticVal(Symbol.init("foo")) },
         instructions[1],
     );
     try testing.expectEqual(
@@ -347,7 +348,7 @@ test "compile define procedure expression" {
         std.meta.activeTag(instructions[2].load.repr),
     );
     try testing.expectEqual(
-        Instruction.initEvalProc(2),
+        Instruction{ .eval_proc = 2 },
         instructions[3],
     );
 }
@@ -364,24 +365,24 @@ test "compile define procedure with recursive call" {
 
     try testing.expectEqual(4, instructions.len);
     try testing.expectEqual(
-        Instruction.initLoad(Val.init(&define_fn)),
+        Instruction{ .load = Val.init(&define_fn) },
         instructions[0],
     );
     try testing.expectEqual(
-        Instruction.initLoad(try vm.builder().internStaticVal(Symbol.init("foo"))),
+        Instruction{ .load = try vm.builder().internStaticVal(Symbol.init("foo")) },
         instructions[1],
     );
     const foo_proc = try vm.fromVal(Procedure, proc.instructions[2].load);
     try testing.expectEqualDeep(
-        &.{
-            Instruction.initGetLocal(-1),
-            Instruction.initGetLocal(0),
-            Instruction.initEvalProc(1),
+        &[_]Instruction{
+            .{ .get_local = -1 },
+            .{ .get_local = 0 },
+            .{ .eval_proc = 1 },
         },
         foo_proc.instructions,
     );
     try testing.expectEqual(
-        Instruction.initEvalProc(2),
+        Instruction{ .eval_proc = 2 },
         instructions[3],
     );
 }
@@ -392,21 +393,21 @@ test "compile if expression" {
     const plus = try vm.builder().internStatic(Symbol.init("+"));
 
     try expectInstructions(&[_]Instruction{
-        Instruction.initLoad(Val.init(true)),
-        Instruction.initJumpIfNot(.{ .steps = 5 }),
+        .{ .load = Val.init(true) },
+        .{ .jump_if_not = .{ .steps = 5 } },
         // True Branch
-        Instruction.initGetGlobal(plus),
-        Instruction.initLoad(Val.init(1)),
-        Instruction.initLoad(Val.init(2)),
-        Instruction.initEvalProc(2),
-        Instruction.initJump(6),
+        .{ .get_global = plus },
+        .{ .load = Val.init(1) },
+        .{ .load = Val.init(2) },
+        Instruction{ .eval_proc = 2 },
+        .{ .jump = 6 },
         // False branch
-        Instruction.initGetGlobal(plus),
-        Instruction.initLoad(Val.init(3)),
-        Instruction.initLoad(Val.init(4)),
-        Instruction.initLoad(Val.init(5)),
-        Instruction.initLoad(Val.init(6)),
-        Instruction.initEvalProc(4),
+        .{ .get_global = plus },
+        .{ .load = Val.init(3) },
+        .{ .load = Val.init(4) },
+        .{ .load = Val.init(5) },
+        .{ .load = Val.init(6) },
+        .{ .eval_proc = 4 },
     }, &vm, "(if #t (+ 1 2) (+ 3 4 5 6))");
 }
 
@@ -416,16 +417,16 @@ test "compile if expression with missing false branch uses nil" {
     const plus = try vm.builder().internStatic(Symbol.init("+"));
 
     try expectInstructions(&[_]Instruction{
-        Instruction.initLoad(Val.init(true)),
-        Instruction.initJumpIfNot(.{ .steps = 5 }),
+        .{ .load = Val.init(true) },
+        .{ .jump_if_not = .{ .steps = 5 } },
         // True Branch
-        Instruction.initGetGlobal(plus),
-        Instruction.initLoad(Val.init(1)),
-        Instruction.initLoad(Val.init(2)),
-        Instruction.initEvalProc(2),
-        Instruction.initJump(1),
+        .{ .get_global = plus },
+        .{ .load = Val.init(1) },
+        .{ .load = Val.init(2) },
+        Instruction{ .eval_proc = 2 },
+        .{ .jump = 1 },
         // False branch (nil)
-        Instruction.initLoad(Val.init({})),
+        .{ .load = Val.init({}) },
     }, &vm, "(if #t (+ 1 2))");
 }
 
@@ -447,11 +448,11 @@ test "if with missing false branch uses nil also branch" {
     defer vm.deinit();
 
     try expectInstructions(&[_]Instruction{
-        Instruction.initLoad(Val.init(false)),
-        Instruction.initJumpIfNot(.{ .steps = 2 }),
-        Instruction.initLoad(Val.init(42)),
-        Instruction.initJump(1),
-        Instruction.initLoad(Val.init({})),
+        .{ .load = Val.init(false) },
+        .{ .jump_if_not = .{ .steps = 2 } },
+        .{ .load = Val.init(42) },
+        .{ .jump = 1 },
+        .{ .load = Val.init({}) },
     }, &vm, "(if #f 42)");
 }
 
@@ -466,7 +467,7 @@ test "compile quote with integer" {
 
     try testing.expectEqual(1, proc.instructions.len);
     try testing.expectEqual(
-        Instruction.initLoad(Val.init(42)),
+        Instruction{ .load = Val.init(42) },
         proc.instructions[0],
     );
 }
@@ -476,7 +477,7 @@ test "compile quote with symbol" {
     defer vm.deinit();
     try expectInstructions(
         &[_]Instruction{
-            Instruction.initLoad(try vm.builder().internStaticVal(Symbol.init("foo"))),
+            Instruction{ .load = try vm.builder().internStaticVal(Symbol.init("foo")) },
         },
         &vm,
         "'foo",
@@ -487,7 +488,7 @@ test "compile quote with boolean" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
     try expectInstructions(
-        &[_]Instruction{Instruction.initLoad(Val.init(true))},
+        &[_]Instruction{.{ .load = Val.init(true) }},
         &vm,
         "'#t",
     );
@@ -518,7 +519,7 @@ test "compile quote with empty list" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
     try expectInstructions(
-        &[_]Instruction{Instruction.initLoad(Val.init({}))},
+        &[_]Instruction{.{ .load = Val.init({}) }},
         &vm,
         "'()",
     );
@@ -557,7 +558,7 @@ test "compile begin with no arguments returns nil" {
     defer vm.deinit();
 
     try expectInstructions(&[_]Instruction{
-        Instruction.initLoad(Val.init({})),
+        .{ .load = Val.init({}) },
     }, &vm, "(begin)");
 }
 
@@ -566,7 +567,7 @@ test "compile begin with single expression" {
     defer vm.deinit();
 
     try expectInstructions(&[_]Instruction{
-        Instruction.initLoad(Val.init(42)),
+        .{ .load = Val.init(42) },
     }, &vm, "(begin 42)");
 }
 
@@ -575,10 +576,10 @@ test "compile begin with multiple expressions" {
     defer vm.deinit();
 
     try expectInstructions(&[_]Instruction{
-        Instruction.initLoad(Val.init(1)),
-        Instruction.initLoad(Val.init(2)),
-        Instruction.initLoad(Val.init(3)),
-        Instruction.initSquash(3),
+        .{ .load = Val.init(1) },
+        .{ .load = Val.init(2) },
+        .{ .load = Val.init(3) },
+        .{ .squash = 3 },
     }, &vm, "(begin 1 2 3)");
 }
 
@@ -587,15 +588,15 @@ test "compile begin with function calls" {
     defer vm.deinit();
 
     try expectInstructions(&[_]Instruction{
-        Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("+"))),
-        Instruction.initLoad(Val.init(1)),
-        Instruction.initLoad(Val.init(2)),
-        Instruction.initEvalProc(2),
-        Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("+"))),
-        Instruction.initLoad(Val.init(3)),
-        Instruction.initLoad(Val.init(4)),
-        Instruction.initEvalProc(2),
-        Instruction.initSquash(2),
+        .{ .get_global = try vm.builder().internStatic(Symbol.init("+")) },
+        .{ .load = Val.init(1) },
+        .{ .load = Val.init(2) },
+        Instruction{ .eval_proc = 2 },
+        .{ .get_global = try vm.builder().internStatic(Symbol.init("+")) },
+        .{ .load = Val.init(3) },
+        .{ .load = Val.init(4) },
+        Instruction{ .eval_proc = 2 },
+        .{ .squash = 2 },
     }, &vm, "(begin (+ 1 2) (+ 3 4))");
 }
 
@@ -678,7 +679,7 @@ test "compile lambda with no parameters" {
     const lambda_proc = try vm.fromVal(Procedure, proc.instructions[0].load);
     try testing.expectEqual(0, lambda_proc.args);
     try testing.expectEqualDeep(
-        &[_]Instruction{Instruction.initLoad(Val.init(42))},
+        &[_]Instruction{.{ .load = Val.init(42) }},
         lambda_proc.instructions,
     );
 }
@@ -706,7 +707,7 @@ test "compile empty let bindings" {
     defer vm.deinit();
 
     try expectInstructions(&[_]Instruction{
-        Instruction.initLoad(Val.init(42)),
+        .{ .load = Val.init(42) },
     }, &vm, "(let () 42)");
 }
 
@@ -717,17 +718,17 @@ test "compile let with multiple expressions in body" {
     const plus = try vm.builder().internStatic(Symbol.init("+"));
     const mult = try vm.builder().internStatic(Symbol.init("*"));
     try expectInstructions(&[_]Instruction{
-        Instruction.initLoad(Val.init(1)),
-        Instruction.initSetLocal(0),
-        Instruction.initGetGlobal(plus),
-        Instruction.initGetLocal(0),
-        Instruction.initLoad(Val.init(1)),
-        Instruction.initEvalProc(2),
-        Instruction.initGetGlobal(mult),
-        Instruction.initGetLocal(0),
-        Instruction.initLoad(Val.init(2)),
-        Instruction.initEvalProc(2),
-        Instruction.initSquash(2),
+        .{ .load = Val.init(1) },
+        .{ .set_local = 0 },
+        .{ .get_global = plus },
+        .{ .get_local = 0 },
+        .{ .load = Val.init(1) },
+        Instruction{ .eval_proc = 2 },
+        .{ .get_global = mult },
+        .{ .get_local = 0 },
+        .{ .load = Val.init(2) },
+        Instruction{ .eval_proc = 2 },
+        .{ .squash = 2 },
     }, &vm, "(let ((x 1)) (+ x 1) (* x 2))");
 }
 
@@ -752,8 +753,8 @@ test "compile call-with-current-continuation expression" {
     defer vm.deinit();
 
     try expectInstructions(&[_]Instruction{
-        Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("foo"))),
-        Instruction.initCallWithCurrentContinuation(),
+        .{ .get_global = try vm.builder().internStatic(Symbol.init("foo")) },
+        .{ .call_operator = instruction_mod.Operator.call_with_cc },
     }, &vm, "(call-with-current-continuation foo)");
 }
 
@@ -789,16 +790,16 @@ test "compile large argument list" {
 
     const plus = try vm.builder().internStatic(Symbol.init("+"));
     try expectInstructions(&[_]Instruction{
-        Instruction.initGetGlobal(plus),
-        Instruction.initLoad(Val.init(1)),
-        Instruction.initLoad(Val.init(2)),
-        Instruction.initLoad(Val.init(3)),
-        Instruction.initLoad(Val.init(4)),
-        Instruction.initLoad(Val.init(5)),
-        Instruction.initLoad(Val.init(6)),
-        Instruction.initLoad(Val.init(7)),
-        Instruction.initLoad(Val.init(8)),
-        Instruction.initEvalProc(8),
+        .{ .get_global = plus },
+        .{ .load = Val.init(1) },
+        .{ .load = Val.init(2) },
+        .{ .load = Val.init(3) },
+        .{ .load = Val.init(4) },
+        .{ .load = Val.init(5) },
+        .{ .load = Val.init(6) },
+        .{ .load = Val.init(7) },
+        .{ .load = Val.init(8) },
+        .{ .eval_proc = 8 },
     }, &vm, "(+ 1 2 3 4 5 6 7 8)");
 }
 
@@ -815,7 +816,7 @@ test "compile lambda with local variable access" {
     const lambda_proc = try vm.fromVal(Procedure, proc.instructions[0].load);
     try testing.expectEqual(1, lambda_proc.args);
     try testing.expectEqualDeep(
-        &[_]Instruction{Instruction.initGetLocal(0)},
+        &[_]Instruction{.{ .get_local = 0 }},
         lambda_proc.instructions,
     );
 }
@@ -825,7 +826,7 @@ test "compile empty body returns nil" {
     defer vm.deinit();
 
     try expectInstructions(&[_]Instruction{
-        Instruction.initLoad(Val.init({})),
+        .{ .load = Val.init({}) },
     }, &vm, "(begin)");
 
     var arena = std.heap.ArenaAllocator.init(vm.allocator);
@@ -835,7 +836,7 @@ test "compile empty body returns nil" {
     const proc = try vm.fromVal(Procedure, proc_val);
     const lambda_proc = try vm.fromVal(Procedure, proc.instructions[0].load);
     try testing.expectEqualDeep(
-        &[_]Instruction{Instruction.initLoad(Val.init({}))},
+        &[_]Instruction{.{ .load = Val.init({}) }},
         lambda_proc.instructions,
     );
 }
@@ -845,7 +846,7 @@ test "compile single expression body no squash" {
     defer vm.deinit();
 
     try expectInstructions(&[_]Instruction{
-        Instruction.initLoad(Val.init(42)),
+        .{ .load = Val.init(42) },
     }, &vm, "(begin 42)");
 }
 

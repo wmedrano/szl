@@ -286,6 +286,10 @@ pub fn to(self: Inspector, T: type, val: Val) !T {
             *const Procedure.Native => return p,
             else => return error.TypeMismatch,
         },
+        .operator => |o| switch (T) {
+            Procedure.Operator => return o,
+            else => return error.TypeMismatch,
+        },
         .continuation => |c| switch (T) {
             Handle(Continuation) => return c,
             Continuation => return try self.resolve(Continuation, c),
@@ -846,4 +850,3 @@ test "takeIfEq multiple sequential matches" {
     // Should be at 2 now
     try testing.expectEqual(try vm.toVal(2), try iter.next());
 }
-
