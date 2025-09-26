@@ -215,8 +215,6 @@ fn buildBegin(self: IrBuilder, iter: *Inspector.ListIterator) Error!Ir {
 ///   - OutOfMemory if allocation fails during construction.
 fn buildExpression(self: IrBuilder, leading: Val, args_iter: *Inspector.ListIterator) Error!Ir {
     if (self.vm.fromVal(Symbol.Interned, leading) catch null) |sym| {
-        if (self.vm.common_symbols.@"call-with-current-continuation".eql(sym))
-            return try self.buildCallWithCurrentContinuation(args_iter);
         if (self.vm.common_symbols.cond.eql(sym))
             return try self.buildCond(args_iter);
         if (self.vm.common_symbols.@"if".eql(sym))
@@ -465,32 +463,6 @@ fn buildLet(self: IrBuilder, star: bool, expr_iter: *Inspector.ListIterator) !Ir
             .star = star,
             .bindings = bindings.items,
             .body = try self.allocIr(body),
-        },
-    };
-}
-
-/// Builds a call-with-current-continuation expression IR node.
-///
-/// Args:
-///   self: The IrBuilder instance.
-///   args_iter: Iterator over the call-with-current-continuation arguments.
-///
-/// Returns:
-///   A procedure call IR node for call-with-current-continuation.
-///
-/// Errors:
-///   - InvalidExpression if the arguments are malformed.
-///   - OutOfMemory if allocation fails.
-fn buildCallWithCurrentContinuation(self: IrBuilder, args_iter: *Inspector.ListIterator) Error!Ir {
-    const proc_expr = args_iter.next() catch {
-        return Error.InvalidExpression;
-    } orelse return Error.InvalidExpression;
-    if (!args_iter.isEmpty()) return Error.InvalidExpression;
-
-    return Ir{
-        .proc_call = .{
-            .proc = try self.allocIr(Ir{ .get = self.vm.common_symbols.@"call-with-current-continuation" }),
-            .args = &.{try self.build(proc_expr)},
         },
     };
 }

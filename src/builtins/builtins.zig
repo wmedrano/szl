@@ -30,7 +30,6 @@ const pair = @import("pair.zig");
 ///   May return allocation errors if registering built-ins fails.
 pub fn register(vm: *Vm) !void {
     try boolean.register(vm);
-    try define.register(vm);
     try equivalence.register(vm);
     try numbers.register(vm);
     try pair.register(vm);

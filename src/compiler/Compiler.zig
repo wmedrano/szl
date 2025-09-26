@@ -5,6 +5,7 @@
 const std = @import("std");
 const testing = std.testing;
 
+const define_fn = @import("../builtins/define.zig").define_fn;
 const Inspector = @import("../Inspector.zig");
 const Instruction = @import("../instruction.zig").Instruction;
 const Procedure = @import("../Procedure.zig");
@@ -226,10 +227,14 @@ fn addIr(self: *Compiler, ir: Ir) Error!void {
         .get => |sym| try self.get(sym),
         .proc_call => |p| {
             // Special case for call-with-current-continuation
-            if (p.proc.* == .get and self.vm.common_symbols.@"call-with-current-continuation".eql(p.proc.get)) {
-                if (p.args.len != 1) return Error.InvalidExpression;
-                try self.addIr(p.args[0]);
-                return self.addInstruction(Instruction.initCallWithCurrentContinuation());
+            if (p.proc.* == .get) {
+                if (self.vm.common_symbols.@"call-with-current-continuation".eql(p.proc.get) or
+                    self.vm.common_symbols.@"call/cc".eql(p.proc.get))
+                {
+                    if (p.args.len != 1) return Error.InvalidExpression;
+                    try self.addIr(p.args[0]);
+                    return self.addInstruction(Instruction.initCallWithCurrentContinuation());
+                }
             }
             try self.addIr(p.proc.*);
             for (p.args) |arg| try self.addIr(arg);
@@ -245,7 +250,8 @@ fn addIr(self: *Compiler, ir: Ir) Error!void {
             }
         },
         .define => |def| {
-            try self.addInstruction(Instruction.initGetGlobal(self.vm.common_symbols.@"szl-define"));
+            const define_val = Val.init(&define_fn);
+            try self.addInstruction(Instruction.initLoad(define_val));
             try self.addInstruction(Instruction.initLoad(Val.init(def.symbol)));
             try self.addIr(def.expr.*);
             try self.addInstruction(Instruction.initEvalProc(2));
@@ -309,7 +315,7 @@ test "compile define expression" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
     try expectInstructions(&[_]Instruction{
-        Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("szl-define"))),
+        Instruction.initLoad(Val.init(&define_fn)),
         Instruction.initLoad(try vm.builder().internStaticVal(Symbol.init("x"))),
         Instruction.initLoad(Val.init(42)),
         Instruction.initEvalProc(2),
@@ -329,7 +335,7 @@ test "compile define procedure expression" {
 
     try testing.expectEqual(4, instructions.len);
     try testing.expectEqual(
-        Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("szl-define"))),
+        Instruction.initLoad(Val.init(&define_fn)),
         instructions[0],
     );
     try testing.expectEqual(
@@ -358,7 +364,7 @@ test "compile define procedure with recursive call" {
 
     try testing.expectEqual(4, instructions.len);
     try testing.expectEqual(
-        Instruction.initGetGlobal(try vm.builder().internStatic(Symbol.init("szl-define"))),
+        Instruction.initLoad(Val.init(&define_fn)),
         instructions[0],
     );
     try testing.expectEqual(
@@ -757,6 +763,16 @@ test "call-with-current-continuation execution" {
 
     // Test that call-with-current-continuation works with a simple lambda
     try vm.expectEval("42", "(call-with-current-continuation (lambda (k) 42))");
+}
+
+test "call-with-current-continuation execution unwinds stack" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval(
+        "43",
+        "(call-with-current-continuation (lambda (k) (k 43) 42))",
+    );
 }
 
 test "compile mixed special forms" {

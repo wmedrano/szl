@@ -55,13 +55,13 @@ pub const NativeContext = struct {
     }
 };
 
-test "Procedure is small" {
-    try testing.expectEqual(40, @sizeOf(Procedure));
-}
-
 /// Deallocates resources associated with this procedure.
 /// Frees the instructions array and resets the procedure to an empty state.
 pub fn deinit(self: *Procedure, allocator: std.mem.Allocator) void {
     allocator.free(self.instructions);
     self.instructions = &.{};
+}
+
+test "Procedure is small" {
+    try testing.expectEqual(40, @sizeOf(Procedure));
 }
