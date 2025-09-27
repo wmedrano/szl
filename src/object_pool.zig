@@ -20,6 +20,18 @@ pub fn Handle(T: type) type {
     return struct {
         idx: usize,
         const _ = T;
+
+        /// Checks if two handles reference the same object.
+        ///
+        /// Args:
+        ///   self: The first handle to compare.
+        ///   other: The second handle to compare.
+        ///
+        /// Returns:
+        ///   True if both handles reference the same object, false otherwise.
+        pub fn eq(self: @This(), other: @This()) bool {
+            return std.meta.eql(self, other);
+        }
     };
 }
 
