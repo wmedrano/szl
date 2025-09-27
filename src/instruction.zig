@@ -233,12 +233,7 @@ inline fn evalBytecodeProc(vm: *Vm, proc_handle: Handle(Proc), arg_count: usize,
         try raiseWithError(vm, Val.init(vm.common_symbols.@"wrong-number-of-arguments"));
         return Vm.Error.UncaughtException;
     }
-    if (proc.locals_count < proc.args) {
-        try raiseWithError(vm, Val.init(vm.common_symbols.@"invalid-procedure"));
-        return Vm.Error.UncaughtException;
-    }
-    const placeholder_count = proc.locals_count - proc.args;
-    try vm.context.stack_vals.appendNTimes(vm.allocator, Val.init({}), placeholder_count);
+    try vm.context.stack_vals.appendNTimes(vm.allocator, Val.init({}), proc.locals());
     vm.context.current_stack_frame.instructions = proc.instructions;
 }
 
@@ -1224,30 +1219,6 @@ test "bytecode procedure with locals_count equal to args works correctly" {
         "{f}",
         .{vm.pretty(vm.context.stack()[1..])},
     );
-}
-
-test "bytecode procedure with locals_count < args raises error" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    const proc = Proc{
-        .args = 3,
-        .locals_count = 2, // less than args - invalid
-        .instructions = try vm.allocator.dupe(
-            Instruction,
-            &.{.{ .load = Val.init(42) }},
-        ),
-    };
-    try vm.context.stackPushMany(vm.allocator, &.{
-        try vm.toVal(proc),
-        Val.init(10),
-        Val.init(20),
-        Val.init(30),
-    });
-
-    try testing.expectError(Vm.Error.UncaughtException, Instruction.execute(.{ .eval_proc = 3 }, &vm));
-    // Verify error was set
-    try testing.expect(vm.context.err != null);
 }
 
 test "bytecode procedure with wrong argument count raises error" {

@@ -52,6 +52,10 @@ pub fn deinit(self: *Proc, allocator: std.mem.Allocator) void {
     self.instructions = &.{};
 }
 
+pub fn locals(self: Proc) usize {
+    return self.locals_count - self.args;
+}
+
 test "Procedure is small" {
     try testing.expectEqual(40, @sizeOf(Proc));
 }

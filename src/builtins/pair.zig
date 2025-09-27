@@ -71,11 +71,7 @@ const pair_predicate = NativeProc.Native{
                 try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
                 return Val.init({});
             }
-
-            switch (args[0].repr) {
-                .pair => return Val.init(true),
-                else => return Val.init(false),
-            }
+            return Val.init(args[0].isPair());
         }
     }.func,
 };

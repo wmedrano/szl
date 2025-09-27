@@ -213,6 +213,34 @@ pub fn isString(self: Val) bool {
     };
 }
 
+/// Determines if a value is a symbol.
+///
+/// Args:
+///   self: The value to test for symbol type.
+///
+/// Returns:
+///   true if the value is a symbol, false otherwise.
+pub fn isSymbol(self: Val) bool {
+    return switch (self.repr) {
+        .symbol => true,
+        else => false,
+    };
+}
+
+/// Determines if a value is a boolean.
+///
+/// Args:
+///   self: The value to test for boolean type.
+///
+/// Returns:
+///   true if the value is a boolean, false otherwise.
+pub fn isBoolean(self: Val) bool {
+    return switch (self.repr) {
+        .boolean => true,
+        else => false,
+    };
+}
+
 /// Determines if a value is a number (either integer or floating point).
 /// Returns true for both i64 and f64 value types.
 ///
@@ -543,6 +571,54 @@ test "string values are truthy" {
 
     const empty_val = try vm.toVal(String.init());
     try testing.expectEqual(true, empty_val.isTruthy());
+}
+
+test "isSymbol returns true for symbol values" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const symbol = try vm.interner.internStatic(Symbol.init("test"));
+    const symbol_val = Val.init(symbol);
+    try testing.expectEqual(true, symbol_val.isSymbol());
+}
+
+test "isSymbol returns false for non-symbol values" {
+    const bool_val = Val.init(true);
+    const int_val = Val.init(42);
+    const nil_val = Val.init({});
+    const char_val = Val.init(Char.init('a'));
+
+    try testing.expectEqual(false, bool_val.isSymbol());
+    try testing.expectEqual(false, int_val.isSymbol());
+    try testing.expectEqual(false, nil_val.isSymbol());
+    try testing.expectEqual(false, char_val.isSymbol());
+}
+
+test "symbol values are truthy" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const symbol = try vm.interner.internStatic(Symbol.init("test"));
+    const symbol_val = Val.init(symbol);
+    try testing.expectEqual(true, symbol_val.isTruthy());
+}
+
+test "isBoolean returns true for boolean values" {
+    const bool_true = Val.init(true);
+    const bool_false = Val.init(false);
+
+    try testing.expectEqual(true, bool_true.isBoolean());
+    try testing.expectEqual(true, bool_false.isBoolean());
+}
+
+test "isBoolean returns false for non-boolean values" {
+    const int_val = Val.init(42);
+    const nil_val = Val.init({});
+    const char_val = Val.init(Char.init('a'));
+
+    try testing.expectEqual(false, int_val.isBoolean());
+    try testing.expectEqual(false, nil_val.isBoolean());
+    try testing.expectEqual(false, char_val.isBoolean());
 }
 
 test "isVector returns true for vector values" {

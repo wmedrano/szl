@@ -15,6 +15,7 @@ bindings: std.ArrayList(Binding) = .{},
 pub const Id = struct {
     id: usize,
 
+    /// Creates a new binding ID.
     pub fn init(id: usize) Id {
         return Id{ .id = id };
     }
@@ -31,11 +32,15 @@ pub const Type = enum {
 
 /// Maps a symbol name to a stack index.
 pub const Binding = struct {
+    /// The interned symbol name.
     name: Symbol.Interned,
+    /// Stack index for this binding.
     index: isize,
+    /// Type classification of this binding.
     type: Type,
 };
 
+/// Errors that can occur during scope operations.
 pub const Error = error{
     OutOfMemory,
 };
@@ -79,6 +84,7 @@ pub fn clear(self: *Scope, id: Id) void {
 }
 
 /// Creates a new local binding with an available slot.
+/// The binding index is automatically assigned based on the current binding count.
 pub fn addLocal(self: *Scope, allocator: std.mem.Allocator, symbol: Symbol.Interned, binding_type: Type) Error!Id {
     const index = self.bindings.items.len;
     const binding = Binding{
@@ -98,6 +104,24 @@ pub fn argCount(self: *Scope) usize {
         }
     }
     return @intCast(max_arg_index);
+}
+
+pub const Stats = struct {
+    args: usize = 0,
+    locals: usize = 0,
+    total: usize = 0,
+};
+
+pub fn stats(self: *Scope) Stats {
+    var ret = Stats{};
+    for (self.bindings.items) |binding| {
+        switch (binding.type) {
+            .argument => ret.args = @max(ret.args, binding.index),
+            .free, .hidden, .local => @max(ret.args, binding.index),
+            .proc => {},
+        }
+    }
+    return ret;
 }
 
 /// Returns the total number of local variable slots.

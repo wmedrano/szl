@@ -8,8 +8,8 @@ const testing = std.testing;
 
 const instruction = @import("../instruction.zig");
 const Instruction = instruction.Instruction;
-const Proc = @import("../Proc.zig");
 const NativeProc = @import("../NativeProc.zig");
+const Proc = @import("../Proc.zig");
 const Symbol = @import("../types/Symbol.zig");
 const Val = @import("../types/Val.zig");
 const Vm = @import("../Vm.zig");
@@ -36,11 +36,7 @@ const boolean_predicate_native = NativeProc.Native{
                 try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
                 return Val.init({});
             }
-
-            switch (args[0].repr) {
-                .boolean => return Val.init(true),
-                else => return Val.init(false),
-            }
+            return Val.init(args[0].isBoolean());
         }
     }.func,
 };

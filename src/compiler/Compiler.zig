@@ -688,7 +688,7 @@ test "compile lambda with multiple parameters" {
 
     const lambda_proc = try vm.fromVal(Proc, proc.instructions[0].load);
     try testing.expectEqual(3, lambda_proc.args);
-    try testing.expectEqual(3, lambda_proc.locals_count);
+    try testing.expectEqual(0, lambda_proc.locals());
 }
 
 test "compile lambda with no parameters" {

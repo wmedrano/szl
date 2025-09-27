@@ -155,6 +155,11 @@ pub fn constStack(self: Context) []const Val {
     return self.stack_vals.items;
 }
 
+pub fn currentProc(self: Context) Val {
+    const idx = self.current_stack_frame.stack_start - 1;
+    return self.stack_vals.items[idx];
+}
+
 /// Appends a value to the top of the stack.
 ///
 /// Args:
