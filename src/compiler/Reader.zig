@@ -12,10 +12,10 @@ const Char = @import("../types/Char.zig");
 const Pair = @import("../types/Pair.zig");
 const String = @import("../types/String.zig");
 const Symbol = @import("../types/Symbol.zig");
-const Tokenizer = @import("Tokenizer.zig");
 const Val = @import("../types/Val.zig");
 const Vector = @import("../types/Vector.zig");
 const Vm = @import("../Vm.zig");
+const Tokenizer = @import("Tokenizer.zig");
 
 const Reader = @This();
 
@@ -174,7 +174,7 @@ fn nextExpression(self: *Reader) !?Val {
     while (self.tokenizer.nextText()) |token| {
         switch (try self.parseTokenValue(token)) {
             .value => |val| try expressions.append(self.vm.allocator, val),
-            .end_expression => return try self.vm.toVal(expressions.items),
+            .end_expression => return try self.vm.builder().buildList(expressions.items),
             .comment => continue, // Skip comments in expressions
         }
     }

@@ -241,6 +241,21 @@ pub fn ObjectPool(T: type) type {
                 return null;
         }
 
+        /// Gets a mutable pointer to an object in the pool.
+        ///
+        /// Args:
+        ///   self: Pointer to the object pool.
+        ///   handle: Handle to the object to retrieve.
+        ///
+        /// Returns:
+        ///   A mutable pointer to the object if the handle is valid, null otherwise.
+        pub fn getMutable(self: *ObjectPool(T), handle: Handle(T)) ?*T {
+            if (self.isAlive(handle))
+                return &self.objects.items[handle.idx]
+            else
+                return null;
+        }
+
         /// Sets the color of an object in the pool.
         ///
         /// Args:

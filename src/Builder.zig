@@ -105,17 +105,19 @@ pub fn build(self: Builder, v: anytype) Error!Val {
             return Val.init(handle);
         },
         Continuation => return Val.init(try self.vm.continuations.put(self.vm.allocator, v, color)),
-        []const Val, []Val => {
-            if (v.len == 0) return self.build({});
-            var val = try self.build({});
-            for (0..v.len) |n| {
-                const idx = v.len - n - 1;
-                val = try self.build(Pair.init(v[idx], val));
-            }
-            return val;
-        },
-        else => @compileError("type " ++ @typeName(type_info) ++ " not supported for toVal."),
+        []Val, []const Val => @compileError("type " ++ @typeName(type_info) ++ " not supported for build(), did you mean buildList?"),
+        else => @compileError("type " ++ @typeName(type_info) ++ " not supported for build()."),
     }
+}
+
+pub fn buildList(self: Builder, vals: []const Val) Error!Val {
+    if (vals.len == 0) return self.build({});
+    var val = try self.build({});
+    for (0..vals.len) |n| {
+        const idx = vals.len - n - 1;
+        val = try self.build(Pair.init(vals[idx], val));
+    }
+    return val;
 }
 
 /// Builds a value and returns its handle directly.
@@ -467,8 +469,7 @@ test "build with empty []Val creates nil" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const empty_array: []Val = &.{};
-    const result = try vm.builder().build(empty_array);
+    const result = try vm.builder().buildList(&.{});
 
     try testing.expectEqual(
         Val{ .repr = Val.Repr{ .nil = {} } },
@@ -480,12 +481,9 @@ test "build with empty []const Val creates nil" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const empty_array: []const Val = &.{};
-    const result = try vm.builder().build(empty_array);
-
     try testing.expectEqual(
         Val{ .repr = Val.Repr{ .nil = {} } },
-        result,
+        try vm.builder().buildList(&.{}),
     );
 }
 
@@ -493,8 +491,9 @@ test "build with single element []Val creates proper list" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const array: []const Val = &.{try vm.builder().build(42)};
-    const result = try vm.builder().build(array);
+    const result = try vm.builder().buildList(&.{
+        try vm.builder().build(42),
+    });
 
     try testing.expectEqual(.pair, std.meta.activeTag(result.repr));
     const pair = try vm.inspector().to(Pair, result);
@@ -512,12 +511,11 @@ test "build with multiple element []Val creates proper list" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const array: []const Val = &.{
+    const result = try vm.builder().buildList(&.{
         try vm.builder().build(1),
         try vm.builder().build(2),
         try vm.builder().build(3),
-    };
-    const result = try vm.builder().build(array);
+    });
 
     // Check that result is a proper list: (1 2 3)
     try testing.expectEqual(.pair, std.meta.activeTag(result.repr));

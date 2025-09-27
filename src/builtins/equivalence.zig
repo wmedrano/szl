@@ -133,7 +133,7 @@ const equal_func = NativeProc.Native{
 ///
 /// Errors:
 ///   May return errors if handle resolution fails
-fn equalRecursive(vm: *Vm, a: Val, b: Val) !bool {
+pub fn equalRecursive(vm: *Vm, a: Val, b: Val) !bool {
     if (a.eq(b)) return true;
     if (std.meta.activeTag(a.repr) != std.meta.activeTag(b.repr)) return false;
     return switch (a.repr) {
