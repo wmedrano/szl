@@ -7,8 +7,8 @@ const testing = std.testing;
 
 const define_fn = @import("../builtins/define.zig").define_fn;
 const Inspector = @import("../Inspector.zig");
-const instruction_mod = @import("../instruction.zig");
-const Instruction = instruction_mod.Instruction;
+const Operator = @import("../instruction.zig").Operator;
+const Instruction = @import("../instruction.zig").Instruction;
 const Proc = @import("../Proc.zig");
 const Pair = @import("../types/Pair.zig");
 const Symbol = @import("../types/Symbol.zig");
@@ -87,10 +87,11 @@ pub fn compile(vm: *Vm, arena: *std.heap.ArenaAllocator, expr: Val, options: Opt
 ///   - InvalidExpression if the IR cannot be compiled.
 fn compileIr(self: *Compiler, name: ?Symbol.Interned, ir: Ir) Error!Val {
     try self.addIr(ir);
+    const stats = self.scope.stats();
     const proc = Proc{
         .name = name,
-        .args = self.scope.argCount(),
-        .locals_count = self.scope.count(),
+        .args = stats.args,
+        .locals = stats.locals,
         .instructions = try self.vm.allocator.dupe(Instruction, self.instructions.items),
     };
     return try self.vm.builder().build(proc);
@@ -105,8 +106,8 @@ fn compileIr(self: *Compiler, name: ?Symbol.Interned, ir: Ir) Error!Val {
 ///
 /// Returns:
 ///   An error if memory allocation fails.
-fn addInstruction(self: *Compiler, instruction: Instruction) Error!void {
-    try self.instructions.append(self.arena.allocator(), instruction);
+fn addInstruction(self: *Compiler, ins: Instruction) Error!void {
+    try self.instructions.append(self.arena.allocator(), ins);
 }
 
 /// Generates instructions to retrieve a symbol's value.
@@ -137,8 +138,8 @@ fn get(self: *Compiler, symbol: Symbol.Interned) !void {
 ///
 /// Returns:
 ///   The signed distance between the positions.
-fn jump(start: usize, end: usize) isize {
-    return @as(isize, @intCast(end)) - @as(isize, @intCast(start));
+fn jump(start: usize, end: usize) i32 {
+    return @as(i32, @intCast(end)) - @as(i32, @intCast(start));
 }
 
 /// Compiles an if conditional IR node into bytecode instructions.
@@ -245,14 +246,14 @@ fn addProc(self: *Compiler, proc_call: IrBuilder.ProcCall) Error!void {
             if (is_call_with_cc) {
                 if (proc_call.args.len != 1) return Error.InvalidExpression;
                 try self.addIr(proc_call.args[0]);
-                return self.addInstruction(.{ .call_operator = instruction_mod.Operator.call_with_cc });
+                return self.addInstruction(.{ .call_operator = Operator.call_with_cc });
             }
         },
         else => {},
     }
     try self.addIr(proc_call.proc.*);
     for (proc_call.args) |arg| try self.addIr(arg);
-    try self.addInstruction(.{ .eval_proc = proc_call.args.len });
+    try self.addInstruction(.{ .eval_proc = @intCast(proc_call.args.len) });
 }
 
 /// Recursively adds IR nodes to the compiler as bytecode instructions.
@@ -276,7 +277,7 @@ fn addIr(self: *Compiler, ir: Ir) Error!void {
             switch (body.len) {
                 0 => try self.addInstruction(.{ .load = Val.init({}) }),
                 1 => {},
-                else => try self.addInstruction(.{ .squash = body.len }),
+                else => try self.addInstruction(.{ .squash = @intCast(body.len) }),
             }
         },
         .define => |def| {
@@ -312,6 +313,10 @@ pub fn expectInstructions(expected_instructions: []const Instruction, vm: *Vm, s
         expected_instructions,
         proc.instructions,
     );
+}
+
+test "Instruction is small" {
+    try testing.expectEqual(24, @sizeOf(Instruction));
 }
 
 test "compile with expression is function call" {
@@ -688,7 +693,7 @@ test "compile lambda with multiple parameters" {
 
     const lambda_proc = try vm.fromVal(Proc, proc.instructions[0].load);
     try testing.expectEqual(3, lambda_proc.args);
-    try testing.expectEqual(0, lambda_proc.locals());
+    try testing.expectEqual(0, lambda_proc.locals);
 }
 
 test "compile lambda with no parameters" {
@@ -782,7 +787,7 @@ test "compile call-with-current-continuation expression" {
 
     try expectInstructions(&[_]Instruction{
         .{ .get_global = try vm.builder().internStatic(Symbol.init("foo")) },
-        .{ .call_operator = instruction_mod.Operator.call_with_cc },
+        .{ .call_operator = Operator.call_with_cc },
     }, &vm, "(call-with-current-continuation foo)");
 }
 

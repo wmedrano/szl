@@ -27,7 +27,7 @@ pub const Operator = enum {
 pub const Instruction = union(enum) {
     /// Parameters for conditional jumpts.
     pub const ConditionalJumpParams = struct {
-        steps: isize,
+        steps: i32,
         pop: bool = true,
     };
 
@@ -39,13 +39,13 @@ pub const Instruction = union(enum) {
     get_global: Symbol.Interned,
     /// Instruction to retrieve a local variable value and load it onto the stack.
     /// The associated index specifies which local variable (relative to stack frame start) to retrieve.
-    get_local: isize,
+    get_local: i32,
     /// Instruction to set a local variable value from the top of the stack.
     /// The associated index specifies which local variable (relative to stack frame start) to set.
-    set_local: isize,
+    set_local: i32,
     /// Instruction to evaluate a procedure with arguments from the stack.
     /// The arg_count specifies how many arguments to pass to the procedure.
-    eval_proc: usize,
+    eval_proc: u32,
     /// Instruction to return from the current procedure.
     /// Restores the previous stack frame and places the return value at the correct position.
     return_value,
@@ -54,13 +54,13 @@ pub const Instruction = union(enum) {
     raise_error,
     /// Instruction to jump by a specified offset in the instruction sequence.
     /// The offset is added to the current instruction index to change execution flow.
-    jump: isize,
+    jump: i32,
     /// Instruction to conditionally jump by a specified offset in the instruction sequence.
     /// Pops a value from the stack and jumps only if the value is falsy.
     jump_if_not: ConditionalJumpParams,
     /// Instruction to squash the top n values on the stack, keeping only the topmost value.
     /// Takes n values from the stack and leaves only the top one.
-    squash: usize,
+    squash: u32,
     /// Instruction to capture the current continuation.
     /// Creates a continuation object representing the current execution state.
     call_operator: Operator,
@@ -233,7 +233,7 @@ inline fn evalBytecodeProc(vm: *Vm, proc_handle: Handle(Proc), arg_count: usize,
         try raiseWithError(vm, Val.init(vm.common_symbols.@"wrong-number-of-arguments"));
         return Vm.Error.UncaughtException;
     }
-    try vm.context.stack_vals.appendNTimes(vm.allocator, Val.init({}), proc.locals());
+    try vm.context.stack_vals.appendNTimes(vm.allocator, Val.init({}), proc.locals);
     vm.context.current_stack_frame.instructions = proc.instructions;
 }
 
@@ -485,7 +485,6 @@ test "execute bytecode procedure with arguments sets correct stack start" {
     };
     const proc = Proc{
         .args = 3,
-        .locals_count = 3,
         .instructions = try vm.allocator.dupe(Instruction, instructions),
     };
     try vm.context.stackPushMany(vm.allocator, &.{
@@ -514,7 +513,6 @@ test "return_value restores previous stack frame and places return value on top"
     };
     const proc = Proc{
         .args = 2,
-        .locals_count = 2,
         .instructions = try vm.allocator.dupe(Instruction, instructions),
     };
 
@@ -1162,7 +1160,7 @@ test "bytecode procedure with locals_count > args allocates additional local var
 
     const proc = Proc{
         .args = 2,
-        .locals_count = 4, // 2 more locals than args
+        .locals = 2,
         .instructions = try vm.allocator.dupe(Instruction, &.{
             .{ .get_local = 0 }, // Get first argument
             .{ .get_local = 1 }, // Get second argument
@@ -1192,13 +1190,13 @@ test "bytecode procedure with locals_count > args allocates additional local var
     );
 }
 
-test "bytecode procedure with locals_count equal to args works correctly" {
+test "bytecode procedure without locals is evaluated" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     const proc = Proc{
         .args = 2,
-        .locals_count = 2, // same as args
+        .locals = 0,
         .instructions = try vm.allocator.dupe(Instruction, &.{
             .{ .get_local = 0 },
             .{ .get_local = 1 },
@@ -1227,7 +1225,7 @@ test "bytecode procedure with wrong argument count raises error" {
 
     const proc = Proc{
         .args = 2,
-        .locals_count = 3,
+        .locals = 1,
         .instructions = try vm.allocator.dupe(
             Instruction,
             &.{.{ .load = Val.init(42) }},
@@ -1249,7 +1247,7 @@ test "bytecode procedure initializes additional locals to unit values" {
 
     const proc = Proc{
         .args = 1,
-        .locals_count = 2, // 1 additional local
+        .locals = 1,
         .instructions = try vm.allocator.dupe(Instruction, &.{
             .{ .set_local = 1 }, // Set additional local to value from stack
             .{ .get_local = 1 }, // Get the value back

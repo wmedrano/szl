@@ -155,6 +155,13 @@ pub fn constStack(self: Context) []const Val {
     return self.stack_vals.items;
 }
 
+/// Returns the current procedure being executed.
+///
+/// The procedure is stored at the stack position immediately before
+/// the current stack frame's arguments begin.
+///
+/// Returns:
+///   The procedure value currently being executed.
 pub fn currentProc(self: Context) Val {
     const idx = self.current_stack_frame.stack_start - 1;
     return self.stack_vals.items[idx];

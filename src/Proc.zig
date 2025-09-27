@@ -20,10 +20,10 @@ const Proc = @This();
 name: ?Symbol.Interned = null,
 
 /// The number of arguments for the procedure.
-args: usize = 0,
+args: u32 = 0,
 
-/// The total number of local variable slots (arguments + local variables).
-locals_count: usize = 0,
+/// The total number of local variable slots.
+locals: u32 = 0,
 
 /// Array of instructions that implement the procedure logic.
 instructions: []const Instruction,
@@ -52,10 +52,6 @@ pub fn deinit(self: *Proc, allocator: std.mem.Allocator) void {
     self.instructions = &.{};
 }
 
-pub fn locals(self: Proc) usize {
-    return self.locals_count - self.args;
-}
-
 test "Procedure is small" {
-    try testing.expectEqual(40, @sizeOf(Proc));
+    try testing.expectEqual(32, @sizeOf(Proc));
 }

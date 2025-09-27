@@ -35,7 +35,7 @@ pub const Binding = struct {
     /// The interned symbol name.
     name: Symbol.Interned,
     /// Stack index for this binding.
-    index: isize,
+    index: i32,
     /// Type classification of this binding.
     type: Type,
 };
@@ -95,40 +95,29 @@ pub fn addLocal(self: *Scope, allocator: std.mem.Allocator, symbol: Symbol.Inter
     return self.addBinding(allocator, binding);
 }
 
-/// Returns the number of procedure arguments.
-pub fn argCount(self: *Scope) usize {
-    var max_arg_index: isize = 0;
-    for (self.bindings.items) |binding| {
-        if (binding.type == .argument) {
-            if (binding.index + 1 > max_arg_index) max_arg_index = binding.index + 1;
-        }
-    }
-    return @intCast(max_arg_index);
-}
-
+/// Statistics about bindings in a scope.
 pub const Stats = struct {
-    args: usize = 0,
-    locals: usize = 0,
-    total: usize = 0,
+    /// Number of argument bindings.
+    args: u32 = 0,
+    /// Number of local variable bindings.
+    locals: u32 = 0,
 };
 
+/// Computes statistics about the bindings in this scope.
+///
+/// Analyzes all bindings to count arguments, locals, and total bindings.
+/// This is useful for understanding the scope's memory layout and requirements.
+///
+/// Returns:
+///   A Stats struct containing counts of different binding types.
 pub fn stats(self: *Scope) Stats {
     var ret = Stats{};
     for (self.bindings.items) |binding| {
         switch (binding.type) {
-            .argument => ret.args = @max(ret.args, binding.index),
-            .free, .hidden, .local => @max(ret.args, binding.index),
+            .argument => ret.args = @max(ret.args, binding.index + 1),
+            .free, .hidden, .local => ret.locals = @max(ret.args, binding.index + 1),
             .proc => {},
         }
     }
     return ret;
-}
-
-/// Returns the total number of local variable slots.
-pub fn count(self: *Scope) usize {
-    var max_index: isize = 0;
-    for (self.bindings.items) |binding| {
-        if (binding.index + 1 > max_index) max_index = binding.index + 1;
-    }
-    return @intCast(max_index);
 }
