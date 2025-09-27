@@ -10,7 +10,7 @@ const testing = std.testing;
 
 const object_pool = @import("object_pool.zig");
 const Handle = object_pool.Handle;
-const Procedure = @import("Procedure.zig");
+const Proc = @import("Proc.zig");
 const ByteVector = @import("types/ByteVector.zig");
 const Char = @import("types/Char.zig");
 const Continuation = @import("types/Continuation.zig");
@@ -236,7 +236,7 @@ fn formatValue(self: PrettyPrinter, writer: *std.Io.Writer, val: Val) error{Writ
             try self.formatCdr(writer, cons.cdr);
             try writer.writeAll(")");
         },
-        .proc => |proc_handle| try self.formatProcedure(writer, proc_handle),
+        .proc => |proc_handle| try self.formatProc(writer, proc_handle),
         .native_proc => |proc| try writer.print("#<procedure:{s}>", .{proc.name}),
         .operator => |op| try writer.print("<operator:{s}>", .{@tagName(op)}),
         .continuation => |_| try writer.writeAll("#<procedure:continuation>"),
@@ -249,8 +249,8 @@ fn formatValue(self: PrettyPrinter, writer: *std.Io.Writer, val: Val) error{Writ
 ///   self: The PrettyPrinter instance.
 ///   writer: The writer to output to.
 ///   proc_handle: The procedure handle to format.
-fn formatProcedure(self: PrettyPrinter, writer: *std.Io.Writer, proc_handle: Handle(Procedure)) error{WriteFailed}!void {
-    const proc = self.vm.inspector().resolve(Procedure, proc_handle) catch {
+fn formatProc(self: PrettyPrinter, writer: *std.Io.Writer, proc_handle: Handle(Proc)) error{WriteFailed}!void {
+    const proc = self.vm.inspector().resolve(Proc, proc_handle) catch {
         try writer.print("#<invalid-procedure:{d}>", .{proc_handle.idx});
         return;
     };

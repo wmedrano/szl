@@ -19,7 +19,7 @@ const instruction = @import("instruction.zig");
 const Instruction = instruction.Instruction;
 const ObjectPool = @import("object_pool.zig").ObjectPool;
 const PrettyPrinter = @import("PrettyPrinter.zig");
-const Procedure = @import("Procedure.zig");
+const Proc = @import("Proc.zig");
 const ByteVector = @import("types/ByteVector.zig");
 const Continuation = @import("types/Continuation.zig");
 const Pair = @import("types/Pair.zig");
@@ -108,7 +108,7 @@ pairs: ObjectPool(Pair),
 
 /// Object pool for managing Procedure objects with automatic memory recycling.
 /// Stores both native and bytecode procedures for efficient reuse.
-procedures: ObjectPool(Procedure),
+procedures: ObjectPool(Proc),
 
 /// Object pool for managing String objects with automatic memory recycling.
 /// Provides efficient allocation and deallocation of string values.
@@ -159,7 +159,7 @@ pub fn init(options: Options) error{OutOfMemory}!Vm {
         .interner = interner,
         .reachable_color = Color.blue,
         .pairs = ObjectPool(Pair).init(),
-        .procedures = ObjectPool(Procedure).init(),
+        .procedures = ObjectPool(Proc).init(),
         .strings = ObjectPool(String).init(),
         .vectors = ObjectPool(Vector).init(),
         .bytevectors = ObjectPool(ByteVector).init(),
@@ -507,7 +507,7 @@ fn markContext(self: *Vm, context: Context) !void {
 /// - Primitive values (nil, boolean, i64, f64, char, symbol): No marking needed
 /// - String, bytevector: Mark the object but no further traversal required
 /// - Pair: Mark the pair and recursively mark both car and cdr
-/// - Procedure: Mark the procedure and any embedded values in bytecode instructions
+/// - Proc: Mark the procedure and any embedded values in bytecode instructions
 /// - Vector: Mark the vector and recursively mark all contained elements
 /// - Record: Mark the record, its type descriptor, and all field values
 /// - Record type descriptor: Mark the descriptor (no further traversal needed)

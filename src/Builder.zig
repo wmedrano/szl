@@ -7,9 +7,10 @@ const std = @import("std");
 const testing = std.testing;
 
 const Reader = @import("compiler/Reader.zig");
+const NativeProc = @import("NativeProc.zig");
 const object_pool = @import("object_pool.zig");
 const Handle = object_pool.Handle;
-const Procedure = @import("Procedure.zig");
+const Proc = @import("Proc.zig");
 const ByteVector = @import("types/ByteVector.zig");
 const Continuation = @import("types/Continuation.zig");
 const Pair = @import("types/Pair.zig");
@@ -81,21 +82,21 @@ pub fn build(self: Builder, v: anytype) Error!Val {
         Symbol.Interned,
         Handle(String),
         Handle(Pair),
-        Handle(Procedure),
+        Handle(Proc),
         Handle(Vector),
         Handle(ByteVector),
         Handle(Record),
         Handle(Record.RecordTypeDescriptor),
         Handle(Continuation),
         => return Val.init(v),
-        *const Procedure.Native => return Val.init(v),
-        Procedure.Native,
-        *Procedure.Native,
-        => @compileError("found type " ++ @typeName(type_info) ++ ", did you mean *const Procedure.Native?"),
+        *const NativeProc.Native => return Val.init(v),
+        NativeProc.Native,
+        *NativeProc.Native,
+        => @compileError("found type " ++ @typeName(type_info) ++ ", did you mean *const NativeProc.Native?"),
         Symbol => return self.internVal(v),
         String => return Val.init(try self.vm.strings.put(self.vm.allocator, v, color)),
         Pair => return Val.init(try self.vm.pairs.put(self.vm.allocator, v, color)),
-        Procedure => return Val.init(try self.vm.procedures.put(self.vm.allocator, v, color)),
+        Proc => return Val.init(try self.vm.procedures.put(self.vm.allocator, v, color)),
         Vector => return Val.init(try self.vm.vectors.put(self.vm.allocator, v, color)),
         ByteVector => return Val.init(try self.vm.bytevectors.put(self.vm.allocator, v, color)),
         Record => return Val.init(try self.vm.records.put(self.vm.allocator, v, color)),
@@ -134,7 +135,7 @@ pub fn buildHandle(self: Builder, v: anytype) !Handle(@TypeOf(v)) {
     return switch (@TypeOf(v)) {
         String => val.repr.string,
         Pair => val.repr.pair,
-        Procedure => val.repr.procedure,
+        Proc => val.repr.procedure,
         Vector => val.repr.vector,
         ByteVector => val.repr.bytevector,
         Record => val.repr.record,
@@ -321,7 +322,7 @@ pub fn define(self: Builder, symbol: anytype, value: Val) !void {
 ///
 /// Returns:
 ///   An error if symbol interning or value storage fails.
-pub fn defineNativeProc(self: Builder, proc: *const Procedure.Native) !void {
+pub fn defineNativeProc(self: Builder, proc: *const NativeProc.Native) !void {
     const symbol = try self.internStatic(Symbol.init(proc.name));
     try self.define(symbol, Val.init(proc));
 }
@@ -547,14 +548,14 @@ test "build with multiple element []Val creates proper list" {
     );
 }
 
-test "build with Procedure creates procedure val" {
+test "build with Proc creates procedure val" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const test_procedure = Procedure.Native{
+    const test_procedure = NativeProc.Native{
         .name = "test-proc",
         .func = struct {
-            fn testFunc(_: Procedure.NativeContext) Vm.Error!Val {
+            fn testFunc(_: NativeProc.NativeContext) Vm.Error!Val {
                 return Val.init(42);
             }
         }.testFunc,
@@ -798,4 +799,3 @@ test "build with Handle(Record.RecordTypeDescriptor) creates record type descrip
     try testing.expectEqual(.record_type_descriptor, std.meta.activeTag(result.repr));
     try testing.expectEqual(descriptor_handle, result.repr.record_type_descriptor);
 }
-

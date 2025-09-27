@@ -8,9 +8,10 @@
 const std = @import("std");
 const testing = std.testing;
 
+const NativeProc = @import("../NativeProc.zig");
 const object_pool = @import("../object_pool.zig");
 const Handle = object_pool.Handle;
-const Procedure = @import("../Procedure.zig");
+const Procedure = @import("../Proc.zig");
 const Vm = @import("../Vm.zig");
 const ByteVector = @import("ByteVector.zig");
 const Char = @import("Char.zig");
@@ -69,7 +70,7 @@ pub const Repr = union(enum) {
     proc: Handle(Procedure),
 
     /// Similar to `proc`, but implemented in natively in Zig.
-    native_proc: *const Procedure.Native,
+    native_proc: *const NativeProc.Native,
 
     /// Optimized operator procedure for common Scheme operations.
     /// Operators provide more efficient implementations than bytecode
@@ -132,7 +133,7 @@ pub fn init(v: anytype) Val {
         Handle(String) => return init(Val.Repr{ .string = v }),
         Handle(Pair) => return init(Val.Repr{ .pair = v }),
         Handle(Procedure) => return init(Val.Repr{ .proc = v }),
-        *const Procedure.Native => return init(Val.Repr{ .native_proc = v }),
+        *const NativeProc.Native => return init(Val.Repr{ .native_proc = v }),
         Handle(Vector) => return init(Val.Repr{ .vector = v }),
         Handle(ByteVector) => return init(Val.Repr{ .bytevector = v }),
         Handle(Record) => return init(Val.Repr{ .record = v }),
@@ -382,10 +383,10 @@ test "isTruthy returns true for procedure" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const proc = Procedure.Native{
+    const proc = NativeProc.Native{
         .name = "test-proc",
         .func = struct {
-            fn func(_: Procedure.NativeContext) Vm.Error!Val {
+            fn func(_: NativeProc.NativeContext) Vm.Error!Val {
                 return Val.init({});
             }
         }.func,
@@ -412,10 +413,10 @@ test "isProcedure returns true for procedure value" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const proc = Procedure.Native{
+    const proc = NativeProc.Native{
         .name = "test-proc",
         .func = struct {
-            fn func(_: Procedure.NativeContext) Vm.Error!Val {
+            fn func(_: NativeProc.NativeContext) Vm.Error!Val {
                 return Val.init({});
             }
         }.func,

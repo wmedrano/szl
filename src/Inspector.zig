@@ -7,10 +7,11 @@
 const std = @import("std");
 const testing = std.testing;
 
+const NativeProc = @import("NativeProc.zig");
 const object_pool = @import("object_pool.zig");
 const Handle = object_pool.Handle;
 const PrettyPrinter = @import("PrettyPrinter.zig");
-const Procedure = @import("Procedure.zig");
+const Proc = @import("Proc.zig");
 const ByteVector = @import("types/ByteVector.zig");
 const Char = @import("types/Char.zig");
 const Continuation = @import("types/Continuation.zig");
@@ -278,16 +279,16 @@ pub fn to(self: Inspector, T: type, val: Val) !T {
             else => return error.TypeMismatch,
         },
         .proc => |p| switch (T) {
-            Handle(Procedure) => return p,
-            Procedure => return try self.resolve(Procedure, p),
+            Handle(Proc) => return p,
+            Proc => return try self.resolve(Proc, p),
             else => return error.TypeMismatch,
         },
         .native_proc => |p| switch (T) {
-            *const Procedure.Native => return p,
+            *const NativeProc.Native => return p,
             else => return error.TypeMismatch,
         },
         .operator => |o| switch (T) {
-            Procedure.Operator => return o,
+            Proc.Operator => return o,
             else => return error.TypeMismatch,
         },
         .continuation => |c| switch (T) {
@@ -310,14 +311,14 @@ pub fn to(self: Inspector, T: type, val: Val) !T {
 pub fn resolve(self: Inspector, T: type, handle: Handle(T)) !T {
     return switch (T) {
         Pair => self.vm.pairs.get(handle) orelse error.ObjectNotFound,
-        Procedure => self.vm.procedures.get(handle) orelse error.ObjectNotFound,
+        Proc => self.vm.procedures.get(handle) orelse error.ObjectNotFound,
         String => self.vm.strings.get(handle) orelse return error.ObjectNotFound,
         Vector => self.vm.vectors.get(handle) orelse return error.ObjectNotFound,
         ByteVector => self.vm.bytevectors.get(handle) orelse return error.ObjectNotFound,
         Record => self.vm.records.get(handle) orelse return error.ObjectNotFound,
         Record.RecordTypeDescriptor => self.vm.record_type_descriptors.get(handle) orelse return error.ObjectNotFound,
         Continuation => self.vm.continuations.get(handle) orelse return error.ObjectNotFound,
-        else => @compileError("resolve() only supports Pair, Procedure, String, Vector, ByteVector, Record, Record.RecordTypeDescriptor, and Continuation, got " ++ @typeName(T)),
+        else => @compileError("resolve() only supports Pair, Proc, String, Vector, ByteVector, Record, Record.RecordTypeDescriptor, and Continuation, got " ++ @typeName(T)),
     };
 }
 

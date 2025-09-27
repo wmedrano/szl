@@ -8,7 +8,8 @@ const testing = std.testing;
 
 const instruction = @import("../instruction.zig");
 const Instruction = instruction.Instruction;
-const Procedure = @import("../Procedure.zig");
+const Proc = @import("../Proc.zig");
+const NativeProc = @import("../NativeProc.zig");
 const Symbol = @import("../types/Symbol.zig");
 const Val = @import("../types/Val.zig");
 const Vm = @import("../Vm.zig");
@@ -26,10 +27,10 @@ const Vm = @import("../Vm.zig");
 ///
 /// Errors:
 ///   - `wrong-number-of-arguments`: When not exactly 1 argument is provided
-const boolean_predicate_native = Procedure.Native{
+const boolean_predicate_native = NativeProc.Native{
     .name = "boolean?",
     .func = struct {
-        fn func(ctx: Procedure.NativeContext) Vm.Error!Val {
+        fn func(ctx: NativeProc.NativeContext) Vm.Error!Val {
             const args = ctx.localStack();
             if (args.len != 1) {
                 try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
@@ -58,10 +59,10 @@ const boolean_predicate_native = Procedure.Native{
 ///
 /// Errors:
 ///   - `wrong-number-of-arguments`: When not exactly 1 argument is provided
-const not_native = Procedure.Native{
+const not_native = NativeProc.Native{
     .name = "not",
     .func = struct {
-        fn func(ctx: Procedure.NativeContext) Vm.Error!Val {
+        fn func(ctx: NativeProc.NativeContext) Vm.Error!Val {
             const args = ctx.localStack();
             if (args.len != 1) {
                 try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
@@ -91,10 +92,10 @@ const not_native = Procedure.Native{
 ///
 /// Errors:
 ///   - `type-error`: When any argument is not a boolean value
-const boolean_equal_native = Procedure.Native{
+const boolean_equal_native = NativeProc.Native{
     .name = "boolean=?",
     .func = struct {
-        fn func(ctx: Procedure.NativeContext) Vm.Error!Val {
+        fn func(ctx: NativeProc.NativeContext) Vm.Error!Val {
             const args = ctx.localStack();
 
             // 0 arguments: vacuously true

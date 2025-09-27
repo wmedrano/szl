@@ -12,7 +12,7 @@ const Symbol = @import("types/Symbol.zig");
 const Val = @import("types/Val.zig");
 const Vm = @import("Vm.zig");
 
-const Procedure = @This();
+const Proc = @This();
 
 /// The name of this procedure as an interned symbol.
 /// This is used for identifying procedures in error messages,
@@ -28,37 +28,10 @@ locals_count: usize = 0,
 /// Array of instructions that implement the procedure logic.
 instructions: []const Instruction,
 
-/// Native Zig function wrapper for procedures.
-/// Contains a function pointer that takes a Context and returns a value.
-pub const Native = struct {
-    /// The name of the procedure.
-    name: []const u8,
-    /// Function pointer that implements the procedure logic.
-    /// Takes a Context providing access to VM state and returns a value.
-    func: *const fn (NativeContext) Vm.Error!Val,
-};
-
-/// Execution context for procedure calls.
-/// Provides access to the VM state during procedure execution.
-pub const NativeContext = struct {
-    vm: *Vm,
-
-    /// Gets the local stack slice for the current procedure call.
-    /// Returns the portion of the VM's stack that contains the arguments
-    /// for the currently executing procedure.
-    ///
-    /// Returns:
-    ///   A slice of Val containing the arguments for the current procedure.
-    pub fn localStack(self: NativeContext) []const Val {
-        const frame = self.vm.context.current_stack_frame;
-        return self.vm.context.stack()[frame.stack_start..];
-    }
-};
-
 /// Optimized operator procedures for common Scheme operations.
 /// These operators provide more efficient implementations than bytecode
 /// for frequently used operations like call-with-current-continuation.
-pub const Operator = enum {
+pub const Operator = union(enum) {
     /// Unary call-with-current-continuation operator.
     /// Captures the current continuation and passes it to a procedure.
     unary_call_with_cc,
@@ -74,11 +47,11 @@ pub const Operator = enum {
 
 /// Deallocates resources associated with this procedure.
 /// Frees the instructions array and resets the procedure to an empty state.
-pub fn deinit(self: *Procedure, allocator: std.mem.Allocator) void {
+pub fn deinit(self: *Proc, allocator: std.mem.Allocator) void {
     allocator.free(self.instructions);
     self.instructions = &.{};
 }
 
 test "Procedure is small" {
-    try testing.expectEqual(40, @sizeOf(Procedure));
+    try testing.expectEqual(40, @sizeOf(Proc));
 }

@@ -9,7 +9,7 @@ const define_fn = @import("../builtins/define.zig").define_fn;
 const Inspector = @import("../Inspector.zig");
 const instruction_mod = @import("../instruction.zig");
 const Instruction = instruction_mod.Instruction;
-const Procedure = @import("../Procedure.zig");
+const Proc = @import("../Proc.zig");
 const Pair = @import("../types/Pair.zig");
 const Symbol = @import("../types/Symbol.zig");
 const Val = @import("../types/Val.zig");
@@ -87,7 +87,7 @@ pub fn compile(vm: *Vm, arena: *std.heap.ArenaAllocator, expr: Val, options: Opt
 ///   - InvalidExpression if the IR cannot be compiled.
 fn compileIr(self: *Compiler, name: ?Symbol.Interned, ir: Ir) Error!Val {
     try self.addIr(ir);
-    const proc = Procedure{
+    const proc = Proc{
         .name = name,
         .args = self.scope.argCount(),
         .locals_count = self.scope.count(),
@@ -108,7 +108,6 @@ fn compileIr(self: *Compiler, name: ?Symbol.Interned, ir: Ir) Error!Val {
 fn addInstruction(self: *Compiler, instruction: Instruction) Error!void {
     try self.instructions.append(self.arena.allocator(), instruction);
 }
-
 
 /// Generates instructions to retrieve a symbol's value.
 /// Emits GetLocal if the symbol is bound locally, otherwise GetGlobal.
@@ -307,7 +306,7 @@ pub fn expectInstructions(expected_instructions: []const Instruction, vm: *Vm, s
     defer arena.deinit();
     const expr = try vm.builder().readOne(source);
     const proc_val = try compile(vm, &arena, expr, .{});
-    const proc = try vm.fromVal(Procedure, proc_val);
+    const proc = try vm.fromVal(Proc, proc_val);
 
     try testing.expectEqualDeep(
         expected_instructions,
@@ -359,7 +358,7 @@ test "compile define procedure expression" {
     defer arena.deinit();
     const expr = try vm.builder().readOne("(define (foo) 42)");
     const proc_val = try compile(&vm, &arena, expr, .{});
-    const proc = try vm.fromVal(Procedure, proc_val);
+    const proc = try vm.fromVal(Proc, proc_val);
 
     const instructions = proc.instructions;
 
@@ -388,7 +387,7 @@ test "compile define procedure with recursive call" {
     var arena = std.heap.ArenaAllocator.init(vm.allocator);
     defer arena.deinit();
     const expr = try vm.builder().readOne("(define (foo x) (foo x))");
-    const proc = try vm.fromVal(Procedure, try compile(&vm, &arena, expr, .{}));
+    const proc = try vm.fromVal(Proc, try compile(&vm, &arena, expr, .{}));
 
     const instructions = proc.instructions;
 
@@ -401,7 +400,7 @@ test "compile define procedure with recursive call" {
         Instruction{ .load = try vm.builder().internStaticVal(Symbol.init("foo")) },
         instructions[1],
     );
-    const foo_proc = try vm.fromVal(Procedure, proc.instructions[2].load);
+    const foo_proc = try vm.fromVal(Proc, proc.instructions[2].load);
     try testing.expectEqualDeep(
         &[_]Instruction{
             .{ .get_local = -1 },
@@ -492,7 +491,7 @@ test "compile quote with integer" {
     defer arena.deinit();
 
     const proc_val = try compile(&vm, &arena, try vm.builder().readOne("'42"), .{});
-    const proc = try vm.fromVal(Procedure, proc_val);
+    const proc = try vm.fromVal(Proc, proc_val);
 
     try testing.expectEqual(1, proc.instructions.len);
     try testing.expectEqual(
@@ -530,7 +529,7 @@ test "compile quote with list" {
     defer arena.deinit();
 
     const proc_val = try compile(&vm, &arena, try vm.builder().readOne("'(1 2 3)"), .{});
-    const proc = try vm.fromVal(Procedure, proc_val);
+    const proc = try vm.fromVal(Proc, proc_val);
 
     try testing.expectEqual(1, proc.instructions.len);
     const instruction = proc.instructions[0];
@@ -682,12 +681,12 @@ test "compile lambda with multiple parameters" {
 
     const expr = try vm.builder().readOne("(lambda (x y z) (+ x y z))");
     const proc_val = try compile(&vm, &arena, expr, .{});
-    const proc = try vm.fromVal(Procedure, proc_val);
+    const proc = try vm.fromVal(Proc, proc_val);
 
     try testing.expectEqual(1, proc.instructions.len);
     try testing.expectEqual(.load, std.meta.activeTag(proc.instructions[0]));
 
-    const lambda_proc = try vm.fromVal(Procedure, proc.instructions[0].load);
+    const lambda_proc = try vm.fromVal(Proc, proc.instructions[0].load);
     try testing.expectEqual(3, lambda_proc.args);
     try testing.expectEqual(3, lambda_proc.locals_count);
 }
@@ -700,12 +699,12 @@ test "compile lambda with no parameters" {
 
     const expr = try vm.builder().readOne("(lambda () 42)");
     const proc_val = try compile(&vm, &arena, expr, .{});
-    const proc = try vm.fromVal(Procedure, proc_val);
+    const proc = try vm.fromVal(Proc, proc_val);
 
     try testing.expectEqual(1, proc.instructions.len);
     try testing.expectEqual(.load, std.meta.activeTag(proc.instructions[0]));
 
-    const lambda_proc = try vm.fromVal(Procedure, proc.instructions[0].load);
+    const lambda_proc = try vm.fromVal(Proc, proc.instructions[0].load);
     try testing.expectEqual(0, lambda_proc.args);
     try testing.expectEqualDeep(
         &[_]Instruction{.{ .load = Val.init(42) }},
@@ -721,13 +720,13 @@ test "compile nested lambdas" {
 
     const expr = try vm.builder().readOne("(lambda (x) (lambda (y) (+ x y)))");
     const proc_val = try compile(&vm, &arena, expr, .{});
-    const proc = try vm.fromVal(Procedure, proc_val);
+    const proc = try vm.fromVal(Proc, proc_val);
 
-    const outer_lambda = try vm.fromVal(Procedure, proc.instructions[0].load);
+    const outer_lambda = try vm.fromVal(Proc, proc.instructions[0].load);
     try testing.expectEqual(1, outer_lambda.args);
 
     try testing.expectEqual(.load, std.meta.activeTag(outer_lambda.instructions[0]));
-    const inner_lambda = try vm.fromVal(Procedure, outer_lambda.instructions[0].load);
+    const inner_lambda = try vm.fromVal(Proc, outer_lambda.instructions[0].load);
     try testing.expectEqual(1, inner_lambda.args);
 }
 
@@ -840,9 +839,9 @@ test "compile lambda with local variable access" {
     defer arena.deinit();
     const expr = try vm.builder().readOne("(lambda (x) x)");
     const proc_val = try compile(&vm, &arena, expr, .{});
-    const proc = try vm.fromVal(Procedure, proc_val);
+    const proc = try vm.fromVal(Proc, proc_val);
 
-    const lambda_proc = try vm.fromVal(Procedure, proc.instructions[0].load);
+    const lambda_proc = try vm.fromVal(Proc, proc.instructions[0].load);
     try testing.expectEqual(1, lambda_proc.args);
     try testing.expectEqualDeep(
         &[_]Instruction{.{ .get_local = 0 }},
@@ -862,8 +861,8 @@ test "compile empty body returns nil" {
     defer arena.deinit();
     const expr = try vm.builder().readOne("(lambda ())");
     const proc_val = try compile(&vm, &arena, expr, .{});
-    const proc = try vm.fromVal(Procedure, proc_val);
-    const lambda_proc = try vm.fromVal(Procedure, proc.instructions[0].load);
+    const proc = try vm.fromVal(Proc, proc_val);
+    const lambda_proc = try vm.fromVal(Proc, proc.instructions[0].load);
     try testing.expectEqualDeep(
         &[_]Instruction{.{ .load = Val.init({}) }},
         lambda_proc.instructions,
@@ -888,7 +887,7 @@ test "compile complex jump calculations" {
     defer arena.deinit();
     const expr = try vm.builder().readOne(source);
     const proc_val = try compile(&vm, &arena, expr, .{});
-    const proc = try vm.fromVal(Procedure, proc_val);
+    const proc = try vm.fromVal(Proc, proc_val);
 
     var jump_count: u32 = 0;
     for (proc.instructions) |instr| {
@@ -907,7 +906,7 @@ test "compile quote with nested list structure" {
     defer arena.deinit();
 
     const proc_val = try compile(&vm, &arena, try vm.builder().readOne("'((1 2) (3 4))"), .{});
-    const proc = try vm.fromVal(Procedure, proc_val);
+    const proc = try vm.fromVal(Proc, proc_val);
 
     try testing.expectEqual(1, proc.instructions.len);
     try testing.expectEqual(.load, std.meta.activeTag(proc.instructions[0]));

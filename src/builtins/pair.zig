@@ -8,7 +8,8 @@ const testing = std.testing;
 
 const instruction = @import("../instruction.zig");
 const Instruction = instruction.Instruction;
-const Procedure = @import("../Procedure.zig");
+const Proc = @import("../Proc.zig");
+const NativeProc = @import("../NativeProc.zig");
 const Pair = @import("../types/Pair.zig");
 const Symbol = @import("../types/Symbol.zig");
 const Val = @import("../types/Val.zig");
@@ -27,10 +28,10 @@ const Vm = @import("../Vm.zig");
 ///
 /// Errors:
 ///   - `wrong-number-of-arguments`: When not exactly 1 argument is provided
-const pair_predicate_native = Procedure.Native{
+const pair_predicate_native = NativeProc.Native{
     .name = "pair?",
     .func = struct {
-        fn func(ctx: Procedure.NativeContext) Vm.Error!Val {
+        fn func(ctx: NativeProc.NativeContext) Vm.Error!Val {
             const args = ctx.localStack();
             if (args.len != 1) {
                 try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
@@ -60,10 +61,10 @@ const pair_predicate_native = Procedure.Native{
 /// Errors:
 ///   - `wrong-number-of-arguments`: When not exactly 2 arguments are provided
 ///   - `invalid-argument`: When pair construction fails (allocation error)
-const cons_native = Procedure.Native{
+const cons_native = NativeProc.Native{
     .name = "cons",
     .func = struct {
-        fn func(ctx: Procedure.NativeContext) Vm.Error!Val {
+        fn func(ctx: NativeProc.NativeContext) Vm.Error!Val {
             const args = ctx.localStack();
             if (args.len != 2) {
                 try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
@@ -93,10 +94,10 @@ const cons_native = Procedure.Native{
 /// Errors:
 ///   - `wrong-number-of-arguments`: When not exactly 1 argument is provided
 ///   - `type-error`: When the argument is not a pair or pair resolution fails
-const car_native = Procedure.Native{
+const car_native = NativeProc.Native{
     .name = "car",
     .func = struct {
-        fn func(ctx: Procedure.NativeContext) Vm.Error!Val {
+        fn func(ctx: NativeProc.NativeContext) Vm.Error!Val {
             const args = ctx.localStack();
             if (args.len != 1) {
                 try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
@@ -134,10 +135,10 @@ const car_native = Procedure.Native{
 /// Errors:
 ///   - `wrong-number-of-arguments`: When not exactly 1 argument is provided
 ///   - `type-error`: When the argument is not a pair or pair resolution fails
-const cdr_native = Procedure.Native{
+const cdr_native = NativeProc.Native{
     .name = "cdr",
     .func = struct {
-        fn func(ctx: Procedure.NativeContext) Vm.Error!Val {
+        fn func(ctx: NativeProc.NativeContext) Vm.Error!Val {
             const args = ctx.localStack();
             if (args.len != 1) {
                 try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));

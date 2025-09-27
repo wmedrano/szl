@@ -2,7 +2,8 @@ const std = @import("std");
 const testing = std.testing;
 
 const Instruction = @import("instruction.zig").Instruction;
-const Procedure = @import("Procedure.zig");
+const NativeProc = @import("NativeProc.zig");
+const Proc = @import("Proc.zig");
 const Val = @import("types/Val.zig");
 const Vm = @import("Vm.zig");
 
@@ -30,10 +31,10 @@ current_stack_frame: Context.StackFrame = .{},
 /// handlers.
 err: ?Val = null,
 
-const default_exception_handler = Procedure.Native{
+const default_exception_handler = NativeProc.Native{
     .name = "szl-default-exception-handler",
     .func = struct {
-        fn func(ctx: Procedure.NativeContext) Vm.Error!Val {
+        fn func(ctx: NativeProc.NativeContext) Vm.Error!Val {
             const local_stack = ctx.localStack();
             ctx.vm.context.err = if (local_stack.len == 0) Val.init({}) else local_stack[0];
             return Vm.Error.UncaughtException;

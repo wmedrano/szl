@@ -3,7 +3,8 @@ const testing = std.testing;
 
 const Context = @import("Context.zig");
 const Handle = @import("object_pool.zig").Handle;
-const Procedure = @import("Procedure.zig");
+const NativeProc = @import("NativeProc.zig");
+const Proc = @import("Proc.zig");
 const Continuation = @import("types/Continuation.zig");
 const Symbol = @import("types/Symbol.zig");
 const Val = @import("types/Val.zig");
@@ -109,7 +110,6 @@ pub fn executeNext(vm: *Vm) !void {
     try instruction.execute(vm);
 }
 
-
 /// Retrieves a global variable value and loads it onto the stack.
 /// Looks up the global variable associated with the given interned symbol
 /// and pushes its value onto the VM's execution stack.
@@ -189,7 +189,6 @@ pub fn evalProc(vm: *Vm, arg_count: usize) Vm.Error!void {
     const proc_idx = stack_start - 1;
     const proc_val = vm.context.constStack()[proc_idx];
     switch (proc_val.repr) {
-        .operator => |o| try evalOperator(vm, o, arg_count),
         .proc => |proc_handle| try evalBytecodeProc(vm, proc_handle, arg_count, stack_start),
         .native_proc => |proc| try evalNativeProc(vm, proc.*, stack_start),
         .continuation => |cont_handle| try evalContinuation(vm, cont_handle, arg_count),
@@ -200,43 +199,6 @@ pub fn evalProc(vm: *Vm, arg_count: usize) Vm.Error!void {
     }
 }
 
-/// Evaluates an operator procedure (like call-with-current-continuation).
-///
-/// Args:
-///   vm: Pointer to the virtual machine that will execute the operator.
-///   operator: The operator to evaluate.
-///   arg_count: Number of arguments to pass to the operator.
-///
-/// Errors:
-///   - May return memory allocation errors if stack operations fail.
-/// Evaluates an operator procedure (like call-with-current-continuation).
-///
-/// Args:
-///   vm: Pointer to the virtual machine that will execute the operator.
-///   operator: The operator to evaluate.
-///   arg_count: Number of arguments to pass to the operator.
-///
-/// Errors:
-///   - May return memory allocation errors if stack operations fail.
-inline fn evalOperator(vm: *Vm, operator: Procedure.Operator, arg_count: usize) !void {
-    switch (operator) {
-        .unary_call_with_cc => {
-            if (arg_count != 1)
-                try raiseWithError(vm, Val.init(vm.common_symbols.@"wrong-number-of-arguments"));
-            const continuation = try vm.toVal(Continuation{
-                .context = try vm.context.clone(vm.allocator),
-            });
-            // Set up the stack for calling the provided procedure.
-            // Before: [call-with-cc proc-arg]
-            // After:  [proc-arg continuation-proc]
-            const proc_arg = vm.context.stackPop() orelse unreachable;
-            _ = vm.context.stackPop() orelse unreachable;
-            try vm.context.stackPushMany(vm.allocator, &.{ proc_arg, continuation });
-            return evalProc(vm, 1);
-        },
-    }
-}
-
 /// Evaluates a bytecode procedure by setting up a new stack frame.
 ///
 /// Args:
@@ -259,14 +221,14 @@ inline fn evalOperator(vm: *Vm, operator: Procedure.Operator, arg_count: usize) 
 /// Errors:
 ///   - May return memory allocation errors if stack frame operations fail.
 ///   - May return UncaughtException if procedure validation fails.
-inline fn evalBytecodeProc(vm: *Vm, proc_handle: Handle(Procedure), arg_count: usize, stack_start: usize) !void {
+inline fn evalBytecodeProc(vm: *Vm, proc_handle: Handle(Proc), arg_count: usize, stack_start: usize) !void {
     try vm.context.stack_frames.append(vm.allocator, vm.context.current_stack_frame);
     vm.context.current_stack_frame = Context.StackFrame{
         .stack_start = stack_start,
         .exception_handler = vm.context.current_stack_frame.next_exception_handler,
         .next_exception_handler = vm.context.current_stack_frame.next_exception_handler,
     };
-    const proc = vm.inspector().resolve(Procedure, proc_handle) catch return Vm.Error.UncaughtException;
+    const proc = vm.inspector().resolve(Proc, proc_handle) catch return Vm.Error.UncaughtException;
     if (arg_count != proc.args) {
         try raiseWithError(vm, Val.init(vm.common_symbols.@"wrong-number-of-arguments"));
         return Vm.Error.UncaughtException;
@@ -300,14 +262,14 @@ inline fn evalBytecodeProc(vm: *Vm, proc_handle: Handle(Procedure), arg_count: u
 /// Errors:
 ///   - May return memory allocation errors if stack frame operations fail.
 ///   - May return StackUnderflow if there are no stack frames to restore.
-inline fn evalNativeProc(vm: *Vm, proc: Procedure.Native, stack_start: usize) !void {
+inline fn evalNativeProc(vm: *Vm, proc: NativeProc.Native, stack_start: usize) !void {
     try vm.context.stack_frames.append(vm.allocator, vm.context.current_stack_frame);
     vm.context.current_stack_frame = Context.StackFrame{
         .stack_start = stack_start,
         .exception_handler = vm.context.current_stack_frame.next_exception_handler,
         .next_exception_handler = vm.context.current_stack_frame.next_exception_handler,
     };
-    const return_val = try proc.func(Procedure.NativeContext{ .vm = vm });
+    const return_val = try proc.func(NativeProc.NativeContext{ .vm = vm });
     try vm.context.stackPush(vm.allocator, return_val);
     try returnValue(vm);
 }
@@ -470,8 +432,8 @@ test "execute eval_procedure instruction calls procedure with arguments" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const proc = Procedure.Native{ .name = "test-proc", .func = struct {
-        fn addTwo(ctx: Procedure.NativeContext) Vm.Error!Val {
+    const proc = NativeProc.Native{ .name = "test-proc", .func = struct {
+        fn addTwo(ctx: NativeProc.NativeContext) Vm.Error!Val {
             const args = ctx.localStack();
             const val1 = ctx.vm.fromVal(i64, args[0]) catch unreachable;
             const val2 = ctx.vm.fromVal(i64, args[1]) catch unreachable;
@@ -500,7 +462,7 @@ test "execute bytecode procedure loads instructions into stack frame" {
         .{ .load = Val.init(5) },
         .{ .load = Val.init(7) },
     };
-    const proc = try vm.toVal(Procedure{
+    const proc = try vm.toVal(Proc{
         .instructions = try vm.allocator.dupe(Instruction, instructions),
     });
     try vm.context.stackPush(vm.allocator, proc);
@@ -526,7 +488,7 @@ test "execute bytecode procedure with arguments sets correct stack start" {
     const instructions = &[_]Instruction{
         .{ .load = Val.init(42) },
     };
-    const proc = Procedure{
+    const proc = Proc{
         .args = 3,
         .locals_count = 3,
         .instructions = try vm.allocator.dupe(Instruction, instructions),
@@ -555,7 +517,7 @@ test "return_value restores previous stack frame and places return value on top"
     const instructions = &[_]Instruction{
         .{ .load = Val.init(42) },
     };
-    const proc = Procedure{
+    const proc = Proc{
         .args = 2,
         .locals_count = 2,
         .instructions = try vm.allocator.dupe(Instruction, instructions),
@@ -1203,7 +1165,7 @@ test "bytecode procedure with locals_count > args allocates additional local var
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const proc = Procedure{
+    const proc = Proc{
         .args = 2,
         .locals_count = 4, // 2 more locals than args
         .instructions = try vm.allocator.dupe(Instruction, &.{
@@ -1239,7 +1201,7 @@ test "bytecode procedure with locals_count equal to args works correctly" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const proc = Procedure{
+    const proc = Proc{
         .args = 2,
         .locals_count = 2, // same as args
         .instructions = try vm.allocator.dupe(Instruction, &.{
@@ -1268,7 +1230,7 @@ test "bytecode procedure with locals_count < args raises error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const proc = Procedure{
+    const proc = Proc{
         .args = 3,
         .locals_count = 2, // less than args - invalid
         .instructions = try vm.allocator.dupe(
@@ -1292,7 +1254,7 @@ test "bytecode procedure with wrong argument count raises error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const proc = Procedure{
+    const proc = Proc{
         .args = 2,
         .locals_count = 3,
         .instructions = try vm.allocator.dupe(
@@ -1314,7 +1276,7 @@ test "bytecode procedure initializes additional locals to unit values" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const proc = Procedure{
+    const proc = Proc{
         .args = 1,
         .locals_count = 2, // 1 additional local
         .instructions = try vm.allocator.dupe(Instruction, &.{

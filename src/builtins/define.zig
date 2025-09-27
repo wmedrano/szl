@@ -11,7 +11,8 @@ const testing = std.testing;
 
 const instruction = @import("../instruction.zig");
 const Instruction = instruction.Instruction;
-const Procedure = @import("../Procedure.zig");
+const Proc = @import("../Proc.zig");
+const NativeProc = @import("../NativeProc.zig");
 const Symbol = @import("../types/Symbol.zig");
 const Val = @import("../types/Val.zig");
 const Vm = @import("../Vm.zig");
@@ -33,10 +34,10 @@ const Vm = @import("../Vm.zig");
 ///   - `wrong-number-of-arguments`: When not exactly 2 arguments are provided
 ///   - `type-error`: When the first argument is not a symbol
 ///   - `invalid-argument`: When the definition operation fails
-pub const define_fn = Procedure.Native{
+pub const define_fn = NativeProc.Native{
     .name = "define",
     .func = struct {
-        fn func(ctx: Procedure.NativeContext) Vm.Error!Val {
+        fn func(ctx: NativeProc.NativeContext) Vm.Error!Val {
             const args = ctx.localStack();
             if (args.len != 2) {
                 try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"wrong-number-of-arguments"));
