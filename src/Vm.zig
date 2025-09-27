@@ -328,7 +328,7 @@ pub fn evalStr(self: *Vm, source: []const u8) !Val {
     var reader = self.builder().read(source);
     var ret = Val.init({});
     while (try reader.next()) |expr| {
-        const proc = try Compiler.compile(self, &arena, expr);
+        const proc = try Compiler.compile(self, &arena, expr, .{});
         _ = arena.reset(.retain_capacity);
         ret = try self.evalProc(proc, &.{});
     }
@@ -380,8 +380,8 @@ test evalStr {
 ///   - Any errors that may occur during instruction execution.
 fn evalProc(self: *Vm, proc: Val, args: []const Val) !Val {
     if (self.context.err) |_| return Vm.Error.UncaughtException;
-    try instruction.load(self, proc);
-    try instruction.loadMany(self, args);
+    try self.context.stackPush(self.allocator, proc);
+    try self.context.stackPushMany(self.allocator, args);
     const initial_call_stack_size = self.context.stack_frames.items.len;
     try instruction.evalProc(self, args.len);
     while (self.context.stack_frames.items.len > initial_call_stack_size) {

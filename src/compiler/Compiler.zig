@@ -31,6 +31,16 @@ arena: *std.heap.ArenaAllocator,
 instructions: std.ArrayList(Instruction) = .{},
 /// Local bindings for managing local variable bindings during compilation.
 scope: Scope = .{},
+/// Compilation options that control compiler behavior.
+options: Options = .{},
+
+/// Compilation options that control compiler behavior.
+pub const Options = struct {
+    /// Whether to inline global variable values directly as constants when their
+    /// values are known at compile time. This can improve performance by avoiding
+    /// global lookups, but may cause issues if globals are redefined at runtime.
+    inline_globals: bool = false,
+};
 
 /// Errors that can occur during compilation.
 pub const Error = error{
@@ -48,10 +58,11 @@ pub const Error = error{
 ///
 /// Returns:
 ///   A procedure value containing the compiled bytecode, or an error if compilation fails.
-pub fn compile(vm: *Vm, arena: *std.heap.ArenaAllocator, expr: Val) Error!Val {
+pub fn compile(vm: *Vm, arena: *std.heap.ArenaAllocator, expr: Val, options: Options) Error!Val {
     var compiler = Compiler{
         .vm = vm,
         .arena = arena,
+        .options = options,
     };
 
     const ir_builder = IrBuilder.init(vm, arena);
@@ -98,6 +109,7 @@ fn addInstruction(self: *Compiler, instruction: Instruction) Error!void {
     try self.instructions.append(self.arena.allocator(), instruction);
 }
 
+
 /// Generates instructions to retrieve a symbol's value.
 /// Emits GetLocal if the symbol is bound locally, otherwise GetGlobal.
 ///
@@ -109,9 +121,12 @@ fn addInstruction(self: *Compiler, instruction: Instruction) Error!void {
 ///   - OutOfMemory if instruction allocation fails.
 fn get(self: *Compiler, symbol: Symbol.Interned) !void {
     if (self.scope.resolve(symbol)) |binding|
-        try self.addInstruction(.{ .get_local = binding.index })
-    else
-        try self.addInstruction(.{ .get_global = symbol });
+        return self.addInstruction(.{ .get_local = binding.index });
+    if (self.options.inline_globals) {
+        if (self.vm.inspector().get(symbol)) |val|
+            return self.addInstruction(.{ .load = val });
+    }
+    try self.addInstruction(.{ .get_global = symbol });
 }
 
 /// Calculates the jump distance between two instruction positions.
@@ -212,6 +227,35 @@ fn addLet(self: *Compiler, let_def: LetDef) Error!void {
     try self.addIr(let_def.body.*);
 }
 
+/// Compiles a procedure call IR node into bytecode instructions.
+/// Handles both regular procedure calls and special cases like call-with-current-continuation.
+///
+/// Args:
+///   self: The compiler instance.
+///   proc_call: The procedure call IR node containing procedure and arguments.
+///
+/// Errors:
+///   - OutOfMemory if instruction allocation fails.
+///   - InvalidExpression if the IR cannot be compiled.
+fn addProc(self: *Compiler, proc_call: IrBuilder.ProcCall) Error!void {
+    // Special case for call-with-current-continuation
+    switch (proc_call.proc.*) {
+        .get => |sym| {
+            const is_call_with_cc = self.vm.common_symbols.@"call-with-current-continuation".eql(sym) or
+                self.vm.common_symbols.@"call/cc".eql(sym);
+            if (is_call_with_cc) {
+                if (proc_call.args.len != 1) return Error.InvalidExpression;
+                try self.addIr(proc_call.args[0]);
+                return self.addInstruction(.{ .call_operator = instruction_mod.Operator.call_with_cc });
+            }
+        },
+        else => {},
+    }
+    try self.addIr(proc_call.proc.*);
+    for (proc_call.args) |arg| try self.addIr(arg);
+    try self.addInstruction(.{ .eval_proc = proc_call.args.len });
+}
+
 /// Recursively adds IR nodes to the compiler as bytecode instructions.
 /// This function handles all IR node types and converts them to instructions.
 ///
@@ -226,21 +270,7 @@ fn addIr(self: *Compiler, ir: Ir) Error!void {
     switch (ir) {
         .const_val => |val| try self.addInstruction(.{ .load = val }),
         .get => |sym| try self.get(sym),
-        .proc_call => |p| {
-            // Special case for call-with-current-continuation
-            if (p.proc.* == .get) {
-                if (self.vm.common_symbols.@"call-with-current-continuation".eql(p.proc.get) or
-                    self.vm.common_symbols.@"call/cc".eql(p.proc.get))
-                {
-                    if (p.args.len != 1) return Error.InvalidExpression;
-                    try self.addIr(p.args[0]);
-                    return self.addInstruction(.{ .call_operator = instruction_mod.Operator.call_with_cc });
-                }
-            }
-            try self.addIr(p.proc.*);
-            for (p.args) |arg| try self.addIr(arg);
-            try self.addInstruction(.{ .eval_proc = p.args.len });
-        },
+        .proc_call => |p| try self.addProc(p),
         .@"if" => |def| try self.addIf(def),
         .body => |body| {
             for (body) |expr| try self.addIr(expr);
@@ -251,8 +281,7 @@ fn addIr(self: *Compiler, ir: Ir) Error!void {
             }
         },
         .define => |def| {
-            const define_val = Val.init(&define_fn);
-            try self.addInstruction(.{ .load = define_val });
+            try self.addInstruction(.{ .load = Val.init(&define_fn) });
             try self.addInstruction(.{ .load = Val.init(def.symbol) });
             try self.addIr(def.expr.*);
             try self.addInstruction(.{ .eval_proc = 2 });
@@ -277,7 +306,7 @@ pub fn expectInstructions(expected_instructions: []const Instruction, vm: *Vm, s
     var arena = std.heap.ArenaAllocator.init(vm.allocator);
     defer arena.deinit();
     const expr = try vm.builder().readOne(source);
-    const proc_val = try compile(vm, &arena, expr);
+    const proc_val = try compile(vm, &arena, expr, .{});
     const proc = try vm.fromVal(Procedure, proc_val);
 
     try testing.expectEqualDeep(
@@ -329,7 +358,7 @@ test "compile define procedure expression" {
     var arena = std.heap.ArenaAllocator.init(vm.allocator);
     defer arena.deinit();
     const expr = try vm.builder().readOne("(define (foo) 42)");
-    const proc_val = try compile(&vm, &arena, expr);
+    const proc_val = try compile(&vm, &arena, expr, .{});
     const proc = try vm.fromVal(Procedure, proc_val);
 
     const instructions = proc.instructions;
@@ -359,7 +388,7 @@ test "compile define procedure with recursive call" {
     var arena = std.heap.ArenaAllocator.init(vm.allocator);
     defer arena.deinit();
     const expr = try vm.builder().readOne("(define (foo x) (foo x))");
-    const proc = try vm.fromVal(Procedure, try compile(&vm, &arena, expr));
+    const proc = try vm.fromVal(Procedure, try compile(&vm, &arena, expr, .{}));
 
     const instructions = proc.instructions;
 
@@ -462,7 +491,7 @@ test "compile quote with integer" {
     var arena = std.heap.ArenaAllocator.init(vm.allocator);
     defer arena.deinit();
 
-    const proc_val = try compile(&vm, &arena, try vm.builder().readOne("'42"));
+    const proc_val = try compile(&vm, &arena, try vm.builder().readOne("'42"), .{});
     const proc = try vm.fromVal(Procedure, proc_val);
 
     try testing.expectEqual(1, proc.instructions.len);
@@ -500,7 +529,7 @@ test "compile quote with list" {
     var arena = std.heap.ArenaAllocator.init(vm.allocator);
     defer arena.deinit();
 
-    const proc_val = try compile(&vm, &arena, try vm.builder().readOne("'(1 2 3)"));
+    const proc_val = try compile(&vm, &arena, try vm.builder().readOne("'(1 2 3)"), .{});
     const proc = try vm.fromVal(Procedure, proc_val);
 
     try testing.expectEqual(1, proc.instructions.len);
@@ -533,7 +562,7 @@ test "compile quote with no arguments fails" {
 
     try testing.expectError(
         Error.InvalidExpression,
-        compile(&vm, &arena, try vm.builder().readOne("(quote)")),
+        compile(&vm, &arena, try vm.builder().readOne("(quote)"), .{}),
     );
     try testing.expectError(
         error.BadExpression,
@@ -549,7 +578,7 @@ test "compile quote with multiple arguments fails" {
 
     try testing.expectError(
         Error.InvalidExpression,
-        compile(&vm, &arena, try vm.builder().readOne("(quote 1 2)")),
+        compile(&vm, &arena, try vm.builder().readOne("(quote 1 2)"), .{}),
     );
 }
 
@@ -652,7 +681,7 @@ test "compile lambda with multiple parameters" {
     defer arena.deinit();
 
     const expr = try vm.builder().readOne("(lambda (x y z) (+ x y z))");
-    const proc_val = try compile(&vm, &arena, expr);
+    const proc_val = try compile(&vm, &arena, expr, .{});
     const proc = try vm.fromVal(Procedure, proc_val);
 
     try testing.expectEqual(1, proc.instructions.len);
@@ -670,7 +699,7 @@ test "compile lambda with no parameters" {
     defer arena.deinit();
 
     const expr = try vm.builder().readOne("(lambda () 42)");
-    const proc_val = try compile(&vm, &arena, expr);
+    const proc_val = try compile(&vm, &arena, expr, .{});
     const proc = try vm.fromVal(Procedure, proc_val);
 
     try testing.expectEqual(1, proc.instructions.len);
@@ -691,7 +720,7 @@ test "compile nested lambdas" {
     defer arena.deinit();
 
     const expr = try vm.builder().readOne("(lambda (x) (lambda (y) (+ x y)))");
-    const proc_val = try compile(&vm, &arena, expr);
+    const proc_val = try compile(&vm, &arena, expr, .{});
     const proc = try vm.fromVal(Procedure, proc_val);
 
     const outer_lambda = try vm.fromVal(Procedure, proc.instructions[0].load);
@@ -810,7 +839,7 @@ test "compile lambda with local variable access" {
     var arena = std.heap.ArenaAllocator.init(vm.allocator);
     defer arena.deinit();
     const expr = try vm.builder().readOne("(lambda (x) x)");
-    const proc_val = try compile(&vm, &arena, expr);
+    const proc_val = try compile(&vm, &arena, expr, .{});
     const proc = try vm.fromVal(Procedure, proc_val);
 
     const lambda_proc = try vm.fromVal(Procedure, proc.instructions[0].load);
@@ -832,7 +861,7 @@ test "compile empty body returns nil" {
     var arena = std.heap.ArenaAllocator.init(vm.allocator);
     defer arena.deinit();
     const expr = try vm.builder().readOne("(lambda ())");
-    const proc_val = try compile(&vm, &arena, expr);
+    const proc_val = try compile(&vm, &arena, expr, .{});
     const proc = try vm.fromVal(Procedure, proc_val);
     const lambda_proc = try vm.fromVal(Procedure, proc.instructions[0].load);
     try testing.expectEqualDeep(
@@ -858,7 +887,7 @@ test "compile complex jump calculations" {
     var arena = std.heap.ArenaAllocator.init(vm.allocator);
     defer arena.deinit();
     const expr = try vm.builder().readOne(source);
-    const proc_val = try compile(&vm, &arena, expr);
+    const proc_val = try compile(&vm, &arena, expr, .{});
     const proc = try vm.fromVal(Procedure, proc_val);
 
     var jump_count: u32 = 0;
@@ -877,7 +906,7 @@ test "compile quote with nested list structure" {
     var arena = std.heap.ArenaAllocator.init(vm.allocator);
     defer arena.deinit();
 
-    const proc_val = try compile(&vm, &arena, try vm.builder().readOne("'((1 2) (3 4))"));
+    const proc_val = try compile(&vm, &arena, try vm.builder().readOne("'((1 2) (3 4))"), .{});
     const proc = try vm.fromVal(Procedure, proc_val);
 
     try testing.expectEqual(1, proc.instructions.len);

@@ -64,7 +64,6 @@ pub const Instruction = union(enum) {
     /// Creates a continuation object representing the current execution state.
     call_operator: Operator,
 
-
     /// Executes the instruction on the given virtual machine.
     /// Dispatches to the appropriate instruction implementation based on the instruction type.
     ///
@@ -76,7 +75,7 @@ pub const Instruction = union(enum) {
     ///   - May return any VM execution error depending on the instruction type.
     pub fn execute(self: Instruction, vm: *Vm) Vm.Error!void {
         switch (self) {
-            .load => |val| return load(vm, val),
+            .load => |val| return vm.context.stackPush(vm.allocator, val),
             .get_global => |symbol| return getGlobal(vm, symbol),
             .get_local => |idx| return getLocal(vm, idx),
             .set_local => |idx| return setLocal(vm, idx),
@@ -110,31 +109,6 @@ pub fn executeNext(vm: *Vm) !void {
     try instruction.execute(vm);
 }
 
-/// Loads a value onto the virtual machine's stack.
-/// Pushes the given value to the top of the VM's execution stack.
-///
-/// Args:
-///   vm: Pointer to the virtual machine whose stack will be modified.
-///   val: The value to push onto the stack.
-///
-/// Errors:
-///   - May return memory allocation errors if the stack cannot be expanded.
-pub inline fn load(vm: *Vm, val: Val) !void {
-    return vm.context.stackPush(vm.allocator, val);
-}
-
-/// Loads multiple values onto the virtual machine's stack.
-/// Pushes each value from the slice to the top of the VM's execution stack.
-///
-/// Args:
-///   vm: Pointer to the virtual machine whose stack will be modified.
-///   vals: Slice of values to push onto the stack.
-///
-/// Errors:
-///   - May return memory allocation errors if the stack cannot be expanded.
-pub inline fn loadMany(vm: *Vm, vals: []const Val) !void {
-    try vm.context.stackPushMany(vm.allocator, vals);
-}
 
 /// Retrieves a global variable value and loads it onto the stack.
 /// Looks up the global variable associated with the given interned symbol
@@ -152,7 +126,7 @@ pub fn getGlobal(vm: *Vm, symbol: Symbol.Interned) !void {
         try raiseWithError(vm, Val.init(vm.common_symbols.@"undefined-variable"));
         return;
     };
-    try load(vm, val);
+    try vm.context.stackPush(vm.allocator, val);
 }
 
 /// Retrieves a local variable value and loads it onto the stack.
@@ -167,7 +141,7 @@ pub fn getGlobal(vm: *Vm, symbol: Symbol.Interned) !void {
 ///   - May return memory allocation errors if the stack cannot be expanded.
 pub fn getLocal(vm: *Vm, idx: isize) !void {
     const absolute_idx = @as(isize, @intCast(vm.context.current_stack_frame.stack_start)) + idx;
-    try load(vm, vm.context.stack()[@intCast(absolute_idx)]);
+    try vm.context.stackPush(vm.allocator, vm.context.stack()[@intCast(absolute_idx)]);
 }
 
 /// Sets a local variable value by popping a value from the stack.
@@ -257,7 +231,7 @@ inline fn evalOperator(vm: *Vm, operator: Procedure.Operator, arg_count: usize) 
             // After:  [proc-arg continuation-proc]
             const proc_arg = vm.context.stackPop() orelse unreachable;
             _ = vm.context.stackPop() orelse unreachable;
-            try loadMany(vm, &.{ proc_arg, continuation });
+            try vm.context.stackPushMany(vm.allocator, &.{ proc_arg, continuation });
             return evalProc(vm, 1);
         },
     }
@@ -367,7 +341,7 @@ inline fn evalContinuation(vm: *Vm, cont_handle: Handle(Continuation), arg_count
     const local_stack = vm.context.constStack();
     const return_value = local_stack[local_stack.len - 1];
     try vm.context.copyFrom(vm.allocator, cont.context);
-    try load(vm, return_value);
+    try vm.context.stackPush(vm.allocator, return_value);
 }
 
 /// Raises an error by setting the given value as the VM's error state.
@@ -377,7 +351,7 @@ inline fn evalContinuation(vm: *Vm, cont_handle: Handle(Continuation), arg_count
 ///   vm: Pointer to the virtual machine whose error state will be set.
 ///   err: The error value to set as the VM's error state.
 pub fn raiseWithError(vm: *Vm, err: Val) Vm.Error!void {
-    try loadMany(vm, &.{
+    try vm.context.stackPushMany(vm.allocator, &.{
         vm.context.current_stack_frame.exception_handler,
         err,
     });
@@ -466,7 +440,7 @@ pub fn callOperator(vm: *Vm, operator: Operator) !void {
             // 2. Set up the stack for calling the provided procedure.
             // Before: [proc]
             // After:  [proc continuation-proc]
-            try load(vm, continuation);
+            try vm.context.stackPush(vm.allocator, continuation);
             // 3. Call the procedure
             try evalProc(vm, 1);
         },
@@ -504,7 +478,7 @@ test "execute eval_procedure instruction calls procedure with arguments" {
             return Val.init(val1 + val2);
         }
     }.addTwo };
-    try loadMany(&vm, &.{
+    try vm.context.stackPushMany(vm.allocator, &.{
         try vm.toVal(&proc),
         Val.init(10),
         Val.init(20),
@@ -529,7 +503,7 @@ test "execute bytecode procedure loads instructions into stack frame" {
     const proc = try vm.toVal(Procedure{
         .instructions = try vm.allocator.dupe(Instruction, instructions),
     });
-    try load(&vm, proc);
+    try vm.context.stackPush(vm.allocator, proc);
 
     // Call procedure with 0 arguments - should set up new stack frame with the bytecode instructions
     try Instruction.execute(.{ .eval_proc = 0 }, &vm);
@@ -557,7 +531,7 @@ test "execute bytecode procedure with arguments sets correct stack start" {
         .locals_count = 3,
         .instructions = try vm.allocator.dupe(Instruction, instructions),
     };
-    try loadMany(&vm, &.{
+    try vm.context.stackPushMany(vm.allocator, &.{
         try vm.toVal(proc),
         Val.init(10),
         Val.init(20),
@@ -588,7 +562,7 @@ test "return_value restores previous stack frame and places return value on top"
     };
 
     // Stack layout: [100, 200, proc, 10, 20]
-    try loadMany(&vm, &.{
+    try vm.context.stackPushMany(vm.allocator, &.{
         Val.init(100),
         Val.init(200),
         try vm.toVal(proc),
@@ -596,7 +570,7 @@ test "return_value restores previous stack frame and places return value on top"
         Val.init(20),
     });
     try evalProc(&vm, 2);
-    try load(&vm, Val.init(999)); // This becomes the return value
+    try vm.context.stackPush(vm.allocator, Val.init(999)); // This becomes the return value
     try testing.expectEqual(1, vm.context.stack_frames.items.len);
     try testing.expectEqualDeep(
         Context.StackFrame{ .stack_start = 3, .instructions = proc.instructions },
@@ -783,7 +757,7 @@ test "execute get_local instruction loads local value onto stack" {
 
     // Set up a stack frame with local variables
     vm.context.current_stack_frame.stack_start = 2;
-    try loadMany(&vm, &.{
+    try vm.context.stackPushMany(vm.allocator, &.{
         Val.init(100), // position 0 - before frame
         Val.init(200), // position 1 - before frame
         Val.init(42), // position 2 - local variable 0
@@ -807,7 +781,7 @@ test "execute get_local instruction with multiple local variables" {
 
     // Set up a stack frame with multiple local variables
     vm.context.current_stack_frame.stack_start = 1;
-    try loadMany(&vm, &.{
+    try vm.context.stackPushMany(vm.allocator, &.{
         Val.init(999), // position 0 - before frame
         Val.init(10), // position 1 - local variable 0
         Val.init(20), // position 2 - local variable 1
@@ -833,7 +807,7 @@ test "execute get_local instruction with zero stack frame start" {
 
     // Set up a stack frame that starts at position 0
     vm.context.current_stack_frame.stack_start = 0;
-    try loadMany(&vm, &.{
+    try vm.context.stackPushMany(vm.allocator, &.{
         Val.init(42), // position 0 - local variable 0
         Val.init(99), // position 1 - local variable 1
     });
@@ -855,7 +829,7 @@ test "get_local instruction works with different value types" {
 
     // Set up a stack frame with local variables of different types
     vm.context.current_stack_frame.stack_start = 0;
-    try loadMany(&vm, &.{
+    try vm.context.stackPushMany(vm.allocator, &.{
         Val.init(true), // position 0 - boolean local variable
         try vm.builder().internVal(Symbol.init("local-symbol")), // position 1 - symbol local variable
         Val.init(-123), // position 2 - negative integer local variable
@@ -902,7 +876,7 @@ test "execute jump_if_not instruction with falsy value jumps" {
     vm.context.current_stack_frame.instruction_idx = 5;
 
     // Push falsy value (false)
-    try load(&vm, Val.init(false));
+    try vm.context.stackPush(vm.allocator, Val.init(false));
     try Instruction.execute(.{ .jump_if_not = .{ .steps = 3 } }, &vm);
     try testing.expectEqual(8, vm.context.current_stack_frame.instruction_idx);
 
@@ -918,17 +892,17 @@ test "execute jump_if_not instruction with truthy value does not jump" {
     vm.context.current_stack_frame.instruction_idx = 5;
 
     // Push truthy value (true)
-    try load(&vm, Val.init(true));
+    try vm.context.stackPush(vm.allocator, Val.init(true));
     try Instruction.execute(.{ .jump_if_not = .{ .steps = 10 } }, &vm);
     try testing.expectEqual(5, vm.context.current_stack_frame.instruction_idx);
 
     // Push truthy value (any integer)
-    try load(&vm, Val.init(42));
+    try vm.context.stackPush(vm.allocator, Val.init(42));
     try Instruction.execute(.{ .jump_if_not = .{ .steps = -2 } }, &vm);
     try testing.expectEqual(5, vm.context.current_stack_frame.instruction_idx);
 
     // Push truthy value (symbol)
-    try load(&vm, try vm.builder().internVal(Symbol.init("test")));
+    try vm.context.stackPush(vm.allocator, try vm.builder().internVal(Symbol.init("test")));
     try Instruction.execute(.{ .jump_if_not = .{ .steps = 1 } }, &vm);
     try testing.expectEqual(5, vm.context.current_stack_frame.instruction_idx);
 
@@ -949,7 +923,7 @@ test "execute squash instruction removes specified number of values" {
     defer vm.deinit();
 
     // Load test values: (1 2 3 4)
-    try loadMany(&vm, &.{ Val.init(1), Val.init(2), Val.init(3), Val.init(4) });
+    try vm.context.stackPushMany(vm.allocator, &.{ Val.init(1), Val.init(2), Val.init(3), Val.init(4) });
 
     // Test squash(1) => (1 2 3 4) - no change
     try Instruction.execute(.{ .squash = 1 }, &vm);
@@ -969,7 +943,7 @@ test "execute squash instruction with count 4 leaves only top value" {
     defer vm.deinit();
 
     // Load test values: (1 2 3 4)
-    try loadMany(&vm, &.{ Val.init(1), Val.init(2), Val.init(3), Val.init(4) });
+    try vm.context.stackPushMany(vm.allocator, &.{ Val.init(1), Val.init(2), Val.init(3), Val.init(4) });
 
     // Test squash(4) => (4) - removes all but top
     try Instruction.execute(.{ .squash = 4 }, &vm);
@@ -981,7 +955,7 @@ test "execute squash instruction with count 0 does nothing" {
     defer vm.deinit();
 
     // Load test values: (1 2 3)
-    try loadMany(&vm, &.{ Val.init(1), Val.init(2), Val.init(3) });
+    try vm.context.stackPushMany(vm.allocator, &.{ Val.init(1), Val.init(2), Val.init(3) });
 
     // Test squash(0) - should do nothing
     try Instruction.execute(.{ .squash = 0 }, &vm);
@@ -993,7 +967,7 @@ test "execute squash instruction with insufficient stack returns error" {
     defer vm.deinit();
 
     // Load only 2 values
-    try loadMany(&vm, &.{ Val.init(1), Val.init(2) });
+    try vm.context.stackPushMany(vm.allocator, &.{ Val.init(1), Val.init(2) });
 
     // Attempt to squash 3 values - should fail
     try testing.expectError(error.StackUnderflow, Instruction.execute(.{ .squash = 3 }, &vm));
@@ -1015,7 +989,7 @@ test "execute jump_if_not with pop=false does not remove condition from stack" {
     vm.context.current_stack_frame.instruction_idx = 5;
 
     // Push falsy value (false)
-    try load(&vm, Val.init(false));
+    try vm.context.stackPush(vm.allocator, Val.init(false));
     try Instruction.execute(.{ .jump_if_not = .{ .steps = 3, .pop = false } }, &vm);
     try testing.expectEqual(8, vm.context.current_stack_frame.instruction_idx);
 
@@ -1032,7 +1006,7 @@ test "execute jump_if_not with pop=true removes condition from stack" {
     vm.context.current_stack_frame.instruction_idx = 5;
 
     // Push falsy value (false)
-    try load(&vm, Val.init(false));
+    try vm.context.stackPush(vm.allocator, Val.init(false));
     try Instruction.execute(.{ .jump_if_not = .{ .steps = 3, .pop = true } }, &vm);
     try testing.expectEqual(8, vm.context.current_stack_frame.instruction_idx);
 
@@ -1048,7 +1022,7 @@ test "execute jump_if_not with pop=false and truthy value does not jump" {
     vm.context.current_stack_frame.instruction_idx = 5;
 
     // Push truthy value (42)
-    try load(&vm, Val.init(42));
+    try vm.context.stackPush(vm.allocator, Val.init(42));
     try Instruction.execute(.{ .jump_if_not = .{ .steps = 10, .pop = false } }, &vm);
     try testing.expectEqual(5, vm.context.current_stack_frame.instruction_idx);
 
@@ -1082,7 +1056,7 @@ test "execute set_local instruction sets local variable from stack" {
 
     // Set up a stack frame with local variables
     vm.context.current_stack_frame.stack_start = 2;
-    try loadMany(&vm, &.{
+    try vm.context.stackPushMany(vm.allocator, &.{
         Val.init(100), // position 0 - before frame
         Val.init(200), // position 1 - before frame
         Val.init(42), // position 2 - local variable 0
@@ -1090,7 +1064,7 @@ test "execute set_local instruction sets local variable from stack" {
     });
 
     // Push new value to set local variable 0 to
-    try load(&vm, Val.init(777));
+    try vm.context.stackPush(vm.allocator, Val.init(777));
 
     // Execute set_local instruction for local variable 0
     try Instruction.execute(.{ .set_local = 0 }, &vm);
@@ -1109,7 +1083,7 @@ test "execute set_local instruction with multiple local variables" {
 
     // Set up a stack frame with multiple local variables
     vm.context.current_stack_frame.stack_start = 1;
-    try loadMany(&vm, &.{
+    try vm.context.stackPushMany(vm.allocator, &.{
         Val.init(999), // position 0 - before frame
         Val.init(10), // position 1 - local variable 0
         Val.init(20), // position 2 - local variable 1
@@ -1117,13 +1091,13 @@ test "execute set_local instruction with multiple local variables" {
     });
 
     // Set local variables in different order
-    try load(&vm, Val.init(111));
+    try vm.context.stackPush(vm.allocator, Val.init(111));
     try Instruction.execute(.{ .set_local = 1 }, &vm); // Set local var 1 to 111
 
-    try load(&vm, Val.init(222));
+    try vm.context.stackPush(vm.allocator, Val.init(222));
     try Instruction.execute(.{ .set_local = 0 }, &vm); // Set local var 0 to 222
 
-    try load(&vm, Val.init(333));
+    try vm.context.stackPush(vm.allocator, Val.init(333));
     try Instruction.execute(.{ .set_local = 2 }, &vm); // Set local var 2 to 333
 
     // Verify all local variables were set correctly
@@ -1140,13 +1114,13 @@ test "execute set_local instruction with zero stack frame start" {
 
     // Set up a stack frame that starts at position 0
     vm.context.current_stack_frame.stack_start = 0;
-    try loadMany(&vm, &.{
+    try vm.context.stackPushMany(vm.allocator, &.{
         Val.init(42), // position 0 - local variable 0
         Val.init(99), // position 1 - local variable 1
     });
 
     // Set local variable 1
-    try load(&vm, Val.init(555));
+    try vm.context.stackPush(vm.allocator, Val.init(555));
     try Instruction.execute(.{ .set_local = 1 }, &vm);
 
     // Verify the local variable was set
@@ -1163,20 +1137,20 @@ test "set_local instruction works with different value types" {
 
     // Set up a stack frame with local variables of different types
     vm.context.current_stack_frame.stack_start = 0;
-    try loadMany(&vm, &.{
+    try vm.context.stackPushMany(vm.allocator, &.{
         Val.init(true), // position 0 - boolean local variable
         try vm.builder().internVal(Symbol.init("local-symbol")), // position 1 - symbol local variable
         Val.init(-123), // position 2 - negative integer local variable
     });
 
     // Set different types of values
-    try load(&vm, Val.init(false));
+    try vm.context.stackPush(vm.allocator, Val.init(false));
     try Instruction.execute(.{ .set_local = 0 }, &vm); // Set boolean to false
 
-    try load(&vm, try vm.builder().internVal(Symbol.init("new-symbol")));
+    try vm.context.stackPush(vm.allocator, try vm.builder().internVal(Symbol.init("new-symbol")));
     try Instruction.execute(.{ .set_local = 1 }, &vm); // Set symbol to new-symbol
 
-    try load(&vm, Val.init(456));
+    try vm.context.stackPush(vm.allocator, Val.init(456));
     try Instruction.execute(.{ .set_local = 2 }, &vm); // Set integer to 456
 
     // Verify the values were set correctly
@@ -1204,14 +1178,14 @@ test "set_local and get_local work together" {
 
     // Set up a stack frame with local variables
     vm.context.current_stack_frame.stack_start = 1;
-    try loadMany(&vm, &.{
+    try vm.context.stackPushMany(vm.allocator, &.{
         Val.init(999), // position 0 - before frame
         Val.init(42), // position 1 - local variable 0
         Val.init(99), // position 2 - local variable 1
     });
 
     // Set local variable 0 to a new value
-    try load(&vm, Val.init(777));
+    try vm.context.stackPush(vm.allocator, Val.init(777));
     try Instruction.execute(.{ .set_local = 0 }, &vm);
 
     // Get the value back
@@ -1239,7 +1213,7 @@ test "bytecode procedure with locals_count > args allocates additional local var
             .{ .get_local = 3 }, // Get second additional local (should be {})
         }),
     };
-    try loadMany(&vm, &.{
+    try vm.context.stackPushMany(vm.allocator, &.{
         try vm.toVal(proc),
         Val.init(10), // first argument
         Val.init(20), // second argument
@@ -1273,7 +1247,7 @@ test "bytecode procedure with locals_count equal to args works correctly" {
             .{ .get_local = 1 },
         }),
     };
-    try loadMany(&vm, &.{
+    try vm.context.stackPushMany(vm.allocator, &.{
         try vm.toVal(proc),
         Val.init(42),
         Val.init(99),
@@ -1302,7 +1276,7 @@ test "bytecode procedure with locals_count < args raises error" {
             &.{.{ .load = Val.init(42) }},
         ),
     };
-    try loadMany(&vm, &.{
+    try vm.context.stackPushMany(vm.allocator, &.{
         try vm.toVal(proc),
         Val.init(10),
         Val.init(20),
@@ -1326,7 +1300,7 @@ test "bytecode procedure with wrong argument count raises error" {
             &.{.{ .load = Val.init(42) }},
         ),
     };
-    try loadMany(&vm, &.{
+    try vm.context.stackPushMany(vm.allocator, &.{
         try vm.toVal(proc),
         Val.init(10), // only 1 argument, but procedure expects 2
     });
@@ -1348,7 +1322,7 @@ test "bytecode procedure initializes additional locals to unit values" {
             .{ .get_local = 1 }, // Get the value back
         }),
     };
-    try loadMany(&vm, &.{
+    try vm.context.stackPushMany(vm.allocator, &.{
         try vm.toVal(proc),
         Val.init(42), // argument
     });
@@ -1356,7 +1330,7 @@ test "bytecode procedure initializes additional locals to unit values" {
     try Instruction.execute(.{ .eval_proc = 1 }, &vm);
 
     // Push a value to set the additional local
-    try load(&vm, Val.init(777));
+    try vm.context.stackPush(vm.allocator, Val.init(777));
     try executeNext(&vm); // set_local 1
     try executeNext(&vm); // get_local 1
 

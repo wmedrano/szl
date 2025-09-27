@@ -30,14 +30,19 @@ pub const Error = error{
     OutOfMemory,
 };
 
+/// A procedure call expression definition.
+pub const ProcCall = struct {
+    /// The procedure expression to call.
+    proc: *const Ir,
+    /// The argument expressions to pass to the procedure.
+    args: []const Ir,
+};
+
 // Forward declare Ir for use in the struct definitions
 pub const Ir = union(enum) {
     const_val: Val,
     get: Symbol.Interned,
-    proc_call: struct {
-        proc: *const Ir,
-        args: []const Ir,
-    },
+    proc_call: ProcCall,
     @"if": IfDef,
     body: []const Ir,
     define: struct {
