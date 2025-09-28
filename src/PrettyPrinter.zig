@@ -578,7 +578,7 @@ test "string with control characters formats with hex escapes" {
     defer vm.deinit();
 
     const data = [_]u8{ 'h', 'i', 0x01, 0x1F, '!' };
-    const val = try vm.builder().build(try String.initFromSlice(testing.allocator, &data));
+    const val = try vm.builder().build(String.initStatic(&data));
 
     try testing.expectFmt(
         "\"hi\\x01\\x1F!\"",

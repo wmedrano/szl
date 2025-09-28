@@ -145,7 +145,7 @@ const symbol_to_string_func = NativeProc.Native{
             };
 
             // Create a string from the symbol's data
-            const string = String.initFromSlice(ctx.vm.allocator, symbol.data) catch {
+            const string = String.init(ctx.vm.allocator, symbol.data) catch {
                 try instruction.raiseWithError(ctx.vm, Val.init(ctx.vm.common_symbols.@"type-error"));
                 return Val.init(ctx.vm.common_symbols.@"*unspecified*");
             };

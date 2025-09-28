@@ -30,7 +30,7 @@ data: union(enum) {
 ///
 /// Errors:
 ///   Returns OutOfMemory if allocation fails.
-pub fn initFromSlice(allocator: std.mem.Allocator, content: []const u8) !String {
+pub fn init(allocator: std.mem.Allocator, content: []const u8) !String {
     if (content.len == 0) {
         return initStatic("");
     }
@@ -188,7 +188,7 @@ test "String init creates empty string" {
 }
 
 test "String initFromSlice creates string with content" {
-    var string = try String.initFromSlice(testing.allocator, "hello world");
+    var string = try String.init(testing.allocator, "hello world");
     defer string.deinit(testing.allocator);
 
     try testing.expectEqual(@as(usize, 11), string.len());
@@ -218,7 +218,7 @@ test "String appendByte adds single character" {
 }
 
 test "String clear empties the string" {
-    var string = try String.initFromSlice(testing.allocator, "content");
+    var string = try String.init(testing.allocator, "content");
     defer string.deinit(testing.allocator);
 
     try testing.expectEqual(@as(usize, 7), string.len());
@@ -229,13 +229,13 @@ test "String clear empties the string" {
 }
 
 test "String eql compares strings correctly" {
-    var string1 = try String.initFromSlice(testing.allocator, "hello");
+    var string1 = try String.init(testing.allocator, "hello");
     defer string1.deinit(testing.allocator);
 
-    var string2 = try String.initFromSlice(testing.allocator, "hello");
+    var string2 = try String.init(testing.allocator, "hello");
     defer string2.deinit(testing.allocator);
 
-    var string3 = try String.initFromSlice(testing.allocator, "world");
+    var string3 = try String.init(testing.allocator, "world");
     defer string3.deinit(testing.allocator);
 
     try testing.expectEqual(true, string1.eql(string2));
@@ -243,7 +243,7 @@ test "String eql compares strings correctly" {
 }
 
 test "String eqlSlice compares with byte slice correctly" {
-    var string = try String.initFromSlice(testing.allocator, "hello");
+    var string = try String.init(testing.allocator, "hello");
     defer string.deinit(testing.allocator);
 
     try testing.expectEqual(true, string.eqlSlice("hello"));
@@ -252,7 +252,7 @@ test "String eqlSlice compares with byte slice correctly" {
 }
 
 test "String handles empty content" {
-    var string = try String.initFromSlice(testing.allocator, "");
+    var string = try String.init(testing.allocator, "");
     defer string.deinit(testing.allocator);
 
     try testing.expectEqual(@as(usize, 0), string.len());
@@ -261,7 +261,7 @@ test "String handles empty content" {
 }
 
 test "String handles UTF-8 content" {
-    var string = try String.initFromSlice(testing.allocator, "héllo 世界");
+    var string = try String.init(testing.allocator, "héllo 世界");
     defer string.deinit(testing.allocator);
 
     // Note: length is in bytes, not Unicode code points

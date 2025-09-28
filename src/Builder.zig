@@ -653,7 +653,7 @@ test "build with String creates string val" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const test_string = try String.initFromSlice(testing.allocator, "hello world");
+    const test_string = try String.init(testing.allocator, "hello world");
     const result = try vm.builder().build(test_string);
 
     try testing.expectEqual(.string, std.meta.activeTag(result.repr));
@@ -668,7 +668,7 @@ test "build with Handle(String) creates string val" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const test_string = try String.initFromSlice(testing.allocator, "test string");
+    const test_string = try String.init(testing.allocator, "test string");
     const string_handle = try vm.builder().buildHandle(test_string);
     const result = try vm.builder().build(string_handle);
 
