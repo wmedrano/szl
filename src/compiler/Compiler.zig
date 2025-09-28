@@ -21,6 +21,12 @@ const LambdaDef = IrBuilder.LambdaDef;
 const LetDef = IrBuilder.LetDef;
 const Scope = @import("Scope.zig");
 
+/// A compiler that transforms Lisp expressions into bytecode instructions.
+///
+/// The Compiler takes intermediate representation (IR) and converts it into
+/// a sequence of bytecode instructions that can be executed by the virtual
+/// machine. It manages local variable scoping and generates optimized
+/// instruction sequences for different language constructs.
 const Compiler = @This();
 
 /// The virtual machine instance to compile for.
@@ -30,7 +36,7 @@ arena: *std.heap.ArenaAllocator,
 /// Accumulated instructions during compilation.
 instructions: std.ArrayList(Instruction) = .{},
 /// Local bindings for managing local variable bindings during compilation.
-scope: Scope = .{},
+scope: Scope,
 /// Compilation options that control compiler behavior.
 options: Options = .{},
 
@@ -62,6 +68,7 @@ pub fn compile(vm: *Vm, arena: *std.heap.ArenaAllocator, expr: Val, options: Opt
     var compiler = Compiler{
         .vm = vm,
         .arena = arena,
+        .scope = try Scope.init(arena.allocator(), null),
         .options = options,
     };
 
@@ -86,15 +93,43 @@ pub fn compile(vm: *Vm, arena: *std.heap.ArenaAllocator, expr: Val, options: Opt
 ///   - OutOfMemory if allocation fails.
 ///   - InvalidExpression if the IR cannot be compiled.
 fn compileIr(self: *Compiler, name: ?Symbol.Interned, ir: Ir) Error!Val {
+    const proc = try self.irToProc(name, ir);
+    return self.vm.builder().build(proc);
+}
+
+/// Converts intermediate representation (IR) to a Proc structure.
+/// Compiles the IR into instructions and gathers metadata about the procedure.
+///
+/// Args:
+///   self: The compiler instance.
+///   name: Optional name for the procedure (used for recursive calls).
+///   ir: The IR to compile into a procedure.
+///
+/// Returns:
+///   A Proc containing the compiled bytecode and metadata.
+///
+/// Errors:
+///   - OutOfMemory if allocation fails.
+///   - InvalidExpression if the IR cannot be compiled.
+fn irToProc(self: *Compiler, name: ?Symbol.Interned, ir: Ir) Error!Proc {
     try self.addIr(ir);
     const stats = self.scope.stats();
-    const proc = Proc{
-        .name = name,
+    var captures = try std.ArrayList(u32).initCapacity(self.vm.allocator, stats.captured);
+    errdefer captures.deinit(self.vm.allocator);
+    for (self.scope.bindings.items) |binding| {
+        switch (binding.type) {
+            .captured => try captures.appendBounded(@intCast(binding.index)),
+            else => {},
+        }
+    }
+    return Proc{
+        .name = name orelse self.vm.common_symbols._,
         .args = stats.args,
         .locals = stats.locals,
+        // TODO: Pass an allocator that always fails.
+        .captures = try captures.toOwnedSlice(self.vm.allocator),
         .instructions = try self.vm.allocator.dupe(Instruction, self.instructions.items),
     };
-    return try self.vm.builder().build(proc);
 }
 
 /// Adds an instruction to the compiler's instruction list.
@@ -106,7 +141,7 @@ fn compileIr(self: *Compiler, name: ?Symbol.Interned, ir: Ir) Error!Val {
 ///
 /// Returns:
 ///   An error if memory allocation fails.
-fn addInstruction(self: *Compiler, ins: Instruction) Error!void {
+fn addInstruction(self: *Compiler, ins: Instruction) error{OutOfMemory}!void {
     try self.instructions.append(self.arena.allocator(), ins);
 }
 
@@ -119,14 +154,21 @@ fn addInstruction(self: *Compiler, ins: Instruction) Error!void {
 ///
 /// Errors:
 ///   - OutOfMemory if instruction allocation fails.
-fn get(self: *Compiler, symbol: Symbol.Interned) !void {
-    if (self.scope.resolve(symbol)) |binding|
-        return self.addInstruction(.{ .get_local = binding.index });
-    if (self.options.inline_globals) {
-        if (self.vm.inspector().get(symbol)) |val|
-            return self.addInstruction(.{ .load = val });
-    }
-    try self.addInstruction(.{ .get_global = symbol });
+fn addGet(self: *Compiler, symbol: Symbol.Interned) error{OutOfMemory}!void {
+    const instruction = blk: {
+        if (self.scope.resolve(symbol)) |binding|
+            break :blk Instruction{ .get_local = binding.index };
+        if (self.scope.capture_candidates.contains(symbol)) {
+            const id = try self.scope.addLocal(self.arena.allocator(), symbol, .captured);
+            break :blk Instruction{ .get_local = self.scope.getBinding(id).?.index };
+        }
+        if (self.options.inline_globals) {
+            if (self.vm.inspector().get(symbol)) |val|
+                break :blk Instruction{ .load = val };
+        }
+        break :blk Instruction{ .get_global = symbol };
+    };
+    try self.addInstruction(instruction);
 }
 
 /// Calculates the jump distance between two instruction positions.
@@ -178,7 +220,11 @@ fn addIf(self: *Compiler, if_def: IfDef) Error!void {
 ///   - OutOfMemory if instruction allocation fails.
 ///   - InvalidExpression if the IR cannot be compiled.
 fn addLambda(self: *Compiler, lambda: LambdaDef) Error!void {
-    var sub_compiler = Compiler{ .vm = self.vm, .arena = self.arena };
+    var sub_compiler = Compiler{
+        .vm = self.vm,
+        .arena = self.arena,
+        .scope = try Scope.init(self.arena.allocator(), &self.scope),
+    };
     if (lambda.name) |name| {
         _ = try sub_compiler.scope.addBinding(
             self.arena.allocator(),
@@ -195,8 +241,29 @@ fn addLambda(self: *Compiler, lambda: LambdaDef) Error!void {
             },
         );
     }
-    const proc = try sub_compiler.compileIr(lambda.name, lambda.body.*);
-    try self.addInstruction(.{ .load = proc });
+    const proc = try sub_compiler.irToProc(lambda.name, lambda.body.*);
+    const proc_val = try self.vm.builder().build(proc);
+    var captures: usize = 0;
+    for (sub_compiler.scope.bindings.items) |binding| {
+        switch (binding.type) {
+            .captured => {
+                try self.addGet(binding.name);
+                if (binding.index != proc.captures[captures]) @panic("TODO: Bad bindings");
+                captures += 1;
+            },
+            else => {},
+        }
+    }
+    const instruction = if (captures == 0)
+        Instruction{ .load = proc_val }
+    else
+        Instruction{
+            .lambda_capture = .{
+                .capture_count = @intCast(captures),
+                .proc = proc_val.repr.proc,
+            },
+        };
+    try self.addInstruction(instruction);
 }
 
 /// Compiles a let binding construct IR node into bytecode instructions.
@@ -269,7 +336,7 @@ fn addProc(self: *Compiler, proc_call: IrBuilder.ProcCall) Error!void {
 fn addIr(self: *Compiler, ir: Ir) Error!void {
     switch (ir) {
         .const_val => |val| try self.addInstruction(.{ .load = val }),
-        .get => |sym| try self.get(sym),
+        .get => |sym| try self.addGet(sym),
         .proc_call => |p| try self.addProc(p),
         .@"if" => |def| try self.addIf(def),
         .body => |body| {
@@ -636,7 +703,7 @@ test "compile begin with function calls" {
 test "define" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
-    try vm.expectEval("*unspecified*", "(define x 28)");
+    try vm.expectEval("28", "(define x 28)");
     try vm.expectEval("28", "x");
 }
 
@@ -717,7 +784,7 @@ test "compile lambda with no parameters" {
     );
 }
 
-test "compile nested lambdas" {
+test "compile nested lambda captures outer variable" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(vm.allocator);
@@ -728,11 +795,36 @@ test "compile nested lambdas" {
     const proc = try vm.fromVal(Proc, proc_val);
 
     const outer_lambda = try vm.fromVal(Proc, proc.instructions[0].load);
-    try testing.expectEqual(1, outer_lambda.args);
-
-    try testing.expectEqual(.load, std.meta.activeTag(outer_lambda.instructions[0]));
-    const inner_lambda = try vm.fromVal(Proc, outer_lambda.instructions[0].load);
-    try testing.expectEqual(1, inner_lambda.args);
+    const inner_lambda_val = outer_lambda.instructions[1].lambda_capture.proc;
+    const inner_lambda = try vm.fromVal(Proc, Val.init(inner_lambda_val));
+    try testing.expectEqualDeep(
+        Proc{
+            .name = vm.common_symbols._,
+            .args = 1,
+            .instructions = &.{
+                Instruction{ .get_local = 0 },
+                Instruction{
+                    .lambda_capture = .{ .proc = inner_lambda_val, .capture_count = 1 },
+                },
+            },
+        },
+        outer_lambda,
+    );
+    try testing.expectEqualDeep(
+        Proc{
+            .name = vm.common_symbols._,
+            .args = 1,
+            .locals = 2,
+            .captures = &.{1},
+            .instructions = &.{
+                Instruction{ .get_global = try vm.builder().internStatic(Symbol.init("+")) },
+                Instruction{ .get_local = 1 },
+                Instruction{ .get_local = 0 },
+                Instruction{ .eval_proc = 2 },
+            },
+        },
+        inner_lambda,
+    );
 }
 
 test "compile empty let bindings" {
@@ -922,4 +1014,23 @@ test "compile let* with complex dependencies" {
     defer vm.deinit();
 
     try vm.expectEval("10", "(let* ((x 1) (y (+ x 2)) (z (* y 3))) (+ x z))");
+}
+
+test "lambda captures outer values" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+    const src =
+        \\ ;; Define a function that returns a lambda which captures 'x'
+        \\  (define make-adder
+        \\    (lambda (x)
+        \\      (lambda (y)
+        \\        (+ x y))))
+        \\
+        \\  ;; Create an adder that adds 10 to its argument
+        \\  (define add10 (make-adder 10))
+        \\
+        \\  ;; Test the captured variable
+        \\  (add10 5)  ;; Should return 15
+    ;
+    try vm.expectEval("15", src);
 }

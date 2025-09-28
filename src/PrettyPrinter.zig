@@ -237,6 +237,7 @@ fn formatValue(self: PrettyPrinter, writer: *std.Io.Writer, val: Val) error{Writ
             try writer.writeAll(")");
         },
         .proc => |proc_handle| try self.formatProc(writer, proc_handle),
+        .proc_with_captures => |handle| try self.formatProc(writer, handle.proc),
         .native_proc => |proc| try writer.print("#<procedure:{s}>", .{proc.name}),
         .operator => |op| try writer.print("<operator:{s}>", .{@tagName(op)}),
         .restore_continuation => |_| try writer.writeAll("#<procedure:continuation>"),
@@ -254,10 +255,7 @@ fn formatProc(self: PrettyPrinter, writer: *std.Io.Writer, proc_handle: Handle(P
         try writer.print("#<invalid-procedure:{d}>", .{proc_handle.idx});
         return;
     };
-    const name_symbol = proc.name orelse {
-        try writer.print("#<anonymous-procedure:{d}>", .{proc_handle.idx});
-        return;
-    };
+    const name_symbol = proc.name;
     const name = self.vm.interner.get(name_symbol) catch |err| switch (err) {
         error.InvalidId => {
             try writer.print("#<invalid-procedure:{d}>", .{name_symbol.id});

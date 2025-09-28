@@ -10,6 +10,7 @@ const testing = std.testing;
 const Instruction = @import("instruction.zig").Instruction;
 const Symbol = @import("types/Symbol.zig");
 const Val = @import("types/Val.zig");
+const Vector = @import("types/Vector.zig");
 const Vm = @import("Vm.zig");
 
 const Proc = @This();
@@ -17,7 +18,7 @@ const Proc = @This();
 /// The name of this procedure as an interned symbol.
 /// This is used for identifying procedures in error messages,
 /// debugging, and reflection.
-name: ?Symbol.Interned = null,
+name: Symbol.Interned,
 
 /// The number of arguments for the procedure.
 args: u32 = 0,
@@ -25,8 +26,24 @@ args: u32 = 0,
 /// The total number of local variable slots.
 locals: u32 = 0,
 
+/// Array of indices into the parent procedure's local variables
+/// that this procedure captures from its lexical environment.
+/// Used for implementing closures and lexical scoping.
+captures: []const u32 = &.{},
+
 /// Array of instructions that implement the procedure logic.
 instructions: []const Instruction,
+
+/// A procedure bundled with its captured variable values.
+/// This represents a closure - a procedure that has captured
+/// variables from its lexical environment at creation time.
+pub const WithCaptures = struct {
+    /// The procedure definition containing the bytecode and metadata.
+    proc: Proc,
+    /// Vector containing the actual values of captured variables.
+    /// These correspond to the indices specified in proc.captures.
+    captures: Vector,
+};
 
 /// Optimized operator procedures for common Scheme operations.
 /// These operators provide more efficient implementations than bytecode
@@ -49,9 +66,11 @@ pub const Operator = union(enum) {
 /// Frees the instructions array and resets the procedure to an empty state.
 pub fn deinit(self: *Proc, allocator: std.mem.Allocator) void {
     allocator.free(self.instructions);
+    allocator.free(self.captures);
     self.instructions = &.{};
+    self.captures = &.{};
 }
 
 test "Procedure is small" {
-    try testing.expectEqual(32, @sizeOf(Proc));
+    try testing.expectEqual(48, @sizeOf(Proc));
 }

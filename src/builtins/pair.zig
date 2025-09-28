@@ -1399,7 +1399,7 @@ test "set-car! modifies first element of pair" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try vm.expectEval("*unspecified*", "(define p (cons 1 2))");
+    try vm.expectEval("(1 . 2)", "(define p (cons 1 2))");
     try vm.expectEval("*unspecified*", "(set-car! p 42)");
     try vm.expectEval("(42 . 2)", "p");
 }
@@ -1442,7 +1442,7 @@ test "set-cdr! modifies second element of pair" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try vm.expectEval("*unspecified*", "(define p (cons 1 2))");
+    try vm.expectEval("(1 . 2)", "(define p (cons 1 2))");
     try vm.expectEval("*unspecified*", "(set-cdr! p 42)");
     try vm.expectEval("1", "(car p)");
     try vm.expectEval("42", "(cdr p)");
@@ -2105,7 +2105,7 @@ test "list-set! modifies elements correctly" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try vm.expectEval("*unspecified*", "(define lst (list 1 2 3))");
+    try vm.expectEval("(1 2 3)", "(define lst (list 1 2 3))");
     try vm.expectEval("*unspecified*", "(list-set! lst 0 'a)");
     try vm.expectEval("(a 2 3)", "lst");
 
@@ -2120,7 +2120,7 @@ test "list-set! with single element list" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try vm.expectEval("*unspecified*", "(define lst (list 42))");
+    try vm.expectEval("(42)", "(define lst (list 42))");
     try vm.expectEval("*unspecified*", "(list-set! lst 0 100)");
     try vm.expectEval("(100)", "lst");
 }
@@ -2129,13 +2129,13 @@ test "list-set! with k >= length is error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try vm.expectEval("*unspecified*", "(define lst (list 1 2 3))");
+    try vm.expectEval("(1 2 3)", "(define lst (list 1 2 3))");
     try testing.expectError(
         Vm.Error.UncaughtException,
         vm.evalStr("(list-set! lst 3 'x)"),
     );
 
-    try vm.expectEval("*unspecified*", "(define empty '())");
+    try vm.expectEval("()", "(define empty '())");
     try testing.expectError(
         Vm.Error.UncaughtException,
         vm.evalStr("(list-set! empty 0 'x)"),
@@ -2146,7 +2146,7 @@ test "list-set! with negative k is error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try vm.expectEval("*unspecified*", "(define lst (list 1 2 3))");
+    try vm.expectEval("(1 2 3)", "(define lst (list 1 2 3))");
     try testing.expectError(
         Vm.Error.UncaughtException,
         vm.evalStr("(list-set! lst -1 'x)"),
@@ -2157,7 +2157,7 @@ test "list-set! with non-integer k is error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try vm.expectEval("*unspecified*", "(define lst (list 1 2 3))");
+    try vm.expectEval("(1 2 3)", "(define lst (list 1 2 3))");
     try testing.expectError(
         Vm.Error.UncaughtException,
         vm.evalStr("(list-set! lst #t 'x)"),
@@ -2168,7 +2168,7 @@ test "list-set! with improper list can modify existing elements" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try vm.expectEval("*unspecified*", "(define lst (cons 1 2))");
+    try vm.expectEval("(1 . 2)", "(define lst (cons 1 2))");
 
     // Can modify the first element
     try vm.expectEval("*unspecified*", "(list-set! lst 0 'x)");
@@ -2550,8 +2550,8 @@ test "list-copy creates independent copy" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try vm.expectEval("*unspecified*", "(define original '(1 2 3))");
-    try vm.expectEval("*unspecified*", "(define copied (list-copy original))");
+    try vm.expectEval("(1 2 3)", "(define original '(1 2 3))");
+    try vm.expectEval("(1 2 3)", "(define copied (list-copy original))");
     try vm.expectEval("(1 2 3)", "copied");
 
     // Verify they are equal but not the same object

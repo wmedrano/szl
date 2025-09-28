@@ -145,6 +145,7 @@ pub fn equalRecursive(vm: *Vm, a: Val, b: Val) !bool {
         .char,
         .symbol,
         .proc,
+        .proc_with_captures,
         .native_proc,
         .operator,
         .record_type_descriptor,

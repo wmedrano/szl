@@ -8,6 +8,7 @@ const Proc = @import("Proc.zig");
 const Continuation = @import("types/Continuation.zig");
 const Symbol = @import("types/Symbol.zig");
 const Val = @import("types/Val.zig");
+const Vector = @import("types/Vector.zig");
 const Vm = @import("Vm.zig");
 
 /// Operators for optimized VM operations.
@@ -27,7 +28,10 @@ pub const Operator = enum {
 pub const Instruction = union(enum) {
     /// Parameters for conditional jumpts.
     pub const ConditionalJumpParams = struct {
+        /// Number of instruction steps to jump (can be negative for backwards jumps).
         steps: i32,
+        /// Whether to pop the condition value from the stack after checking it.
+        /// Defaults to true for most conditional operations.
         pop: bool = true,
     };
 
@@ -64,6 +68,14 @@ pub const Instruction = union(enum) {
     /// Instruction to capture the current continuation.
     /// Creates a continuation object representing the current execution state.
     call_operator: Operator,
+    /// Instruction to create a closure by capturing variables from the current scope.
+    /// Combines a procedure definition with captured variable values to create a closure.
+    lambda_capture: struct {
+        /// Handle to the procedure that will become part of the closure.
+        proc: Handle(Proc),
+        /// Number of variables to capture from the current stack frame.
+        capture_count: u32,
+    },
 
     /// Executes the instruction on the given virtual machine.
     /// Dispatches to the appropriate instruction implementation based on the instruction type.
@@ -87,6 +99,79 @@ pub const Instruction = union(enum) {
             .jump_if_not => |params| return jumpIfNot(vm, params.steps, params.pop),
             .squash => |count| return squash(vm, count),
             .call_operator => |op| return callOperator(vm, op),
+            .lambda_capture => |lc| return lambdaCapture(vm, lc.proc, lc.capture_count),
+        }
+    }
+
+    /// Converts this instruction to a Scheme value representation.
+    /// This is primarily used for debugging and introspection, allowing
+    /// instructions to be examined as Scheme data structures.
+    ///
+    /// Args:
+    ///   self: The instruction to convert.
+    ///   vm: Pointer to the virtual machine for symbol interning and value building.
+    ///
+    /// Returns:
+    ///   A Val representing this instruction as a Scheme list.
+    ///
+    /// Errors:
+    ///   - May return memory allocation errors during value construction.
+    pub fn toVal(self: Instruction, vm: *Vm) !Val {
+        const builder = vm.builder();
+        switch (self) {
+            .load => |val| return try builder.buildList(&.{
+                try builder.internStaticVal(Symbol.init("load")),
+                val,
+            }),
+            .get_global => |symbol| return try builder.buildList(&.{
+                try builder.internStaticVal(Symbol.init("get-global")),
+                Val.init(symbol),
+            }),
+            .get_local => |idx| return try builder.buildList(&.{
+                try builder.internStaticVal(Symbol.init("get-local")),
+                Val.init(idx),
+            }),
+            .set_local => |idx| return try builder.buildList(&.{
+                try builder.internStaticVal(Symbol.init("set-local")),
+                Val.init(idx),
+            }),
+            .eval_proc => |arg_count| return try builder.buildList(&.{
+                try builder.internStaticVal(Symbol.init("eval-proc")),
+                Val.init(arg_count),
+            }),
+            .return_value => return try builder.buildList(&.{
+                try builder.internStaticVal(Symbol.init("return-value")),
+                vm.context.stack_vals.items[vm.context.stack_vals.items.len - 1],
+            }),
+            .raise_error => return try builder.buildList(&.{
+                try builder.internStaticVal(Symbol.init("raise-error")),
+            }),
+            .jump => |offset| return try builder.buildList(&.{
+                try builder.internStaticVal(Symbol.init("jump")),
+                Val.init(offset),
+            }),
+            .jump_if_not => |params| return try builder.buildList(&.{
+                try builder.internStaticVal(Symbol.init("jump-if-not")),
+                Val.init(params.steps),
+                try builder.internStaticVal(Symbol.init("#:pop")),
+                Val.init(params.pop),
+            }),
+            .squash => |count| return try builder.buildList(&.{
+                try builder.internStaticVal(Symbol.init("squash")),
+                Val.init(count),
+            }),
+            .call_operator => |op| return try builder.buildList(&.{
+                try builder.internStaticVal(Symbol.init("call-operator")),
+                try builder.internStaticVal(Symbol.init(switch (op) {
+                    .call_with_cc => "call-with-cc",
+                })),
+            }),
+            .lambda_capture => |lc| return try builder.buildList(&.{
+                try builder.internStaticVal(Symbol.init("lambda-capture")),
+                Val.init(lc.proc),
+                try builder.internStaticVal(Symbol.init("#:captures")),
+                Val.init(lc.capture_count),
+            }),
         }
     }
 };
@@ -184,12 +269,25 @@ pub fn returnValue(vm: *Vm) !void {
 ///   - May return memory allocation errors if stack frame operations fail.
 ///   - May return StackUnderflow if there are no stack frames to restore.
 ///   - May return UncaughtException if the procedure type is invalid.
-pub fn evalProc(vm: *Vm, arg_count: usize) Vm.Error!void {
+pub fn evalProc(vm: *Vm, arg_count: u32) Vm.Error!void {
     const stack_start = vm.context.stack().len - arg_count;
     const proc_idx = stack_start - 1;
     const proc_val = vm.context.constStack()[proc_idx];
     switch (proc_val.repr) {
-        .proc => |proc_handle| try evalBytecodeProc(vm, proc_handle, arg_count, stack_start),
+        .proc => |proc_handle| try evalBytecodeProc(
+            vm,
+            proc_handle,
+            null,
+            arg_count,
+            stack_start,
+        ),
+        .proc_with_captures => |handle| try evalBytecodeProc(
+            vm,
+            handle.proc,
+            handle.captures,
+            arg_count,
+            stack_start,
+        ),
         .native_proc => |proc| try evalNativeProc(vm, proc.*, stack_start),
         .restore_continuation => |cont_handle| try evalContinuation(vm, cont_handle, arg_count),
         else => {
@@ -221,19 +319,38 @@ pub fn evalProc(vm: *Vm, arg_count: usize) Vm.Error!void {
 /// Errors:
 ///   - May return memory allocation errors if stack frame operations fail.
 ///   - May return UncaughtException if procedure validation fails.
-inline fn evalBytecodeProc(vm: *Vm, proc_handle: Handle(Proc), arg_count: usize, stack_start: usize) !void {
+inline fn evalBytecodeProc(
+    vm: *Vm,
+    proc_handle: Handle(Proc),
+    captures_handle: ?Handle(Vector),
+    arg_count: u32,
+    stack_start: usize,
+) !void {
+    const inspector = vm.inspector();
     try vm.context.stack_frames.append(vm.allocator, vm.context.current_stack_frame);
     vm.context.current_stack_frame = Context.StackFrame{
         .stack_start = stack_start,
         .exception_handler = vm.context.current_stack_frame.next_exception_handler,
         .next_exception_handler = vm.context.current_stack_frame.next_exception_handler,
     };
-    const proc = vm.inspector().resolve(Proc, proc_handle) catch return Vm.Error.UncaughtException;
+    const proc = inspector.resolve(Proc, proc_handle) catch return Vm.Error.UncaughtException;
     if (arg_count != proc.args) {
         try raiseWithError(vm, Val.init(vm.common_symbols.@"wrong-number-of-arguments"));
         return Vm.Error.UncaughtException;
     }
+    const captures = if (captures_handle) |h|
+        inspector.resolve(Vector, h) catch return Vm.Error.UncaughtException
+    else
+        Vector.init();
+    if (proc.captures.len != captures.len()) {
+        try raiseWithError(vm, Val.init(vm.common_symbols.@"not-implemented"));
+        return Vm.Error.UncaughtException;
+    }
     try vm.context.stack_vals.appendNTimes(vm.allocator, Val.init({}), proc.locals);
+    const stack = vm.context.stack();
+    for (proc.captures, captures.slice()) |dst_idx, src| {
+        stack[stack_start + dst_idx] = src;
+    }
     vm.context.current_stack_frame.instructions = proc.instructions;
 }
 
@@ -404,6 +521,34 @@ pub fn callOperator(vm: *Vm, operator: Operator) !void {
     }
 }
 
+/// Creates a closure by capturing the specified number of values from the stack.
+/// Takes a procedure and a count of variables to capture, then creates a new
+/// closure value that bundles the procedure with the captured variable values.
+///
+/// Args:
+///   vm: Pointer to the virtual machine whose stack contains the values to capture.
+///   lambda: Handle to the procedure that will become part of the closure.
+///   capture_count: Number of values to capture from the top of the stack.
+///
+/// Errors:
+///   - May return memory allocation errors during closure creation.
+///   - May return StackUnderflow if there are fewer values on the stack than capture_count.
+pub fn lambdaCapture(vm: *Vm, lambda: Handle(Proc), capture_count: u32) !void {
+    const stack = vm.context.stack();
+    const capture_start: usize = stack.len - @as(usize, @intCast(capture_count));
+    var captures = try Vector.initFromSlice(vm.allocator, stack[capture_start..stack.len]);
+    const captures_val = vm.builder().build(captures) catch |e| {
+        captures.deinit(vm.allocator);
+        return e;
+    };
+    for (0..capture_count) |_| _ = vm.context.stackPop() orelse return Vm.Error.StackUnderflow;
+    const val = Val.init(Val.Repr{ .proc_with_captures = .{
+        .proc = lambda,
+        .captures = captures_val.repr.vector,
+    } });
+    try vm.context.stackPush(vm.allocator, val);
+}
+
 test "Instruction size is 24 bytes" {
     try testing.expectEqual(24, @sizeOf(Instruction));
 }
@@ -458,6 +603,7 @@ test "execute bytecode procedure loads instructions into stack frame" {
         .{ .load = Val.init(7) },
     };
     const proc = try vm.toVal(Proc{
+        .name = vm.common_symbols._,
         .instructions = try vm.allocator.dupe(Instruction, instructions),
     });
     try vm.context.stackPush(vm.allocator, proc);
@@ -484,6 +630,7 @@ test "execute bytecode procedure with arguments sets correct stack start" {
         .{ .load = Val.init(42) },
     };
     const proc = Proc{
+        .name = vm.common_symbols._,
         .args = 3,
         .instructions = try vm.allocator.dupe(Instruction, instructions),
     };
@@ -512,6 +659,7 @@ test "return_value restores previous stack frame and places return value on top"
         .{ .load = Val.init(42) },
     };
     const proc = Proc{
+        .name = vm.common_symbols._,
         .args = 2,
         .instructions = try vm.allocator.dupe(Instruction, instructions),
     };
@@ -1159,6 +1307,7 @@ test "bytecode procedure with locals_count > args allocates additional local var
     defer vm.deinit();
 
     const proc = Proc{
+        .name = vm.common_symbols._,
         .args = 2,
         .locals = 2,
         .instructions = try vm.allocator.dupe(Instruction, &.{
@@ -1195,6 +1344,7 @@ test "bytecode procedure without locals is evaluated" {
     defer vm.deinit();
 
     const proc = Proc{
+        .name = vm.common_symbols._,
         .args = 2,
         .locals = 0,
         .instructions = try vm.allocator.dupe(Instruction, &.{
@@ -1224,6 +1374,7 @@ test "bytecode procedure with wrong argument count raises error" {
     defer vm.deinit();
 
     const proc = Proc{
+        .name = vm.common_symbols._,
         .args = 2,
         .locals = 1,
         .instructions = try vm.allocator.dupe(
@@ -1246,6 +1397,7 @@ test "bytecode procedure initializes additional locals to unit values" {
     defer vm.deinit();
 
     const proc = Proc{
+        .name = vm.common_symbols._,
         .args = 1,
         .locals = 1,
         .instructions = try vm.allocator.dupe(Instruction, &.{
@@ -1271,5 +1423,196 @@ test "bytecode procedure initializes additional locals to unit values" {
         "(42 777 777)",
         "{f}",
         .{vm.pretty(vm.context.stack()[1..])},
+    );
+}
+
+test "Instruction.toVal converts load instruction to scheme list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const instruction = Instruction{ .load = Val.init(42) };
+    const val = try instruction.toVal(&vm);
+
+    try testing.expectFmt(
+        "(load 42)",
+        "{f}",
+        .{vm.pretty(val)},
+    );
+}
+
+test "Instruction.toVal converts get_global instruction to scheme list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const symbol = try vm.interner.intern(Symbol.init("test-var"));
+    const instruction = Instruction{ .get_global = symbol };
+    const val = try instruction.toVal(&vm);
+
+    try testing.expectFmt(
+        "(get-global test-var)",
+        "{f}",
+        .{vm.pretty(val)},
+    );
+}
+
+test "Instruction.toVal converts get_local instruction to scheme list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const instruction = Instruction{ .get_local = 3 };
+    const val = try instruction.toVal(&vm);
+
+    try testing.expectFmt(
+        "(get-local 3)",
+        "{f}",
+        .{vm.pretty(val)},
+    );
+}
+
+test "Instruction.toVal converts set_local instruction to scheme list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const instruction = Instruction{ .set_local = -1 };
+    const val = try instruction.toVal(&vm);
+
+    try testing.expectFmt(
+        "(set-local -1)",
+        "{f}",
+        .{vm.pretty(val)},
+    );
+}
+
+test "Instruction.toVal converts eval_proc instruction to scheme list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const instruction = Instruction{ .eval_proc = 2 };
+    const val = try instruction.toVal(&vm);
+
+    try testing.expectFmt(
+        "(eval-proc 2)",
+        "{f}",
+        .{vm.pretty(val)},
+    );
+}
+
+test "Instruction.toVal converts return_value instruction to scheme list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Push a value to the stack so return_value has something to reference
+    try vm.context.stackPush(vm.allocator, Val.init(999));
+
+    const instruction = Instruction.return_value;
+    const val = try Instruction.toVal(instruction, &vm);
+
+    try testing.expectFmt(
+        "(return-value 999)",
+        "{f}",
+        .{vm.pretty(val)},
+    );
+}
+
+test "Instruction.toVal converts raise_error instruction to scheme list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const instruction = Instruction.raise_error;
+    const val = try Instruction.toVal(instruction, &vm);
+
+    try testing.expectFmt(
+        "(raise-error)",
+        "{f}",
+        .{vm.pretty(val)},
+    );
+}
+
+test "Instruction.toVal converts jump instruction to scheme list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const instruction = Instruction{ .jump = -5 };
+    const val = try instruction.toVal(&vm);
+
+    try testing.expectFmt(
+        "(jump -5)",
+        "{f}",
+        .{vm.pretty(val)},
+    );
+}
+
+test "Instruction.toVal converts jump_if_not instruction to scheme list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const instruction = Instruction{ .jump_if_not = .{ .steps = 10, .pop = false } };
+    const val = try instruction.toVal(&vm);
+
+    try testing.expectFmt(
+        "(jump-if-not 10 #:pop #f)",
+        "{f}",
+        .{vm.pretty(val)},
+    );
+}
+
+test "Instruction.toVal converts jump_if_not instruction with default pop to scheme list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const instruction = Instruction{ .jump_if_not = .{ .steps = 7 } };
+    const val = try instruction.toVal(&vm);
+
+    try testing.expectFmt(
+        "(jump-if-not 7 #:pop #t)",
+        "{f}",
+        .{vm.pretty(val)},
+    );
+}
+
+test "Instruction.toVal converts squash instruction to scheme list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const instruction = Instruction{ .squash = 3 };
+    const val = try instruction.toVal(&vm);
+
+    try testing.expectFmt(
+        "(squash 3)",
+        "{f}",
+        .{vm.pretty(val)},
+    );
+}
+
+test "Instruction.toVal converts call_operator instruction to scheme list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const instruction = Instruction{ .call_operator = .call_with_cc };
+    const val = try instruction.toVal(&vm);
+
+    try testing.expectFmt(
+        "(call-operator call-with-cc)",
+        "{f}",
+        .{vm.pretty(val)},
+    );
+}
+
+test "Instruction.toVal converts lambda_capture instruction to scheme list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Create a simple procedure to use as the lambda
+    const proc_handle = try vm.toVal(Proc{
+        .name = vm.common_symbols._,
+        .instructions = try vm.allocator.dupe(Instruction, &.{.{ .load = Val.init(42) }}),
+    });
+    const instruction = Instruction{ .lambda_capture = .{ .proc = proc_handle.repr.proc, .capture_count = 2 } };
+    const val = try instruction.toVal(&vm);
+
+    try testing.expectFmt(
+        "(lambda-capture #<procedure:_> #:captures 2)",
+        "{f}",
+        .{vm.pretty(val)},
     );
 }

@@ -63,6 +63,7 @@ const CommonSymbolTable = struct {
     @"else": Symbol.Interned,
     @"if": Symbol.Interned,
     @"let*": Symbol.Interned,
+    _: Symbol.Interned,
     begin: Symbol.Interned,
     cond: Symbol.Interned,
     define: Symbol.Interned,
@@ -71,12 +72,13 @@ const CommonSymbolTable = struct {
     quote: Symbol.Interned,
 
     // Error symbols
-    @"undefined-variable": Symbol.Interned,
-    @"wrong-number-of-arguments": Symbol.Interned,
-    @"invalid-procedure": Symbol.Interned,
-    @"type-error": Symbol.Interned,
     @"division-by-zero": Symbol.Interned,
     @"invalid-argument": Symbol.Interned,
+    @"invalid-procedure": Symbol.Interned,
+    @"not-implemented": Symbol.Interned,
+    @"type-error": Symbol.Interned,
+    @"undefined-variable": Symbol.Interned,
+    @"wrong-number-of-arguments": Symbol.Interned,
 };
 
 /// Memory allocator used for all dynamic allocations within the VM.
@@ -226,6 +228,7 @@ pub fn deinit(self: *Vm) void {
 fn PrettyReturnType(comptime T: type) type {
     return switch (T) {
         Val => PrettyPrinter,
+        Symbol.Interned => PrettyPrinter,
         []const Val, []Val => PrettyPrinter.Slice,
         else => @compileError("pretty() only accepts Val, []const Val, or []Val, got " ++ @typeName(T)),
     };
@@ -247,6 +250,7 @@ pub fn pretty(self: *Vm, val: anytype) PrettyReturnType(@TypeOf(val)) {
     return switch (T) {
         Val => self.inspector().pretty(val),
         []const Val, []Val => self.inspector().prettySlice(val),
+        Symbol.Interned => self.inspector().pretty(Val.init(val)),
         else => unreachable,
     };
 }
@@ -383,7 +387,7 @@ fn evalProc(self: *Vm, proc: Val, args: []const Val) !Val {
     try self.context.stackPush(self.allocator, proc);
     try self.context.stackPushMany(self.allocator, args);
     const initial_call_stack_size = self.context.stack_frames.items.len;
-    try instruction.evalProc(self, args.len);
+    try instruction.evalProc(self, @intCast(args.len));
     while (self.context.stack_frames.items.len > initial_call_stack_size) {
         try instruction.executeNext(self);
     }
@@ -542,6 +546,10 @@ fn markOne(self: *Vm, val: Val) error{}!void {
                 }
             }
         },
+        .proc_with_captures => |h| {
+            try self.markOne(Val.init(h.proc));
+            try self.markOne(Val.init(h.captures));
+        },
         .vector => |h| {
             if (self.vectors.setColor(h, self.reachable_color)) |vector| {
                 for (vector.slice()) |item| try self.markOne(item);
@@ -610,7 +618,7 @@ pub fn expectEval(self: *Vm, expected: []const u8, input: []const u8) !void {
         .restore_continuation,
         .operator,
         => try testing.expectEqual(expected_val, actual_val),
-        .string, .pair, .proc, .vector, .bytevector, .record, .record_type_descriptor => {},
+        .string, .pair, .proc, .proc_with_captures, .vector, .bytevector, .record, .record_type_descriptor => {},
     }
 }
 
@@ -652,7 +660,7 @@ pub fn expectEvalErr(self: *Vm, expected: []const u8, source: []const u8) !void 
         .restore_continuation,
         .operator,
         => try testing.expectEqual(expected_err, actual_err),
-        .string, .pair, .proc, .vector, .bytevector, .record, .record_type_descriptor => {},
+        .string, .pair, .proc, .proc_with_captures, .vector, .bytevector, .record, .record_type_descriptor => {},
     }
 }
 

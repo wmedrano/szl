@@ -11,7 +11,7 @@ const testing = std.testing;
 const NativeProc = @import("../NativeProc.zig");
 const object_pool = @import("../object_pool.zig");
 const Handle = object_pool.Handle;
-const Procedure = @import("../Proc.zig");
+const Proc = @import("../Proc.zig");
 const Vm = @import("../Vm.zig");
 const ByteVector = @import("ByteVector.zig");
 const Char = @import("Char.zig");
@@ -67,7 +67,10 @@ pub const Repr = union(enum) {
 
     /// Represents a procedure (function) that can be called in the interpreter.
     /// Procedures include both built-in functions and user-defined functions.
-    proc: Handle(Procedure),
+    proc: Handle(Proc),
+
+    /// Similar to `proc`, but contains a vector of captured values.
+    proc_with_captures: struct { proc: Handle(Proc), captures: Handle(Vector) },
 
     /// Similar to `proc`, but implemented in natively in Zig.
     native_proc: *const NativeProc.Native,
@@ -75,7 +78,7 @@ pub const Repr = union(enum) {
     /// Optimized operator procedure for common Scheme operations.
     /// Operators provide more efficient implementations than bytecode
     /// for frequently used operations like call-with-current-continuation.
-    operator: Procedure.Operator,
+    operator: Proc.Operator,
 
     /// Represents a vector using a handle to an object pool.
     /// Vectors in Scheme are sequences of values that can be accessed by index.
@@ -125,14 +128,14 @@ pub fn init(v: anytype) Val {
         Val.Repr => return Val{ .repr = v },
         void => return init(Val.Repr{ .nil = {} }),
         bool => return init(Val.Repr{ .boolean = v }),
-        i64, comptime_int => return init(Val.Repr{ .i64 = v }),
+        u32, i32, i64, comptime_int => return init(Val.Repr{ .i64 = @intCast(v) }),
         f64, comptime_float => return init(Val.Repr{ .f64 = v }),
         Char => return init(Val.Repr{ .char = v }),
         Symbol.Interned => return init(Val.Repr{ .symbol = v }),
-        Procedure.Operator => return init(Val.Repr{ .operator = v }),
+        Proc.Operator => return init(Val.Repr{ .operator = v }),
         Handle(String) => return init(Val.Repr{ .string = v }),
         Handle(Pair) => return init(Val.Repr{ .pair = v }),
-        Handle(Procedure) => return init(Val.Repr{ .proc = v }),
+        Handle(Proc) => return init(Val.Repr{ .proc = v }),
         *const NativeProc.Native => return init(Val.Repr{ .native_proc = v }),
         Handle(Vector) => return init(Val.Repr{ .vector = v }),
         Handle(ByteVector) => return init(Val.Repr{ .bytevector = v }),

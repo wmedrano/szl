@@ -15,6 +15,12 @@ const Symbol = @import("../types/Symbol.zig");
 const Val = @import("../types/Val.zig");
 const Vm = @import("../Vm.zig");
 
+/// Intermediate Representation (IR) builder for the Scheme compiler.
+///
+/// The IrBuilder transforms parsed Scheme expressions into structured
+/// intermediate representation that can be more easily compiled to bytecode.
+/// It handles special forms and converts them to typed IR nodes that preserve
+/// the semantic structure of Scheme code.
 const IrBuilder = @This();
 
 /// The virtual machine instance to compile for.
@@ -31,6 +37,10 @@ pub const Error = error{
 };
 
 /// A procedure call expression definition.
+///
+/// Represents a function call with a procedure expression and its arguments.
+/// The procedure can be any expression that evaluates to a callable value,
+/// and arguments are evaluated left-to-right before the call.
 pub const ProcCall = struct {
     /// The procedure expression to call.
     proc: *const Ir,
@@ -38,7 +48,11 @@ pub const ProcCall = struct {
     args: []const Ir,
 };
 
-// Forward declare Ir for use in the struct definitions
+/// Intermediate representation node types.
+///
+/// The Ir union represents all possible IR node types that can be generated
+/// from Scheme expressions. Each variant corresponds to a different language
+/// construct and contains the necessary information for compilation.
 pub const Ir = union(enum) {
     const_val: Val,
     get: Symbol.Interned,
@@ -54,6 +68,10 @@ pub const Ir = union(enum) {
 };
 
 /// A binding in a let or let* expression.
+///
+/// Represents a single variable binding that associates a symbol name
+/// with an expression. Used in let and let* constructs to establish
+/// new variable bindings in a local scope.
 pub const LetBinding = struct {
     /// The variable name being bound.
     name: Symbol.Interned,
@@ -147,6 +165,7 @@ pub fn build(self: IrBuilder, expr: Val) Error!Ir {
         .char,
         .string,
         .proc,
+        .proc_with_captures,
         .native_proc,
         .vector,
         .bytevector,
@@ -258,6 +277,21 @@ fn buildExpression(self: IrBuilder, leading: Val, args_iter: *Inspector.ListIter
     };
 }
 
+/// Builds a cond expression IR node from a series of clauses.
+///
+/// Transforms cond expressions into nested if-then-else structures.
+/// Handles else clauses, arrow syntax (=>), and single test expressions.
+///
+/// Args:
+///   self: The IrBuilder instance.
+///   clauses: Iterator over the cond clauses.
+///
+/// Returns:
+///   An IR node representing the conditional expression.
+///
+/// Errors:
+///   - InvalidExpression if the clauses are malformed.
+///   - OutOfMemory if allocation fails.
 fn buildCond(self: IrBuilder, clauses: *Inspector.ListIterator) Error!Ir {
     const test_sym = self.vm.builder().internStatic(Symbol.init("szl-internal-test-result")) catch
         return Error.InvalidExpression;
@@ -490,6 +524,7 @@ fn buildLet(self: IrBuilder, star: bool, expr_iter: *Inspector.ListIterator) !Ir
 ///   - InvalidExpression if the definition is malformed.
 ///   - OutOfMemory if allocation fails.
 fn buildDefine(self: IrBuilder, args_iter: *Inspector.ListIterator) Error!Ir {
+    const inspector = self.vm.inspector();
     const leading_val = args_iter.next() catch {
         return Error.InvalidExpression;
     } orelse return Error.InvalidExpression;
@@ -506,41 +541,17 @@ fn buildDefine(self: IrBuilder, args_iter: *Inspector.ListIterator) Error!Ir {
                 },
             };
         },
-        else => {
-            return self.buildDefineProc(leading_val, args_iter);
-        },
+        else => {},
     }
-}
-
-/// Builds a procedure definition from a define form.
-///
-/// Handles function definitions of the form (define (name args...) body...).
-/// Extracts the procedure name from the parameter list and builds a lambda
-/// with the remaining parameters.
-///
-/// Args:
-///   self: The IrBuilder instance.
-///   params: The parameter list starting with the function name.
-///   body: Iterator over the function body expressions.
-///
-/// Returns:
-///   A define IR node containing the function name and a lambda expression.
-///
-/// Errors:
-///   - InvalidExpression if the parameter list or body is malformed.
-///   - OutOfMemory if allocation fails.
-fn buildDefineProc(self: IrBuilder, params: Val, body: *Inspector.ListIterator) Error!Ir {
-    const inspector = self.vm.inspector();
-    var params_iter = inspector.iterList(params) catch return Error.InvalidExpression;
+    var params_iter = inspector.iterList(leading_val) catch return Error.InvalidExpression;
     const name = params_iter.next() catch {
         return Error.InvalidExpression;
     } orelse return Error.InvalidExpression;
     const name_sym = inspector.to(Symbol.Interned, name) catch return Error.InvalidExpression;
-    const lambda = try self.buildLambda(name_sym, &params_iter, body);
     return Ir{
         .define = .{
             .symbol = name_sym,
-            .expr = try self.allocIr(lambda),
+            .expr = try self.allocIr(try self.buildLambda(name_sym, &params_iter, args_iter)),
         },
     };
 }

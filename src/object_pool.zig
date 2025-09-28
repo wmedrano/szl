@@ -18,7 +18,7 @@ const testing = std.testing;
 ///   A handle type that can reference objects of type T.
 pub fn Handle(T: type) type {
     return struct {
-        idx: usize,
+        idx: u32,
         const _ = T;
 
         /// Checks if two handles reference the same object.
@@ -121,7 +121,7 @@ fn SweepIter(T: type) type {
         pool: *ObjectPool(T),
         allocator: std.mem.Allocator,
         target_color: Color,
-        index: usize,
+        index: u32,
 
         /// Returns a pointer to the next object that should be collected, or null if sweep is complete.
         /// Objects that don't match the target color are marked as tombstoned and added to the free list.
@@ -205,7 +205,7 @@ pub fn ObjectPool(T: type) type {
                 self.metadata.items[id.idx] = Metadata{ .color = color };
                 return id;
             }
-            const id = Handle(T){ .idx = self.objects.items.len };
+            const id = Handle(T){ .idx = @intCast(self.objects.items.len) };
             try self.objects.append(allocator, obj);
             try self.metadata.append(allocator, Metadata{ .color = color });
             return id;

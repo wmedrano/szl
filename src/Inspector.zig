@@ -278,6 +278,13 @@ pub fn to(self: Inspector, T: type, val: Val) !T {
             Pair => return try self.resolve(Pair, c),
             else => return error.TypeMismatch,
         },
+        .proc_with_captures => |pc| switch (T) {
+            Proc.WithCaptures => return Proc.WithCaptures{
+                .proc = try self.resolve(Proc, pc.proc),
+                .captures = try self.resolve(Vector, pc.captures),
+            },
+            else => return error.TypeMismatch,
+        },
         .proc => |p| switch (T) {
             Handle(Proc) => return p,
             Proc => return try self.resolve(Proc, p),
