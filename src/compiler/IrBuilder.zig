@@ -152,7 +152,7 @@ pub fn build(self: IrBuilder, expr: Val) Error!Ir {
         .bytevector,
         .record,
         .record_type_descriptor,
-        .continuation,
+        .restore_continuation,
         .operator,
         => return Ir{ .const_val = expr },
         .nil => return Error.InvalidExpression,

@@ -13,23 +13,9 @@ const String = @This();
 /// The string data as either empty, static, or a dynamic array of bytes.
 /// This allows for efficient handling of empty strings, static string literals, and resizing of non-empty content.
 data: union(enum) {
-    empty: void,
     static: []const u8,
     mutable: std.ArrayList(u8),
 },
-
-/// Creates a new empty string with the given allocator.
-///
-/// Args:
-///   allocator: The memory allocator to use for the string's internal storage.
-///
-/// Returns:
-///   A new empty String instance.
-pub fn init() String {
-    return String{
-        .data = .{ .empty = {} },
-    };
-}
 
 /// Creates a new string from the given byte slice.
 ///
@@ -46,7 +32,7 @@ pub fn init() String {
 ///   Returns OutOfMemory if allocation fails.
 pub fn initFromSlice(allocator: std.mem.Allocator, content: []const u8) !String {
     if (content.len == 0) {
-        return String{ .data = .{ .empty = {} } };
+        return initStatic("");
     }
     var data = std.ArrayList(u8){};
     try data.appendSlice(allocator, content);
@@ -64,9 +50,6 @@ pub fn initFromSlice(allocator: std.mem.Allocator, content: []const u8) !String 
 /// Returns:
 ///   A new String instance referencing the provided static content.
 pub fn initStatic(content: []const u8) String {
-    if (content.len == 0) {
-        return String{ .data = .{ .empty = {} } };
-    }
     return String{ .data = .{ .static = content } };
 }
 
@@ -78,7 +61,6 @@ pub fn initStatic(content: []const u8) String {
 ///   self: The string to deinitialize.
 pub fn deinit(self: *String, allocator: std.mem.Allocator) void {
     switch (self.data) {
-        .empty => {},
         .static => {},
         .mutable => |*mutable| mutable.deinit(allocator),
     }
@@ -93,7 +75,6 @@ pub fn deinit(self: *String, allocator: std.mem.Allocator) void {
 ///   The number of bytes in the string.
 pub fn len(self: String) usize {
     return switch (self.data) {
-        .empty => 0,
         .static => |static| static.len,
         .mutable => |mutable| mutable.items.len,
     };
@@ -110,7 +91,6 @@ pub fn len(self: String) usize {
 ///   A slice containing the string's content.
 pub fn slice(self: String) []const u8 {
     return switch (self.data) {
-        .empty => "",
         .static => |static| static,
         .mutable => |mutable| mutable.items,
     };
@@ -127,13 +107,6 @@ pub fn slice(self: String) []const u8 {
 ///   Returns OutOfMemory if allocation fails.
 pub fn appendSlice(self: *String, allocator: std.mem.Allocator, content: []const u8) !void {
     switch (self.data) {
-        .empty => {
-            if (content.len > 0) {
-                var mutable = std.ArrayList(u8){};
-                try mutable.appendSlice(allocator, content);
-                self.data = .{ .mutable = mutable };
-            }
-        },
         .static => |static| {
             var mutable = std.ArrayList(u8){};
             try mutable.appendSlice(allocator, static);
@@ -155,11 +128,6 @@ pub fn appendSlice(self: *String, allocator: std.mem.Allocator, content: []const
 ///   Returns OutOfMemory if allocation fails.
 pub fn appendByte(self: *String, allocator: std.mem.Allocator, byte: u8) !void {
     switch (self.data) {
-        .empty => {
-            var mutable = std.ArrayList(u8){};
-            try mutable.append(allocator, byte);
-            self.data = .{ .mutable = mutable };
-        },
         .static => |static| {
             var mutable = std.ArrayList(u8){};
             try mutable.appendSlice(allocator, static);
@@ -178,8 +146,7 @@ pub fn appendByte(self: *String, allocator: std.mem.Allocator, byte: u8) !void {
 ///   self: The string to clear.
 pub fn clear(self: *String) void {
     switch (self.data) {
-        .empty => {},
-        .static => self.data = .{ .empty = {} },
+        .static => self.data = .{ .static = "" },
         .mutable => |*mutable| mutable.clearRetainingCapacity(),
     }
 }
@@ -213,7 +180,7 @@ test "String is small" {
 }
 
 test "String init creates empty string" {
-    var string = String.init();
+    var string = String.initStatic("");
     defer string.deinit(testing.allocator);
 
     try testing.expectEqual(@as(usize, 0), string.len());
@@ -229,7 +196,7 @@ test "String initFromSlice creates string with content" {
 }
 
 test "String appendSlice adds content" {
-    var string = String.init();
+    var string = String.initStatic("");
     defer string.deinit(testing.allocator);
 
     try string.appendSlice(testing.allocator, "hello");
@@ -240,7 +207,7 @@ test "String appendSlice adds content" {
 }
 
 test "String appendByte adds single character" {
-    var string = String.init();
+    var string = String.initStatic("");
     defer string.deinit(testing.allocator);
 
     try string.appendByte(testing.allocator, 'a');

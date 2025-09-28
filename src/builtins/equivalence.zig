@@ -148,7 +148,7 @@ pub fn equalRecursive(vm: *Vm, a: Val, b: Val) !bool {
         .native_proc,
         .operator,
         .record_type_descriptor,
-        .continuation,
+        .restore_continuation,
         => false,
         // String comparison: compare content
         .string => |handle_a| {

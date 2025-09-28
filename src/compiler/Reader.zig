@@ -287,7 +287,7 @@ fn parseString(self: *Reader, token: []const u8) !?String {
         return error.BadExpression;
     }
 
-    var string = String.init();
+    var string = String.initStatic("");
     errdefer string.deinit(self.vm.allocator);
     const content = token[1 .. token.len - 1]; // Remove surrounding quotes
     var i: usize = 0;

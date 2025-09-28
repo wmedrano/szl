@@ -191,7 +191,7 @@ pub fn evalProc(vm: *Vm, arg_count: usize) Vm.Error!void {
     switch (proc_val.repr) {
         .proc => |proc_handle| try evalBytecodeProc(vm, proc_handle, arg_count, stack_start),
         .native_proc => |proc| try evalNativeProc(vm, proc.*, stack_start),
-        .continuation => |cont_handle| try evalContinuation(vm, cont_handle, arg_count),
+        .restore_continuation => |cont_handle| try evalContinuation(vm, cont_handle, arg_count),
         else => {
             try raiseWithError(vm, Val.init(vm.common_symbols.@"type-error"));
             return Vm.Error.UncaughtException;

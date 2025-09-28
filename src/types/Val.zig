@@ -32,12 +32,12 @@ repr: Repr,
 /// Each variant corresponds to a different Scheme data type that can be
 /// stored and manipulated at runtime.
 pub const Repr = union(enum) {
+    /// Represents a boolean value.
+    boolean: bool,
+
     /// Represents the end of a list (equivalent to '() or nil in Scheme).
     /// This is used to terminate linked list structures.
     nil,
-
-    /// Represents a boolean value.
-    boolean: bool,
 
     /// Represents a 64-bit signed integer value.
     /// Used for numeric computations and integer literals in Scheme.
@@ -95,7 +95,7 @@ pub const Repr = union(enum) {
 
     /// Represents a continuation using a handle to an object pool.
     /// Continuations capture the execution context for non-local control flow.
-    continuation: Handle(Continuation),
+    restore_continuation: Handle(Continuation),
 };
 
 /// Create a new `Val` for a supported type.
@@ -138,7 +138,7 @@ pub fn init(v: anytype) Val {
         Handle(ByteVector) => return init(Val.Repr{ .bytevector = v }),
         Handle(Record) => return init(Val.Repr{ .record = v }),
         Handle(Record.RecordTypeDescriptor) => return init(Val.Repr{ .record_type_descriptor = v }),
-        Handle(Continuation) => return init(Val.Repr{ .continuation = v }),
+        Handle(Continuation) => return init(Val.Repr{ .restore_continuation = v }),
         else => @compileError("type " ++ @typeName(type_info) ++ " not supported for Val.init."),
     }
 }
@@ -178,9 +178,9 @@ pub fn isPair(self: Val) bool {
 ///
 /// Returns:
 ///   true if the value is a procedure, false otherwise.
-pub fn isProcedure(self: Val) bool {
+pub fn isProc(self: Val) bool {
     return switch (self.repr) {
-        .proc, .native_proc => true,
+        .proc, .native_proc, .restore_continuation => true,
         else => false,
     };
 }
@@ -312,20 +312,6 @@ pub fn isRecordTypeDescriptor(self: Val) bool {
     };
 }
 
-/// Determines if a value is a continuation.
-///
-/// Args:
-///   self: The value to test for continuation type.
-///
-/// Returns:
-///   true if the value is a continuation, false otherwise.
-pub fn isContinuation(self: Val) bool {
-    return switch (self.repr) {
-        .continuation => true,
-        else => false,
-    };
-}
-
 /// Determines if a value is truthy according to Scheme semantics.
 /// In Scheme, only the boolean value false (#f) is considered falsy.
 /// All other values, including nil/empty list, numbers, symbols, and cons cells are truthy.
@@ -451,7 +437,7 @@ test "isProcedure returns true for procedure value" {
     };
     const proc_val = try vm.toVal(&proc);
 
-    try testing.expectEqual(true, proc_val.isProcedure());
+    try testing.expectEqual(true, proc_val.isProc());
 }
 
 test "isProcedure returns false for non-procedure values" {
@@ -459,9 +445,9 @@ test "isProcedure returns false for non-procedure values" {
     const int_val = Val.init(42);
     const nil_val = Val.init({});
 
-    try testing.expectEqual(false, bool_val.isProcedure());
-    try testing.expectEqual(false, int_val.isProcedure());
-    try testing.expectEqual(false, nil_val.isProcedure());
+    try testing.expectEqual(false, bool_val.isProc());
+    try testing.expectEqual(false, int_val.isProc());
+    try testing.expectEqual(false, nil_val.isProc());
 }
 
 test "isPair returns true for pair value" {
@@ -569,7 +555,7 @@ test "string values are truthy" {
     const string_val = try vm.toVal(String.initStatic("hello"));
     try testing.expectEqual(true, string_val.isTruthy());
 
-    const empty_val = try vm.toVal(String.init());
+    const empty_val = try vm.toVal(String.initStatic(""));
     try testing.expectEqual(true, empty_val.isTruthy());
 }
 

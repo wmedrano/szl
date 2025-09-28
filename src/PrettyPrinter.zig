@@ -239,7 +239,7 @@ fn formatValue(self: PrettyPrinter, writer: *std.Io.Writer, val: Val) error{Writ
         .proc => |proc_handle| try self.formatProc(writer, proc_handle),
         .native_proc => |proc| try writer.print("#<procedure:{s}>", .{proc.name}),
         .operator => |op| try writer.print("<operator:{s}>", .{@tagName(op)}),
-        .continuation => |_| try writer.writeAll("#<procedure:continuation>"),
+        .restore_continuation => |_| try writer.writeAll("#<procedure:continuation>"),
     }
 }
 
@@ -564,7 +564,7 @@ test "empty string formats correctly" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const val = try vm.builder().build(String.init());
+    const val = try vm.builder().build(String.initStatic(""));
 
     try testing.expectFmt(
         "\"\"",

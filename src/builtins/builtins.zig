@@ -13,6 +13,7 @@ const Symbol = @import("../types/Symbol.zig");
 const Val = @import("../types/Val.zig");
 const Vm = @import("../Vm.zig");
 const boolean = @import("boolean.zig");
+const characters = @import("characters.zig");
 const define = @import("define.zig");
 const equivalence = @import("equivalence.zig");
 const numbers = @import("numbers.zig");
@@ -31,6 +32,7 @@ const symbol = @import("symbol.zig");
 ///   May return allocation errors if registering built-ins fails.
 pub fn register(vm: *Vm) !void {
     try boolean.register(vm);
+    try characters.register(vm);
     try equivalence.register(vm);
     try numbers.register(vm);
     try pair.register(vm);

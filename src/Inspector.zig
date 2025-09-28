@@ -291,7 +291,7 @@ pub fn to(self: Inspector, T: type, val: Val) !T {
             Proc.Operator => return o,
             else => return error.TypeMismatch,
         },
-        .continuation => |c| switch (T) {
+        .restore_continuation => |c| switch (T) {
             Handle(Continuation) => return c,
             Continuation => return try self.resolve(Continuation, c),
             else => return error.TypeMismatch,

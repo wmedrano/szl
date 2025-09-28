@@ -559,7 +559,7 @@ fn markOne(self: *Vm, val: Val) error{}!void {
         .record_type_descriptor => |h| {
             _ = self.record_type_descriptors.setColor(h, self.reachable_color);
         },
-        .continuation => |h| {
+        .restore_continuation => |h| {
             if (self.continuations.setColor(h, self.reachable_color)) |continuation| {
                 try self.markContext(continuation.context);
             }
@@ -600,7 +600,16 @@ pub fn expectEval(self: *Vm, expected: []const u8, input: []const u8) !void {
     if (std.meta.eql(expected_val, actual_val)) return;
     try testing.expectFmt(expected, "{f}", .{self.pretty(actual_val)});
     switch (expected_val.repr) {
-        .nil, .boolean, .i64, .f64, .char, .symbol, .native_proc, .continuation, .operator => try testing.expectEqual(expected_val, actual_val),
+        .nil,
+        .boolean,
+        .i64,
+        .f64,
+        .char,
+        .symbol,
+        .native_proc,
+        .restore_continuation,
+        .operator,
+        => try testing.expectEqual(expected_val, actual_val),
         .string, .pair, .proc, .vector, .bytevector, .record, .record_type_descriptor => {},
     }
 }
@@ -633,7 +642,16 @@ pub fn expectEvalErr(self: *Vm, expected: []const u8, source: []const u8) !void 
     if (std.meta.eql(expected_err, actual_err)) return;
     try testing.expectFmt(expected, "{f}", .{self.pretty(actual_err)});
     switch (expected_err.repr) {
-        .nil, .boolean, .i64, .f64, .char, .symbol, .native_proc, .continuation, .operator => try testing.expectEqual(expected_err, actual_err),
+        .nil,
+        .boolean,
+        .i64,
+        .f64,
+        .char,
+        .symbol,
+        .native_proc,
+        .restore_continuation,
+        .operator,
+        => try testing.expectEqual(expected_err, actual_err),
         .string, .pair, .proc, .vector, .bytevector, .record, .record_type_descriptor => {},
     }
 }
