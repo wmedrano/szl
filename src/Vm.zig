@@ -2,6 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 
 const Builder = @import("Builder.zig");
+const Inspector = @import("Inspector.zig");
 const Module = @import("Module.zig");
 const Reader = @import("Reader.zig");
 const Symbol = @import("Symbol.zig");
@@ -23,6 +24,7 @@ pub const Error = error{
     NotImplemented,
     ReadError,
     UndefinedBehavior,
+    WrongType,
 };
 
 pub fn init(options: Options) Error!Vm {
@@ -68,6 +70,10 @@ pub fn allocator(self: Vm) std.mem.Allocator {
 
 pub fn builder(self: *Vm) Builder {
     return Builder.init(self);
+}
+
+pub fn inspector(self: *Vm) Inspector {
+    return Inspector.init(self);
 }
 
 test builder {
