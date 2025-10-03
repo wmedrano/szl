@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const Cons = @import("Cons.zig");
+const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
 
@@ -48,4 +49,12 @@ pub inline fn makeImproperList(self: Builder, items: []const Val) Vm.Error!Val {
         result = try self.makeCons(items[index], result);
     }
     return result;
+}
+
+pub inline fn makeSymbol(self: Builder, symbol_str: []const u8) Vm.Error!Val {
+    if (self.vm.symbols.get(symbol_str)) |s| return Val{ .data = .{ .symbol = s } };
+    const sym = Symbol{ .string = try self.vm.allocator().dupe(u8, symbol_str) };
+    errdefer self.vm.allocator().free(sym.string);
+    try self.vm.symbols.put(self.vm.allocator(), sym.string, sym);
+    return Val{ .data = .{ .symbol = sym } };
 }

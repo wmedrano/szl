@@ -65,7 +65,7 @@ pub fn readNextImpl(self: *Reader) Vm.Error!ReadResult {
         .dot => return ReadResult{ .dot = {} },
         .number => return try self.parseNumber(next_token.lexeme),
         .string => return Vm.Error.NotImplemented,
-        .symbol => return Vm.Error.NotImplemented,
+        .symbol => return try self.parseSymbol(next_token.lexeme),
         .boolean => return Vm.Error.NotImplemented,
         .quote => return Vm.Error.NotImplemented,
         .quasiquote => return Vm.Error.NotImplemented,
@@ -83,6 +83,11 @@ fn parseNumber(self: Reader, token: []const u8) Vm.Error!ReadResult {
     }
     const val = self.vm.builder().makeInt(n);
     return ReadResult{ .atom = val };
+}
+
+fn parseSymbol(self: Reader, token: []const u8) Vm.Error!ReadResult {
+    const symbol = try self.vm.builder().makeSymbol(token);
+    return ReadResult{ .atom = symbol };
 }
 
 test "read int" {
@@ -112,5 +117,24 @@ test "read pair" {
 
     try testing.expectFmt("(1 . 2)", "{f}", .{(try reader.readNext()).?});
     try testing.expectFmt("(1 2 . 3)", "{f}", .{(try reader.readNext()).?});
+    try testing.expectEqual(null, try reader.readNext());
+}
+
+test "read symbol" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var reader = Reader.init(&vm, "foo bar-baz");
+    try testing.expectFmt("foo", "{f}", .{(try reader.readNext()).?});
+    try testing.expectFmt("bar-baz", "{f}", .{(try reader.readNext()).?});
+    try testing.expectEqual(null, try reader.readNext());
+}
+
+test "read list with symbols" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var reader = Reader.init(&vm, "(define x 42)");
+    try testing.expectFmt("(define x 42)", "{f}", .{(try reader.readNext()).?});
     try testing.expectEqual(null, try reader.readNext());
 }

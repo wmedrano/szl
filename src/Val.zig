@@ -2,6 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 
 const Cons = @import("Cons.zig");
+const Symbol = @import("Symbol.zig");
 const Vm = @import("Vm.zig");
 
 const Val = @This();
@@ -12,6 +13,7 @@ pub const Data = union(enum) {
     empty_list,
     int: i64,
     pair: *Cons,
+    symbol: Symbol,
 };
 
 pub fn isEmptyList(_: Val) bool {}
@@ -41,10 +43,15 @@ pub fn format(self: Val, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             }
             try writer.writeAll(")");
         },
+        .symbol => |s| try writer.writeAll(s.string),
     }
 }
 
-test "format empty list" {
+pub fn eq(self: Val, other: Val) bool {
+    return std.meta.eql(self, other);
+}
+
+test "format empty list is empty parens" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
@@ -52,7 +59,7 @@ test "format empty list" {
     try testing.expectFmt("()", "{f}", .{b.makeEmptyList()});
 }
 
-test "format int" {
+test "format int produces int" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
@@ -60,7 +67,7 @@ test "format int" {
     try testing.expectFmt("42", "{f}", .{b.makeInt(42)});
 }
 
-test "format proper list" {
+test "format proper list produces parens surrounded list" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
@@ -69,7 +76,7 @@ test "format proper list" {
     try testing.expectFmt("(1 2 3)", "{f}", .{try b.makeList(&items)});
 }
 
-test "format improper list" {
+test "format improper list places dot before last element" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
@@ -78,7 +85,7 @@ test "format improper list" {
     try testing.expectFmt("(1 2 . 3)", "{f}", .{try b.makeImproperList(&items)});
 }
 
-test "format nested list" {
+test "format nested list formats the nested list" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
@@ -87,4 +94,34 @@ test "format nested list" {
     const inner_list = try b.makeList(&inner_items);
     const outer_items = [_]Val{ b.makeInt(1), inner_list };
     try testing.expectFmt("(1 (2 3))", "{f}", .{try b.makeList(&outer_items)});
+}
+
+test "format symbol produces symbol string" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const b = vm.builder();
+    try testing.expectFmt("foo", "{f}", .{try b.makeSymbol("foo")});
+}
+
+test "symbol with same string is eq" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const b = vm.builder();
+    const sym1 = try b.makeSymbol("foo");
+    const sym2 = try b.makeSymbol("foo");
+
+    try testing.expect(sym1.eq(sym2));
+}
+
+test "symbol with different identifiers are different" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const b = vm.builder();
+    const sym1 = try b.makeSymbol("foo");
+    const sym2 = try b.makeSymbol("foobar");
+
+    try testing.expect(!sym1.eq(sym2));
 }
