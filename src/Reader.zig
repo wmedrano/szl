@@ -21,42 +21,48 @@ pub fn readNext(self: *Reader) Vm.Error!?Val {
     const result = try self.readNextImpl();
     switch (result) {
         .atom => |v| return v,
-        .end_expr => |exprs| {
-            var owned = exprs;
-            owned.deinit(self.vm.allocator());
-            return Vm.Error.ReadError;
-        },
+        .end_expr => return Vm.Error.ReadError,
+        .dot => return Vm.Error.ReadError,
         .end => return null,
     }
 }
 
 const ReadResult = union(enum) {
     atom: Val,
-    end_expr: std.ArrayList(Val),
+    end_expr,
+    dot,
     end,
 };
 
 pub fn readNextImpl(self: *Reader) Vm.Error!ReadResult {
     const next_token = self.tokenizer.nextToken() orelse
         return ReadResult{ .end = {} };
+    const builder = self.vm.builder();
     switch (next_token.type) {
         .left_paren => {
             var elements = std.ArrayList(Val){};
             defer elements.deinit(self.vm.allocator());
+            var dot_idx: ?usize = null;
             while (true) {
                 switch (try self.readNextImpl()) {
                     .atom => |v| try elements.append(self.vm.allocator(), v),
                     .end_expr => {
-                        const list = try self.vm.builder().makeList(elements.items);
-                        return ReadResult{ .atom = list };
+                        const res = if (dot_idx == elements.items.len)
+                            try builder.makeImproperList(elements.items)
+                        else
+                            try builder.makeList(elements.items);
+                        return ReadResult{ .atom = res };
                     },
-                    .end => {
-                        return Vm.Error.ReadError;
+                    .end => return Vm.Error.ReadError,
+                    .dot => {
+                        if (elements.items.len == 0) return Vm.Error.ReadError;
+                        dot_idx = elements.items.len + 1;
                     },
                 }
             }
         },
-        .right_paren => return ReadResult{ .end_expr = std.ArrayList(Val){} },
+        .right_paren => return ReadResult{ .end_expr = {} },
+        .dot => return ReadResult{ .dot = {} },
         .number => return try self.parseNumber(next_token.lexeme),
         .string => return Vm.Error.NotImplemented,
         .symbol => return Vm.Error.NotImplemented,
@@ -66,10 +72,6 @@ pub fn readNextImpl(self: *Reader) Vm.Error!ReadResult {
         .unquote => return Vm.Error.NotImplemented,
         .unquote_splicing => return Vm.Error.NotImplemented,
     }
-}
-
-fn buildList(self: Reader, elements: []const Val) Vm.Error!Val {
-    return self.vm.builder().makeList(elements);
 }
 
 fn parseNumber(self: Reader, token: []const u8) Vm.Error!ReadResult {
@@ -88,25 +90,27 @@ test "read int" {
     defer vm.deinit();
 
     var reader = Reader.init(&vm, "1 009");
-    try testing.expectEqualDeep(Val{ .int = 1 }, reader.readNext());
-    try testing.expectEqualDeep(Val{ .int = 9 }, reader.readNext());
-    try testing.expectEqualDeep(null, reader.readNext());
+    try testing.expectFmt("1", "{f}", .{(try reader.readNext()).?});
+    try testing.expectFmt("9", "{f}", .{(try reader.readNext()).?});
+    try testing.expectEqual(null, try reader.readNext());
 }
 
 test "read list" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
-    const builder = vm.builder();
 
     var reader = Reader.init(&vm, "() (1 2 3)");
-    try testing.expectEqualDeep(Val{ .empty_list = {} }, reader.readNext());
-    try testing.expectEqualDeep(
-        builder.makeList(&.{
-            builder.makeInt(1),
-            builder.makeInt(2),
-            builder.makeInt(3),
-        }),
-        reader.readNext(),
-    );
-    try testing.expectEqualDeep(null, reader.readNext());
+    try testing.expectFmt("()", "{f}", .{(try reader.readNext()).?});
+    try testing.expectFmt("(1 2 3)", "{f}", .{(try reader.readNext()).?});
+    try testing.expectEqual(null, try reader.readNext());
+}
+
+test "read pair" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+    var reader = Reader.init(&vm, "(1 . 2) (1 2 . 3)");
+
+    try testing.expectFmt("(1 . 2)", "{f}", .{(try reader.readNext()).?});
+    try testing.expectFmt("(1 2 . 3)", "{f}", .{(try reader.readNext()).?});
+    try testing.expectEqual(null, try reader.readNext());
 }

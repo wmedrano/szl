@@ -7,6 +7,7 @@ pub const TokenType = enum {
     // Delimiters
     left_paren,
     right_paren,
+    dot,
     // Literals
     number,
     string,
@@ -51,6 +52,10 @@ pub fn nextToken(self: *Tokenizer) ?Token {
     return switch (c) {
         '(' => self.makeTokenAt(.left_paren, start_column),
         ')' => self.makeTokenAt(.right_paren, start_column),
+        '.' => if (self.isAtEnd() or isDelimiter(self.peek()))
+            self.makeTokenAt(.dot, start_column)
+        else
+            self.scanSymbol(start_column),
         '\'' => self.makeTokenAt(.quote, start_column),
         '`' => self.makeTokenAt(.quasiquote, start_column),
         ',' => if (self.match('@'))
@@ -134,6 +139,17 @@ fn scanNumber(self: *Tokenizer, start_column: u32) Token {
             while (!self.isAtEnd() and std.ascii.isDigit(self.peek())) {
                 _ = self.advance();
             }
+        }
+    }
+
+    // Make sure a standalone '.' following a number is not consumed
+    if (!self.isAtEnd() and self.peek() == '.') {
+        const next = if (self.current + 1 < self.source.len)
+            self.source[self.current + 1]
+        else
+            0;
+        if (isDelimiter(next)) {
+            // The dot is a separate token, don't consume it
         }
     }
 

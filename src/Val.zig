@@ -1,6 +1,8 @@
 const std = @import("std");
+const testing = std.testing;
 
 const Cons = @import("Cons.zig");
+const Vm = @import("Vm.zig");
 
 const Val = @This();
 
@@ -11,6 +13,8 @@ pub const Data = union(enum) {
     int: i64,
     pair: *Cons,
 };
+
+pub fn isEmptyList(_: Val) bool {}
 
 pub fn format(self: Val, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     switch (self.data) {
@@ -38,4 +42,49 @@ pub fn format(self: Val, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             try writer.writeAll(")");
         },
     }
+}
+
+test "format empty list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const b = vm.builder();
+    try testing.expectFmt("()", "{f}", .{b.makeEmptyList()});
+}
+
+test "format int" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const b = vm.builder();
+    try testing.expectFmt("42", "{f}", .{b.makeInt(42)});
+}
+
+test "format proper list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const b = vm.builder();
+    const items = [_]Val{ b.makeInt(1), b.makeInt(2), b.makeInt(3) };
+    try testing.expectFmt("(1 2 3)", "{f}", .{try b.makeList(&items)});
+}
+
+test "format improper list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const b = vm.builder();
+    const items = [_]Val{ b.makeInt(1), b.makeInt(2), b.makeInt(3) };
+    try testing.expectFmt("(1 2 . 3)", "{f}", .{try b.makeImproperList(&items)});
+}
+
+test "format nested list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const b = vm.builder();
+    const inner_items = [_]Val{ b.makeInt(2), b.makeInt(3) };
+    const inner_list = try b.makeList(&inner_items);
+    const outer_items = [_]Val{ b.makeInt(1), inner_list };
+    try testing.expectFmt("(1 (2 3))", "{f}", .{try b.makeList(&outer_items)});
 }

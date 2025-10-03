@@ -3,3 +3,7 @@ const std = @import("std");
 
 pub const Val = @import("Val.zig");
 pub const Vm = @import("Vm.zig");
+
+test {
+    std.testing.refAllDecls(@This());
+}
