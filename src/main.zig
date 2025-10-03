@@ -6,17 +6,18 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
     defer _ = gpa.deinit();
 
-    var input_str = try input(gpa.allocator());
-    defer input_str.deinit(gpa.allocator());
+    var source = try readInput(gpa.allocator());
+    defer source.deinit(gpa.allocator());
 
     var vm = try szl.Vm.init(.{ .allocator = gpa.allocator() });
     defer vm.deinit();
-    const expr = try vm.read(input_str.items);
-
-    try output(expr);
+    var reader = vm.read(source.items);
+    while (try reader.readNext()) |expr| {
+        try output(expr);
+    }
 }
 
-fn input(allocator: std.mem.Allocator) !std.ArrayList(u8) {
+fn readInput(allocator: std.mem.Allocator) !std.ArrayList(u8) {
     var ret = std.ArrayList(u8){};
     errdefer ret.deinit(allocator);
 
