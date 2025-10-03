@@ -91,24 +91,40 @@ fn parseSymbol(self: Reader, token: []const u8) Vm.Error!ReadResult {
     return ReadResult{ .atom = symbol };
 }
 
+fn expectReadNext(self: *Reader, expect: ?[]const u8, vm: *const Vm) !void {
+    const end_of_read = "end_of_read";
+    const expect_normalized = expect orelse end_of_read;
+    if (try self.readNext()) |next| {
+        const pretty = vm.pretty(next);
+        try testing.expectFmt(
+            expect_normalized,
+            "{f}",
+            .{pretty},
+        );
+    } else {
+        try testing.expectEqualStrings(expect_normalized, end_of_read);
+    }
+}
+
 test "read int" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     var reader = Reader.init(&vm, "1 009");
-    try testing.expectFmt("1", "{f}", .{(try reader.readNext()).?});
-    try testing.expectFmt("9", "{f}", .{(try reader.readNext()).?});
-    try testing.expectEqual(null, try reader.readNext());
+    try reader.expectReadNext("1", &vm);
+    try reader.expectReadNext("9", &vm);
+    try reader.expectReadNext(null, &vm);
 }
 
 test "read list" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    var reader = Reader.init(&vm, "() (1 2 3)");
-    try testing.expectFmt("()", "{f}", .{(try reader.readNext()).?});
-    try testing.expectFmt("(1 2 3)", "{f}", .{(try reader.readNext()).?});
-    try testing.expectEqual(null, try reader.readNext());
+    var reader = Reader.init(&vm, "() (1 2 3) (1 . 2 3)");
+    try reader.expectReadNext("()", &vm);
+    try reader.expectReadNext("(1 2 3)", &vm);
+    try reader.expectReadNext("(1 2 3)", &vm);
+    try reader.expectReadNext(null, &vm);
 }
 
 test "read pair" {
@@ -116,9 +132,9 @@ test "read pair" {
     defer vm.deinit();
     var reader = Reader.init(&vm, "(1 . 2) (1 2 . 3)");
 
-    try testing.expectFmt("(1 . 2)", "{f}", .{(try reader.readNext()).?});
-    try testing.expectFmt("(1 2 . 3)", "{f}", .{(try reader.readNext()).?});
-    try testing.expectEqual(null, try reader.readNext());
+    try reader.expectReadNext("(1 . 2)", &vm);
+    try reader.expectReadNext("(1 2 . 3)", &vm);
+    try reader.expectReadNext(null, &vm);
 }
 
 test "read symbol" {
@@ -126,9 +142,9 @@ test "read symbol" {
     defer vm.deinit();
 
     var reader = Reader.init(&vm, "foo bar-baz");
-    try testing.expectFmt("foo", "{f}", .{(try reader.readNext()).?});
-    try testing.expectFmt("bar-baz", "{f}", .{(try reader.readNext()).?});
-    try testing.expectEqual(null, try reader.readNext());
+    try reader.expectReadNext("foo", &vm);
+    try reader.expectReadNext("bar-baz", &vm);
+    try reader.expectReadNext(null, &vm);
 }
 
 test "read list with symbols" {
@@ -136,6 +152,6 @@ test "read list with symbols" {
     defer vm.deinit();
 
     var reader = Reader.init(&vm, "(define x 42)");
-    try testing.expectFmt("(define x 42)", "{f}", .{(try reader.readNext()).?});
-    try testing.expectEqual(null, try reader.readNext());
+    try reader.expectReadNext("(define x 42)", &vm);
+    try reader.expectReadNext(null, &vm);
 }

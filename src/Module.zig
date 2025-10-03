@@ -8,7 +8,7 @@ const Vm = @import("Vm.zig");
 
 const Module = @This();
 
-namespace: []const Symbol,
+namespace: []const Symbol = &.{},
 slots: std.ArrayList(Val) = .{},
 symbol_to_slot: std.AutoHashMapUnmanaged(Symbol, Slot) = .{},
 

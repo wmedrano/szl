@@ -24,11 +24,11 @@ pub inline fn makeEmptyList(_: Builder) Val {
 }
 
 pub inline fn makeCons(self: Builder, car: Val, cdr: Val) Vm.Error!Val {
-    var cons = try self.vm.allocator().create(Cons);
-    cons.car = car;
-    cons.cdr = cdr;
-    const val = Val{ .data = .{ .pair = cons } };
-    try self.vm.objects.append(self.vm.allocator(), val);
+    const h = try self.vm.objects.cons.put(
+        self.vm.allocator(),
+        Cons{ .car = car, .cdr = cdr },
+    );
+    const val = Val{ .data = .{ .pair = h } };
     return val;
 }
 
@@ -65,20 +65,19 @@ pub inline fn makeSymbol(self: Builder, symbol: Symbol) Vm.Error!Val {
 }
 
 pub inline fn makeEnvironment(self: Builder, namespace: []const Symbol, slot_symbols: []const Symbol) Vm.Error!Val {
-    var env = try self.vm.allocator().create(Module);
-    errdefer self.vm.allocator().destroy(env);
+    // Create
+    const h = try self.vm.objects.modules.put(self.vm.allocator(), Module{});
+    const module = self.vm.objects.modules.get(h) orelse return Vm.Error.Unreachable;
 
-    const namespace_copy = try self.vm.allocator().dupe(Symbol, namespace);
-    env.* = Module{ .namespace = namespace_copy };
-    errdefer env.deinit(self.vm.allocator());
-
+    // Initialize
+    module.namespace = try self.vm.allocator().dupe(Symbol, namespace);
     for (slot_symbols, 0..) |sym, idx| {
         const slot = Slot{ .idx = idx };
-        try env.slots.append(self.makeEmptyList());
-        try env.symbol_to_slot.put(self.vm.allocator(), sym, slot);
+        try module.slots.append(self.makeEmptyList());
+        try module.symbol_to_slot.put(self.vm.allocator(), sym, slot);
     }
 
-    const val = Val{ .data = .{ .module = env } };
-    try self.vm.objects.append(self.vm.allocator(), val);
+    // Return
+    const val = Val{ .data = .{ .module = h } };
     return val;
 }
