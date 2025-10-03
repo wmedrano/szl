@@ -1,27 +1,44 @@
 const std = @import("std");
+
 const szl = @import("szl");
 
 pub fn main() !void {
-    // Prints to stderr, ignoring potential errors.
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
-    try szl.bufferedPrint();
+    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
+    defer _ = gpa.deinit();
+
+    var input_str = try input(gpa.allocator());
+    defer input_str.deinit(gpa.allocator());
+
+    var vm = try szl.Vm.init(.{ .allocator = gpa.allocator() });
+    defer vm.deinit();
+    const expr = try vm.read(input_str.items);
+
+    try output(expr);
 }
 
-test "simple test" {
-    const gpa = std.testing.allocator;
-    var list: std.ArrayList(i32) = .empty;
-    defer list.deinit(gpa); // Try commenting this out and see if zig detects the memory leak!
-    try list.append(gpa, 42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
+fn input(allocator: std.mem.Allocator) !std.ArrayList(u8) {
+    var ret = std.ArrayList(u8){};
+    errdefer ret.deinit(allocator);
+
+    const stdin = std.fs.File.stdin();
+    defer stdin.close();
+    var input_buffer: [1024]u8 = undefined;
+    var reader = stdin.reader(&input_buffer);
+    while (!reader.atEnd()) {
+        const len = reader.read(&input_buffer) catch |err| switch (err) {
+            error.EndOfStream => 0,
+            else => break,
+        };
+        try ret.appendSlice(allocator, input_buffer[0..len]);
+    }
+    return ret;
 }
 
-test "fuzz example" {
-    const Context = struct {
-        fn testOne(context: @This(), input: []const u8) anyerror!void {
-            _ = context;
-            // Try passing `--fuzz` to `zig build test` and see if it manages to fail this test case!
-            try std.testing.expect(!std.mem.eql(u8, "canyoufindme", input));
-        }
-    };
-    try std.testing.fuzz(Context{}, Context.testOne, .{});
+fn output(expr: szl.Val) !void {
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
+
+    try stdout.print("Expression: {f}\n", .{expr});
+    try stdout.flush();
 }
