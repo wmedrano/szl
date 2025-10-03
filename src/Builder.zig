@@ -1,6 +1,8 @@
 const std = @import("std");
 
 const Cons = @import("Cons.zig");
+const Module = @import("Module.zig");
+const Slot = @import("Slot.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
@@ -51,10 +53,32 @@ pub inline fn makeImproperList(self: Builder, items: []const Val) Vm.Error!Val {
     return result;
 }
 
-pub inline fn makeSymbol(self: Builder, symbol_str: []const u8) Vm.Error!Val {
-    if (self.vm.symbols.get(symbol_str)) |s| return Val{ .data = .{ .symbol = s } };
-    const sym = Symbol{ .string = try self.vm.allocator().dupe(u8, symbol_str) };
+/// Creates a symbol value, copying the symbol's string data.
+/// The input symbol's lifetime does not need to extend beyond this function call,
+/// as the string data is copied and managed by the VM's allocator.
+pub inline fn makeSymbol(self: Builder, symbol: Symbol) Vm.Error!Val {
+    if (self.vm.symbols.get(symbol.string)) |s| return Val{ .data = .{ .symbol = s } };
+    const sym = Symbol.init(try self.vm.allocator().dupe(u8, symbol.string));
     errdefer self.vm.allocator().free(sym.string);
     try self.vm.symbols.put(self.vm.allocator(), sym.string, sym);
     return Val{ .data = .{ .symbol = sym } };
+}
+
+pub inline fn makeEnvironment(self: Builder, namespace: []const Symbol, slot_symbols: []const Symbol) Vm.Error!Val {
+    var env = try self.vm.allocator().create(Module);
+    errdefer self.vm.allocator().destroy(env);
+
+    const namespace_copy = try self.vm.allocator().dupe(Symbol, namespace);
+    env.* = Module{ .namespace = namespace_copy };
+    errdefer env.deinit(self.vm.allocator());
+
+    for (slot_symbols, 0..) |sym, idx| {
+        const slot = Slot{ .idx = idx };
+        try env.slots.append(self.makeEmptyList());
+        try env.symbol_to_slot.put(self.vm.allocator(), sym, slot);
+    }
+
+    const val = Val{ .data = .{ .module = env } };
+    try self.vm.objects.append(self.vm.allocator(), val);
+    return val;
 }

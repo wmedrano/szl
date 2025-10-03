@@ -2,6 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 
 const Builder = @import("Builder.zig");
+const Module = @import("Module.zig");
 const Reader = @import("Reader.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
@@ -11,21 +12,44 @@ const Vm = @This();
 options: Options,
 objects: std.ArrayList(Val) = .{},
 symbols: std.StringHashMapUnmanaged(Symbol) = .{},
+libraries: std.ArrayList(*Module) = .{},
 
 pub const Options = struct {
     allocator: std.mem.Allocator,
 };
 
-pub const Error = error{ OutOfMemory, NotImplemented, ReadError };
+pub const Error = error{
+    OutOfMemory,
+    NotImplemented,
+    ReadError,
+    UndefinedBehavior,
+};
 
-pub fn init(options: Options) error{OutOfMemory}!Vm {
-    return Vm{ .options = options };
+pub fn init(options: Options) Error!Vm {
+    var vm = Vm{ .options = options };
+    errdefer vm.deinit();
+    try vm.initLibraries();
+    return vm;
+}
+
+fn initLibraries(vm: *Vm) Error!void {
+    const b = vm.builder();
+
+    const scheme_base = try b.makeEnvironment(&.{ Symbol.init("scheme"), Symbol.init("base") }, &.{});
+    try vm.libraries.append(vm.allocator(), scheme_base.data.module);
+
+    const user_repl = try b.makeEnvironment(&.{ Symbol.init("user"), Symbol.init("repl") }, &.{});
+    try vm.libraries.append(vm.allocator(), user_repl.data.module);
 }
 
 pub fn deinit(self: *Vm) void {
     for (self.objects.items) |val| {
         switch (val.data) {
             .empty_list, .int, .symbol => {},
+            .module => |env| {
+                env.deinit(self.allocator());
+                self.allocator().destroy(env);
+            },
             .pair => |cons| self.allocator().destroy(cons),
         }
     }
@@ -35,6 +59,7 @@ pub fn deinit(self: *Vm) void {
         self.allocator().free(key.*);
     }
     self.symbols.deinit(self.allocator());
+    self.libraries.deinit(self.allocator());
 }
 
 pub fn allocator(self: Vm) std.mem.Allocator {

@@ -1,6 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 
+const Symbol = @import("Symbol.zig");
 const Tokenizer = @import("Tokenizer.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
@@ -86,7 +87,7 @@ fn parseNumber(self: Reader, token: []const u8) Vm.Error!ReadResult {
 }
 
 fn parseSymbol(self: Reader, token: []const u8) Vm.Error!ReadResult {
-    const symbol = try self.vm.builder().makeSymbol(token);
+    const symbol = try self.vm.builder().makeSymbol(Symbol.init(token));
     return ReadResult{ .atom = symbol };
 }
 

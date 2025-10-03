@@ -2,6 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 
 const Cons = @import("Cons.zig");
+const Module = @import("Module.zig");
 const Symbol = @import("Symbol.zig");
 const Vm = @import("Vm.zig");
 
@@ -11,6 +12,7 @@ data: Data,
 
 pub const Data = union(enum) {
     empty_list,
+    module: *Module,
     int: i64,
     pair: *Cons,
     symbol: Symbol,
@@ -21,6 +23,14 @@ pub fn isEmptyList(_: Val) bool {}
 pub fn format(self: Val, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     switch (self.data) {
         .empty_list => try writer.writeAll("()"),
+        .module => |env| {
+            try writer.writeAll("#<environment:(");
+            for (env.namespace, 0..) |sym, i| {
+                if (i > 0) try writer.writeAll(" ");
+                try writer.writeAll(sym.string);
+            }
+            try writer.writeAll(")>");
+        },
         .int => |n| try writer.print("{}", .{n}),
         .pair => |pair| {
             try writer.writeAll("(");
@@ -101,7 +111,7 @@ test "format symbol produces symbol string" {
     defer vm.deinit();
 
     const b = vm.builder();
-    try testing.expectFmt("foo", "{f}", .{try b.makeSymbol("foo")});
+    try testing.expectFmt("foo", "{f}", .{try b.makeSymbol(Symbol.init("foo"))});
 }
 
 test "symbol with same string is eq" {
@@ -109,8 +119,8 @@ test "symbol with same string is eq" {
     defer vm.deinit();
 
     const b = vm.builder();
-    const sym1 = try b.makeSymbol("foo");
-    const sym2 = try b.makeSymbol("foo");
+    const sym1 = try b.makeSymbol(Symbol.init("foo"));
+    const sym2 = try b.makeSymbol(Symbol.init("foo"));
 
     try testing.expect(sym1.eq(sym2));
 }
@@ -120,8 +130,17 @@ test "symbol with different identifiers are different" {
     defer vm.deinit();
 
     const b = vm.builder();
-    const sym1 = try b.makeSymbol("foo");
-    const sym2 = try b.makeSymbol("foobar");
+    const sym1 = try b.makeSymbol(Symbol.init("foo"));
+    const sym2 = try b.makeSymbol(Symbol.init("foobar"));
 
     try testing.expect(!sym1.eq(sym2));
+}
+
+test "format environment produces namespace in parens" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const b = vm.builder();
+    const env = try b.makeEnvironment(&.{ Symbol.init("scheme"), Symbol.init("base") }, &.{});
+    try testing.expectFmt("#<environment:(scheme base)>", "{f}", .{env});
 }
