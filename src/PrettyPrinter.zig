@@ -20,7 +20,11 @@ pub fn format(self: PrettyPrinter, writer: *std.Io.Writer) std.Io.Writer.Error!v
             try writer.writeAll("#<environment:module:(");
             for (module.namespace, 0..) |sym, i| {
                 if (i > 0) try writer.writeAll(" ");
-                try writer.writeAll(sym.string);
+                const pp = PrettyPrinter{
+                    .vm = self.vm,
+                    .val = Val{ .data = .{ .symbol = sym } },
+                };
+                try pp.format(writer);
             }
             try writer.writeAll(")>");
         },
@@ -52,7 +56,12 @@ pub fn format(self: PrettyPrinter, writer: *std.Io.Writer) std.Io.Writer.Error!v
             }
             try writer.writeAll(")");
         },
-        .symbol => |s| try writer.writeAll(s.string),
+        .symbol => |h| {
+            const s = self.vm.objects.symbols.asSymbol(h) orelse {
+                return writer.print("#<symbol-{}>", .{h.id});
+            };
+            try writer.writeAll(s.string);
+        },
     }
 }
 
@@ -160,7 +169,10 @@ test "format environment produces namespace in parens" {
     defer vm.deinit();
 
     const b = vm.builder();
-    const env = try b.makeEnvironment(&.{ Symbol.init("scheme"), Symbol.init("base") }, &.{});
+    const env = try b.makeEnvironment(&.{
+        (try b.makeSymbol(Symbol.init("scheme"))).data.symbol,
+        (try b.makeSymbol(Symbol.init("base"))).data.symbol,
+    }, &.{});
     try testing.expectFmt(
         "#<environment:module:(scheme base)>",
         "{f}",

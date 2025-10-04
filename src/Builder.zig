@@ -42,6 +42,7 @@ pub inline fn makeList(self: Builder, items: []const Val) Vm.Error!Val {
     return result;
 }
 
+// TODO: Take the cdr as an argument.
 pub inline fn makeImproperList(self: Builder, items: []const Val) Vm.Error!Val {
     if (items.len < 2) return Vm.Error.ReadError;
     var result = items[items.len - 1];
@@ -57,20 +58,25 @@ pub inline fn makeImproperList(self: Builder, items: []const Val) Vm.Error!Val {
 /// The input symbol's lifetime does not need to extend beyond this function call,
 /// as the string data is copied and managed by the VM's allocator.
 pub inline fn makeSymbol(self: Builder, symbol: Symbol) Vm.Error!Val {
-    if (self.vm.symbols.get(symbol.string)) |s| return Val{ .data = .{ .symbol = s } };
-    const sym = Symbol.init(try self.vm.allocator().dupe(u8, symbol.string));
-    errdefer self.vm.allocator().free(sym.string);
-    try self.vm.symbols.put(self.vm.allocator(), sym.string, sym);
-    return Val{ .data = .{ .symbol = sym } };
+    const interned = try self.vm.objects.symbols.intern(self.vm.allocator(), symbol);
+    return self.makeSymbolFromInterned(interned);
 }
 
-pub inline fn makeEnvironment(self: Builder, namespace: []const Symbol, slot_symbols: []const Symbol) Vm.Error!Val {
+pub inline fn makeSymbolFromInterned(_: Builder, interned: Symbol.Interned) Val {
+    return Val{ .data = .{ .symbol = interned } };
+}
+
+pub inline fn makeEnvironment(
+    self: Builder,
+    namespace: []const Symbol.Interned,
+    slot_symbols: []const Symbol.Interned,
+) Vm.Error!Val {
     // Create
     const h = try self.vm.objects.modules.put(self.vm.allocator(), Module{});
     const module = self.vm.objects.modules.get(h) orelse return Vm.Error.Unreachable;
 
     // Initialize
-    module.namespace = try self.vm.allocator().dupe(Symbol, namespace);
+    module.namespace = try self.vm.allocator().dupe(Symbol.Interned, namespace);
     for (slot_symbols, 0..) |sym, idx| {
         const slot = Slot{ .idx = idx };
         try module.slots.append(self.makeEmptyList());

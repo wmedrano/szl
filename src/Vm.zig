@@ -15,16 +15,22 @@ const Val = @import("Val.zig");
 const Vm = @This();
 
 options: Options,
-symbols: std.StringHashMapUnmanaged(Symbol) = .{},
-objects: Objects = .{},
+objects: Objects,
 
 pub const Options = struct {
     allocator: std.mem.Allocator,
 };
 
 const Objects = struct {
+    symbols: Symbol.Interner,
     cons: ObjectPool(Cons) = .{},
     modules: ObjectPool(Module) = .{},
+
+    pub fn init(alloc: std.mem.Allocator) Objects {
+        return Objects{
+            .symbols = Symbol.Interner.init(alloc),
+        };
+    }
 };
 
 pub const Error = error{
@@ -37,7 +43,10 @@ pub const Error = error{
 };
 
 pub fn init(options: Options) Error!Vm {
-    var vm = Vm{ .options = options };
+    var vm = Vm{
+        .options = options,
+        .objects = Objects.init(options.allocator),
+    };
     errdefer vm.deinit();
     try vm.initLibraries();
     return vm;
@@ -46,8 +55,14 @@ pub fn init(options: Options) Error!Vm {
 fn initLibraries(vm: *Vm) Error!void {
     const b = vm.builder();
 
-    _ = try b.makeEnvironment(&.{ Symbol.init("scheme"), Symbol.init("base") }, &.{});
-    _ = try b.makeEnvironment(&.{ Symbol.init("user"), Symbol.init("repl") }, &.{});
+    _ = try b.makeEnvironment(&.{
+        (try b.makeSymbol(Symbol.init("scheme"))).data.symbol,
+        (try b.makeSymbol(Symbol.init("base"))).data.symbol,
+    }, &.{});
+    _ = try b.makeEnvironment(&.{
+        (try b.makeSymbol(Symbol.init("user"))).data.symbol,
+        (try b.makeSymbol(Symbol.init("repl"))).data.symbol,
+    }, &.{});
 }
 
 pub fn deinit(self: *Vm) void {
@@ -57,9 +72,7 @@ pub fn deinit(self: *Vm) void {
     while (modules_iter.next()) |module| module.deinit(self.allocator());
     self.objects.modules.deinit(self.allocator());
 
-    var it = self.symbols.keyIterator();
-    while (it.next()) |key| self.allocator().free(key.*);
-    self.symbols.deinit(self.allocator());
+    self.objects.symbols.deinit(self.allocator());
 }
 
 pub fn allocator(self: Vm) std.mem.Allocator {

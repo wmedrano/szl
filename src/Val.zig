@@ -17,7 +17,7 @@ pub const Data = union(enum) {
     module: Handle(Module),
     int: i64,
     pair: Handle(Cons),
-    symbol: Symbol,
+    symbol: Symbol.Interned,
 };
 
 pub fn isEmptyList(_: Val) bool {}
@@ -28,4 +28,8 @@ pub fn pretty(self: Val, vm: *const Vm) PrettyPrinter {
 
 pub fn eq(self: Val, other: Val) bool {
     return std.meta.eql(self, other);
+}
+
+test "Val is small" {
+    try testing.expectEqual(16, @sizeOf(Val));
 }
