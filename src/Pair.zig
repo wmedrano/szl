@@ -1,6 +1,6 @@
 const Val = @import("Val.zig");
 
-const Cons = @This();
+const Pair = @This();
 
 car: Val,
 cdr: Val,

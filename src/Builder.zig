@@ -1,7 +1,7 @@
 const std = @import("std");
 
-const Cons = @import("Cons.zig");
 const Module = @import("Module.zig");
+const Pair = @import("Pair.zig");
 const Slot = @import("Slot.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
@@ -23,23 +23,17 @@ pub inline fn makeEmptyList(_: Builder) Val {
     return Val{ .data = .{ .empty_list = {} } };
 }
 
-pub inline fn makeCons(self: Builder, car: Val, cdr: Val) Vm.Error!Val {
+pub inline fn makePair(self: Builder, car: Val, cdr: Val) Vm.Error!Val {
     const h = try self.vm.objects.cons.put(
         self.vm.allocator(),
-        Cons{ .car = car, .cdr = cdr },
+        Pair{ .car = car, .cdr = cdr },
     );
     const val = Val{ .data = .{ .pair = h } };
     return val;
 }
 
 pub inline fn makeList(self: Builder, items: []const Val) Vm.Error!Val {
-    var result = self.makeEmptyList();
-    var index: usize = items.len;
-    while (index > 0) {
-        index -= 1;
-        result = try self.makeCons(items[index], result);
-    }
-    return result;
+    return self.makePairsWithCdr(items, self.makeEmptyList());
 }
 
 // TODO: Take the cdr as an argument.
@@ -49,7 +43,17 @@ pub inline fn makeImproperList(self: Builder, items: []const Val) Vm.Error!Val {
     var index: usize = items.len - 1;
     while (index > 0) {
         index -= 1;
-        result = try self.makeCons(items[index], result);
+        result = try self.makePair(items[index], result);
+    }
+    return result;
+}
+
+pub inline fn makePairsWithCdr(self: Builder, items: []const Val, cdr: Val) Vm.Error!Val {
+    var result = cdr;
+    var index: usize = items.len;
+    while (index > 0) {
+        index -= 1;
+        result = try self.makePair(items[index], result);
     }
     return result;
 }
@@ -59,11 +63,7 @@ pub inline fn makeImproperList(self: Builder, items: []const Val) Vm.Error!Val {
 /// as the string data is copied and managed by the VM's allocator.
 pub inline fn makeSymbol(self: Builder, symbol: Symbol) Vm.Error!Val {
     const interned = try self.vm.objects.symbols.intern(self.vm.allocator(), symbol);
-    return self.makeSymbolFromInterned(interned);
-}
-
-pub inline fn makeSymbolFromInterned(_: Builder, interned: Symbol.Interned) Val {
-    return Val{ .data = .{ .symbol = interned } };
+    return Val.initSymbol(interned);
 }
 
 pub inline fn makeEnvironment(

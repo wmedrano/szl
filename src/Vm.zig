@@ -2,11 +2,11 @@ const std = @import("std");
 const testing = std.testing;
 
 const Builder = @import("Builder.zig");
-const Cons = @import("Cons.zig");
 const Handle = @import("object_pool.zig").Handle;
 const Inspector = @import("Inspector.zig");
 const Module = @import("Module.zig");
 const ObjectPool = @import("object_pool.zig").ObjectPool;
+const Pair = @import("Pair.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
 const Reader = @import("Reader.zig");
 const Symbol = @import("Symbol.zig");
@@ -23,7 +23,7 @@ pub const Options = struct {
 
 const Objects = struct {
     symbols: Symbol.Interner,
-    cons: ObjectPool(Cons) = .{},
+    cons: ObjectPool(Pair) = .{},
     modules: ObjectPool(Module) = .{},
 
     pub fn init(alloc: std.mem.Allocator) Objects {

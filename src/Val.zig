@@ -1,9 +1,9 @@
 const std = @import("std");
 const testing = std.testing;
 
-const Cons = @import("Cons.zig");
 const Handle = @import("object_pool.zig").Handle;
 const Module = @import("Module.zig");
+const Pair = @import("Pair.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
 const Symbol = @import("Symbol.zig");
 const Vm = @import("Vm.zig");
@@ -16,9 +16,13 @@ pub const Data = union(enum) {
     empty_list,
     module: Handle(Module),
     int: i64,
-    pair: Handle(Cons),
+    pair: Handle(Pair),
     symbol: Symbol.Interned,
 };
+
+pub fn initSymbol(sym: Symbol.Interned) Val {
+    return Val{ .data = .{ .symbol = sym } };
+}
 
 pub fn isEmptyList(_: Val) bool {}
 

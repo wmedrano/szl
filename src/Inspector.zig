@@ -1,7 +1,7 @@
 const std = @import("std");
 
-const Cons = @import("Cons.zig");
 const Module = @import("Module.zig");
+const Pair = @import("Pair.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
@@ -28,7 +28,7 @@ pub inline fn asModule(_: Inspector, val: Val) Vm.Error!*Module {
     };
 }
 
-pub inline fn asPair(_: Inspector, val: Val) Vm.Error!*Cons {
+pub inline fn asPair(_: Inspector, val: Val) Vm.Error!*Pair {
     return switch (val.data) {
         .pair => |cons| cons,
         else => Vm.Error.WrongType,
