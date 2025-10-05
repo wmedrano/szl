@@ -23,6 +23,10 @@ pub const Data = union(enum) {
     proc_builtin: Proc.Builtin,
 };
 
+pub fn initEmptyList() Val {
+    return Val{ .data = .{ .empty_list = {} } };
+}
+
 pub fn initInt(x: i64) Val {
     return Val{ .data = .{ .int = x } };
 }
@@ -44,6 +48,13 @@ pub fn isProc(self: Val) bool {
         .proc, .proc_builtin => true,
         else => false,
     };
+}
+
+pub fn asSymbol(self: Val) ?Symbol.Interned {
+    switch (self.data) {
+        .symbol => |s| return s,
+        else => return null,
+    }
 }
 
 pub fn pretty(self: Val, vm: *const Vm) PrettyPrinter {

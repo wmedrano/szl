@@ -15,14 +15,6 @@ pub fn init(vm: *Vm) Builder {
     return Builder{ .vm = vm };
 }
 
-pub inline fn makeInt(_: Builder, value: i64) Val {
-    return Val{ .data = .{ .int = value } };
-}
-
-pub inline fn makeEmptyList(_: Builder) Val {
-    return Val{ .data = .{ .empty_list = {} } };
-}
-
 pub inline fn makePair(self: Builder, car: Val, cdr: Val) Vm.Error!Val {
     const h = try self.vm.objects.pairs.put(
         self.vm.allocator(),
@@ -33,7 +25,7 @@ pub inline fn makePair(self: Builder, car: Val, cdr: Val) Vm.Error!Val {
 }
 
 pub inline fn makeList(self: Builder, items: []const Val) Vm.Error!Val {
-    return self.makePairsWithCdr(items, self.makeEmptyList());
+    return self.makePairsWithCdr(items, Val.initEmptyList());
 }
 
 // TODO: Take the cdr as an argument.

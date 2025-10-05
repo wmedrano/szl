@@ -10,6 +10,10 @@ pub fn init(str: []const u8) Symbol {
 
 pub const Interned = packed struct {
     id: u32,
+
+    pub fn eq(self: Interned, other: Interned) bool {
+        return self.id == other.id;
+    }
 };
 
 pub const Interner = struct {

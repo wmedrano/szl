@@ -10,6 +10,7 @@ const Vm = @import("Vm.zig");
 pub const Instruction = union(enum) {
     push_const: Val,
     module_get: struct { module: Handle(Module), symbol: Symbol.Interned },
+    get_local: u32,
     squash: u32,
     eval: u32,
     ret,
@@ -18,6 +19,10 @@ pub const Instruction = union(enum) {
         switch (self) {
             .push_const => |val| try vm.context.push(vm.allocator(), val),
             .module_get => |g| try moduleGet(vm, g.module, g.symbol),
+            .get_local => |idx| {
+                const val = vm.context.stackLocal()[@intCast(idx)];
+                try vm.context.push(vm.allocator(), val);
+            },
             .squash => |n| try vm.context.stackSquash(n),
             .eval => |n| try eval(vm, n),
             .ret => try vm.context.popStackFrame(.place_on_top),
@@ -27,7 +32,10 @@ pub const Instruction = union(enum) {
 
 fn moduleGet(vm: *Vm, module: Handle(Module), symbol: Symbol.Interned) !void {
     const m = vm.inspector().handleToModule(module) catch return Vm.Error.UndefinedBehavior;
-    const val = m.getBySymbol(symbol) orelse return Vm.Error.UndefinedBehavior;
+    const val = m.getBySymbol(symbol) orelse {
+        std.debug.print("Trying to get symbol {f}\n", .{vm.pretty(Val.initSymbol(symbol))});
+        return Vm.Error.UndefinedBehavior;
+    };
     try vm.context.push(vm.allocator(), val);
 }
 

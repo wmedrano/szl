@@ -105,7 +105,7 @@ test builder {
     defer vm.deinit();
 
     const b = vm.builder();
-    const items = [_]Val{ b.makeInt(1), b.makeInt(2), b.makeInt(3) };
+    const items = [_]Val{ Val.initInt(1), Val.initInt(2), Val.initInt(3) };
     try testing.expectFmt(
         "(1 2 3)",
         "{f}",
@@ -131,7 +131,7 @@ test read {
 
 pub fn evalStr(self: *Vm, source: []const u8) Error!Val {
     var reader = self.read(source);
-    var return_val = self.builder().makeEmptyList();
+    var return_val = Val.initEmptyList();
     const b = self.builder();
     const env = self.inspector().findModule(&.{
         try b.makeSymbolInterned(Symbol.init("user")),
@@ -163,7 +163,7 @@ test evalStr {
     defer vm.deinit();
 
     try testing.expectEqual(
-        vm.builder().makeInt(42),
-        try vm.evalStr("(+ 40 2)"),
+        Val.initInt(42),
+        try vm.evalStr("((lambda (x) (+ x 30 2)) 10)"),
     );
 }

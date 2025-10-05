@@ -53,17 +53,35 @@ fn addIr(self: *Compiler, ir: Ir) Error!void {
         .get => |sym| try self.addInstruction(.{
             .module_get = .{ .module = self.module, .symbol = sym },
         }),
+        .get_local => |idx| try self.addInstruction(.{ .get_local = idx }),
         .eval => |e| {
             try self.addIr(e.proc.*);
             for (e.args) |arg| try self.addIr(arg);
             try self.addInstruction(.{ .eval = @intCast(e.args.len) });
         },
+        .lambda => |l| try self.addInstruction(
+            Instruction{ .push_const = try self.buildLambda(l) },
+        ),
         .ret => try self.addInstruction(.{ .ret = {} }),
     }
 }
 
 fn addInstruction(self: *Compiler, instruction: Instruction) !void {
     try self.instructions.append(self.arena.allocator(), instruction);
+}
+
+fn buildLambda(self: *Compiler, lambda: Ir.Lambda) Error!Val {
+    var sub_compiler = Compiler{
+        .vm = self.vm,
+        .arena = self.arena,
+        .module = self.module,
+    };
+    if (lambda.body.len == 0)
+        try sub_compiler.addIr(Ir{ .kind = .{ .push_const = Val.initEmptyList() } });
+    for (lambda.body) |ir|
+        try sub_compiler.addIr(ir);
+    const proc = try sub_compiler.makeProc();
+    return proc.val;
 }
 
 pub fn makeProc(self: Compiler) Error!struct { val: Val, proc: Proc } {

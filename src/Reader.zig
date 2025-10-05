@@ -75,14 +75,14 @@ pub fn readNextImpl(self: *Reader) Vm.Error!ReadResult {
     }
 }
 
-fn parseNumber(self: Reader, token: []const u8) Vm.Error!ReadResult {
+fn parseNumber(_: Reader, token: []const u8) Vm.Error!ReadResult {
     var n: i64 = 0;
     for (token) |digit| {
         if (digit < '0' or digit > '9') return Vm.Error.ReadError;
         n *= 10;
         n += digit - '0';
     }
-    const val = self.vm.builder().makeInt(n);
+    const val = Val.initInt(n);
     return ReadResult{ .atom = val };
 }
 

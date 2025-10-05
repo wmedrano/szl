@@ -79,11 +79,10 @@ test "format empty list is empty parens" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const b = vm.builder();
     try testing.expectFmt(
         "()",
         "{f}",
-        .{vm.pretty(b.makeEmptyList())},
+        .{vm.pretty(Val.initEmptyList())},
     );
 }
 
@@ -91,11 +90,10 @@ test "format int produces int" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const b = vm.builder();
     try testing.expectFmt(
         "42",
         "{f}",
-        .{vm.pretty(b.makeInt(42))},
+        .{vm.pretty(Val.initInt(42))},
     );
 }
 
@@ -104,7 +102,7 @@ test "format proper list produces parens surrounded list" {
     defer vm.deinit();
 
     const b = vm.builder();
-    const items = [_]Val{ b.makeInt(1), b.makeInt(2), b.makeInt(3) };
+    const items = [_]Val{ Val.initInt(1), Val.initInt(2), Val.initInt(3) };
     try testing.expectFmt(
         "(1 2 3)",
         "{f}",
@@ -117,7 +115,7 @@ test "format improper list places dot before last element" {
     defer vm.deinit();
 
     const b = vm.builder();
-    const items = [_]Val{ b.makeInt(1), b.makeInt(2), b.makeInt(3) };
+    const items = [_]Val{ Val.initInt(1), Val.initInt(2), Val.initInt(3) };
     try testing.expectFmt(
         "(1 2 . 3)",
         "{f}",
@@ -130,9 +128,9 @@ test "format nested list formats the nested list" {
     defer vm.deinit();
 
     const b = vm.builder();
-    const inner_items = [_]Val{ b.makeInt(2), b.makeInt(3) };
+    const inner_items = [_]Val{ Val.initInt(2), Val.initInt(3) };
     const inner_list = try b.makeList(&inner_items);
-    const outer_items = [_]Val{ b.makeInt(1), inner_list };
+    const outer_items = [_]Val{ Val.initInt(1), inner_list };
     try testing.expectFmt(
         "(1 (2 3))",
         "{f}",
