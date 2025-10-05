@@ -24,7 +24,7 @@ pub inline fn makeEmptyList(_: Builder) Val {
 }
 
 pub inline fn makePair(self: Builder, car: Val, cdr: Val) Vm.Error!Val {
-    const h = try self.vm.objects.cons.put(
+    const h = try self.vm.objects.pairs.put(
         self.vm.allocator(),
         Pair{ .car = car, .cdr = cdr },
     );
@@ -62,14 +62,22 @@ pub inline fn makePairsWithCdr(self: Builder, items: []const Val, cdr: Val) Vm.E
 /// The input symbol's lifetime does not need to extend beyond this function call,
 /// as the string data is copied and managed by the VM's allocator.
 pub inline fn makeSymbol(self: Builder, symbol: Symbol) Vm.Error!Val {
-    const interned = try self.vm.objects.symbols.intern(self.vm.allocator(), symbol);
-    return Val.initSymbol(interned);
+    return Val.initSymbol(try self.makeSymbolInterned(symbol));
 }
+
+pub inline fn makeSymbolInterned(self: Builder, symbol: Symbol) error{OutOfMemory}!Symbol.Interned {
+    return try self.vm.objects.symbols.intern(self.vm.allocator(), symbol);
+}
+
+pub const Definition = struct {
+    symbol: Symbol.Interned,
+    value: Val,
+};
 
 pub inline fn makeEnvironment(
     self: Builder,
     namespace: []const Symbol.Interned,
-    slot_symbols: []const Symbol.Interned,
+    definitions: []const Definition,
 ) Vm.Error!Val {
     // Create
     const h = try self.vm.objects.modules.put(self.vm.allocator(), Module{});
@@ -77,10 +85,10 @@ pub inline fn makeEnvironment(
 
     // Initialize
     module.namespace = try self.vm.allocator().dupe(Symbol.Interned, namespace);
-    for (slot_symbols, 0..) |sym, idx| {
-        const slot = Slot{ .idx = idx };
-        try module.slots.append(self.makeEmptyList());
-        try module.symbol_to_slot.put(self.vm.allocator(), sym, slot);
+    for (definitions, 0..definitions.len) |def, idx| {
+        const slot = Slot{ .index = @intCast(idx) };
+        try module.slots.append(self.vm.allocator(), def.value);
+        try module.symbol_to_slot.put(self.vm.allocator(), def.symbol, slot);
     }
 
     // Return

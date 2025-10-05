@@ -2,12 +2,17 @@ const std = @import("std");
 const testing = std.testing;
 
 const Builder = @import("Builder.zig");
+const Compiler = @import("Compiler.zig");
+const Context = @import("Context.zig");
 const Handle = @import("object_pool.zig").Handle;
 const Inspector = @import("Inspector.zig");
+const Instruction = @import("instruction.zig").Instruction;
 const Module = @import("Module.zig");
 const ObjectPool = @import("object_pool.zig").ObjectPool;
+const Objects = @import("Objects.zig");
 const Pair = @import("Pair.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
+const Proc = @import("Proc.zig");
 const Reader = @import("Reader.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
@@ -16,36 +21,27 @@ const Vm = @This();
 
 options: Options,
 objects: Objects,
+context: Context,
 
 pub const Options = struct {
     allocator: std.mem.Allocator,
 };
 
-const Objects = struct {
-    symbols: Symbol.Interner,
-    cons: ObjectPool(Pair) = .{},
-    modules: ObjectPool(Module) = .{},
-
-    pub fn init(alloc: std.mem.Allocator) Objects {
-        return Objects{
-            .symbols = Symbol.Interner.init(alloc),
-        };
-    }
-};
-
 pub const Error = error{
-    OutOfMemory,
+    InvalidExpression,
     NotImplemented,
+    OutOfMemory,
     ReadError,
     UndefinedBehavior,
-    WrongType,
     Unreachable,
+    WrongType,
 };
 
 pub fn init(options: Options) Error!Vm {
     var vm = Vm{
         .options = options,
         .objects = Objects.init(options.allocator),
+        .context = try Context.init(options.allocator),
     };
     errdefer vm.deinit();
     try vm.initLibraries();
@@ -55,22 +51,35 @@ pub fn init(options: Options) Error!Vm {
 fn initLibraries(vm: *Vm) Error!void {
     const b = vm.builder();
 
+    const base_definitions = [_]Builder.Definition{
+        .{
+            .symbol = (try b.makeSymbol(Symbol.init("+"))).data.symbol,
+            .value = Val.initBuiltinProc(Proc.Builtin.add),
+        },
+    };
     _ = try b.makeEnvironment(&.{
         (try b.makeSymbol(Symbol.init("scheme"))).data.symbol,
         (try b.makeSymbol(Symbol.init("base"))).data.symbol,
-    }, &.{});
+    }, &base_definitions);
     _ = try b.makeEnvironment(&.{
         (try b.makeSymbol(Symbol.init("user"))).data.symbol,
         (try b.makeSymbol(Symbol.init("repl"))).data.symbol,
-    }, &.{});
+    }, &base_definitions);
 }
 
 pub fn deinit(self: *Vm) void {
-    self.objects.cons.deinit(self.allocator());
+    self.context.deinit(self.allocator());
+    self.objects.pairs.deinit(self.allocator());
 
     var modules_iter = self.objects.modules.iterator();
-    while (modules_iter.next()) |module| module.deinit(self.allocator());
+    while (modules_iter.next()) |module|
+        module.value.deinit(self.allocator());
     self.objects.modules.deinit(self.allocator());
+
+    var procs_iter = self.objects.procs.iterator();
+    while (procs_iter.next()) |proc|
+        proc.value.deinit(self.allocator());
+    self.objects.procs.deinit(self.allocator());
 
     self.objects.symbols.deinit(self.allocator());
 }
@@ -117,5 +126,44 @@ test read {
         "(1 2 3)",
         "{f}",
         .{vm.pretty((try (reader.readNext())).?)},
+    );
+}
+
+pub fn evalStr(self: *Vm, source: []const u8) Error!Val {
+    var reader = self.read(source);
+    var return_val = self.builder().makeEmptyList();
+    const b = self.builder();
+    const env = self.inspector().findModule(&.{
+        try b.makeSymbolInterned(Symbol.init("user")),
+        try b.makeSymbolInterned(Symbol.init("repl")),
+    }) orelse return Error.Unreachable;
+    while (try reader.readNext()) |raw_expr| {
+        const proc = try self.compile(raw_expr, env);
+        self.context.reset();
+        try self.context.push(self.allocator(), proc);
+        try (Instruction{ .eval = 0 }).execute(self);
+        while (self.context.nextInstruction()) |instruction| {
+            try instruction.execute(self);
+        }
+        return_val = self.context.pop() orelse return Error.UndefinedBehavior;
+    }
+    return return_val;
+}
+
+fn compile(self: *Vm, expr: Val, env: Handle(Module)) !Val {
+    var arena = std.heap.ArenaAllocator.init(self.allocator());
+    defer arena.deinit();
+    var compiler = Compiler.init(&arena, self, env);
+    const proc = try compiler.compile(expr);
+    return proc;
+}
+
+test evalStr {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        vm.builder().makeInt(42),
+        try vm.evalStr("(+ 40 2)"),
     );
 }

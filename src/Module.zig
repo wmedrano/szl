@@ -18,15 +18,16 @@ pub fn deinit(self: *Module, allocator: std.mem.Allocator) void {
     self.symbol_to_slot.deinit(allocator);
 }
 
-pub fn get(self: *Module, slot: Slot) Vm.Error!Val {
+pub fn get(self: Module, slot: Slot) Vm.Error!Val {
     const idx: usize = slot.idx();
     if (idx >= self.slots.items.len) return Vm.Error.UndefinedBehavior;
     return self.slots.items[idx];
 }
 
-pub fn getBySymbol(self: *Module, sym: Symbol.Interned) ?Val {
+pub fn getBySymbol(self: Module, sym: Symbol.Interned) ?Val {
     const slot = self.symbol_to_slot.get(sym) orelse return null;
-    return self.get(slot);
+    const idx = slot.idx();
+    return self.slots.items[idx];
 }
 
 pub fn set(self: *Module, slot: Slot, val: Val) Vm.Error!void {

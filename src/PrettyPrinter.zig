@@ -13,24 +13,9 @@ val: Val,
 pub fn format(self: PrettyPrinter, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     switch (self.val.data) {
         .empty_list => try writer.writeAll("()"),
-        .module => |h| {
-            const module = self.vm.objects.modules.get(h) orelse {
-                return try writer.writeAll("#<environment:invalid-module>");
-            };
-            try writer.writeAll("#<environment:module:(");
-            for (module.namespace, 0..) |sym, i| {
-                if (i > 0) try writer.writeAll(" ");
-                const pp = PrettyPrinter{
-                    .vm = self.vm,
-                    .val = Val{ .data = .{ .symbol = sym } },
-                };
-                try pp.format(writer);
-            }
-            try writer.writeAll(")>");
-        },
         .int => |n| try writer.print("{}", .{n}),
         .pair => |h| {
-            const pair = self.vm.objects.cons.get(h) orelse {
+            const pair = self.vm.objects.pairs.get(h) orelse {
                 return try writer.writeAll("#<invalid-cons>");
             };
             try writer.writeAll("(");
@@ -40,7 +25,7 @@ pub fn format(self: PrettyPrinter, writer: *std.Io.Writer) std.Io.Writer.Error!v
                 switch (current.data) {
                     .empty_list => break,
                     .pair => |next_pair_h| {
-                        const next_pair = self.vm.objects.cons.get(next_pair_h) orelse {
+                        const next_pair = self.vm.objects.pairs.get(next_pair_h) orelse {
                             return writer.writeAll(" #<invalid-cons>)");
                         };
                         try writer.writeAll(" ");
@@ -62,6 +47,31 @@ pub fn format(self: PrettyPrinter, writer: *std.Io.Writer) std.Io.Writer.Error!v
             };
             try writer.writeAll(s.string);
         },
+        .module => |h| {
+            const module = self.vm.objects.modules.get(h) orelse {
+                return try writer.writeAll("#<environment:invalid-module>");
+            };
+            try writer.writeAll("#<environment:module:(");
+            for (module.namespace, 0..) |sym, i| {
+                if (i > 0) try writer.writeAll(" ");
+                const pp = PrettyPrinter{
+                    .vm = self.vm,
+                    .val = Val{ .data = .{ .symbol = sym } },
+                };
+                try pp.format(writer);
+            }
+            try writer.writeAll(")>");
+        },
+        .proc => |h| {
+            const proc = self.vm.objects.procs.get(h) orelse {
+                return try writer.writeAll("#<procedure:invalid>");
+            };
+            const sym = self.vm.objects.symbols.asSymbol(proc.name) orelse {
+                return try writer.print("#<procedure:{}>", .{h.id});
+            };
+            try writer.print("#<procedure:{s}>", .{sym.string});
+        },
+        .proc_builtin => |p| try writer.print("#<procedure:{s}>", .{p.name()}),
     }
 }
 

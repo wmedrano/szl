@@ -8,7 +8,7 @@ pub fn init(str: []const u8) Symbol {
     return Symbol{ .string = str };
 }
 
-pub const Interned = struct {
+pub const Interned = packed struct {
     id: u32,
 };
 

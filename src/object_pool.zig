@@ -2,8 +2,8 @@ const std = @import("std");
 const testing = std.testing;
 
 pub fn Handle(comptime T: type) type {
-    _ = T;
     return struct {
+        const Object = T;
         id: u32,
     };
 }
@@ -33,11 +33,12 @@ pub fn ObjectPool(comptime T: type) type {
             pool: *const Self,
             index: usize = 0,
 
-            pub fn next(self: *ObjectIterator) ?*T {
+            pub fn next(self: *ObjectIterator) ?struct { handle: Handle(T), value: *T } {
                 if (self.index >= self.pool.objects.items.len) return null;
                 const obj = &self.pool.objects.items[self.index];
+                const handle = Handle(T){ .id = @intCast(self.index) };
                 self.index += 1;
-                return obj;
+                return .{ .handle = handle, .value = obj };
             }
         };
 

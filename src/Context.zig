@@ -1,0 +1,122 @@
+const std = @import("std");
+
+const Instruction = @import("instruction.zig").Instruction;
+const Val = @import("Val.zig");
+const Vm = @import("Vm.zig");
+
+const Context = @This();
+
+stack: std.ArrayList(Val),
+stack_frames: std.ArrayList(StackFrame),
+
+const StackFrame = struct {
+    stack_start: u32 = 0,
+    instruction_idx: u32 = 0,
+    instructions: []const Instruction = &.{},
+};
+
+pub fn init(allocator: std.mem.Allocator) !Context {
+    var stack = try std.ArrayList(Val).initCapacity(allocator, 1024);
+    errdefer stack.deinit(allocator);
+    return Context{
+        .stack = stack,
+        .stack_frames = try std.ArrayList(StackFrame).initCapacity(allocator, 64),
+    };
+}
+
+pub fn deinit(self: *Context, allocator: std.mem.Allocator) void {
+    self.stack.deinit(allocator);
+    self.stack_frames.deinit(allocator);
+}
+
+pub fn reset(self: *Context) void {
+    self.stack.clearRetainingCapacity();
+    self.stack_frames.clearRetainingCapacity();
+}
+
+pub fn nextInstruction(self: *Context) ?Instruction {
+    if (self.stack_frames.items.len == 0) return null;
+    const frame_idx = self.stack_frames.items.len - 1;
+    const frame = self.stack_frames.items[frame_idx];
+    const instructions = frame.instructions;
+    const idx: usize = @intCast(frame.instruction_idx);
+    self.stack_frames.items[frame_idx].instruction_idx += 1;
+    const instruction = if (idx < instructions.len) instructions[idx] else Instruction{ .ret = {} };
+    return instruction;
+}
+
+pub fn pushStackFrame(self: *Context, allocator: std.mem.Allocator, stack_frame: StackFrame) error{OutOfMemory}!void {
+    return self.stack_frames.append(allocator, stack_frame);
+}
+
+/// Describes what to do with the item on top.
+pub const TopDestination = enum {
+    /// Place it on top of the new stack frame.
+    place_on_top,
+    /// Do nothing with the top item.
+    discard,
+};
+
+pub fn popStackFrame(self: *Context, comptime dest: TopDestination) Vm.Error!void {
+    switch (dest) {
+        .place_on_top => {
+            const top = self.pop() orelse return Vm.Error.UndefinedBehavior;
+            const frame = self.stack_frames.pop() orelse StackFrame{};
+            self.stack.shrinkRetainingCapacity(frame.stack_start);
+            try self.swapTop(top);
+        },
+        .discard => {
+            const frame = self.stack_frames.pop() orelse StackFrame{};
+            self.stack.shrinkRetainingCapacity(frame.stack_start);
+        },
+    }
+}
+
+pub fn stackLocal(self: Context) []const Val {
+    if (self.stack_frames.items.len == 0) return &.{};
+    const frame = self.stack_frames.items[self.stack_frames.items.len - 1];
+    const start: usize = @intCast(frame.stack_start);
+    return self.stack.items[start..];
+}
+
+pub fn stackTopN(self: Context, n: u32) []const Val {
+    const start = self.stackLen() - n;
+    const start_idx: usize = @intCast(start);
+    return self.stack.items[start_idx..];
+}
+
+pub fn stackLen(self: Context) u32 {
+    return @intCast(self.stack.items.len);
+}
+
+pub fn stackVal(self: Context, idx: u32) ?Val {
+    const index: usize = @intCast(idx);
+    if (index < self.stack.items.len) return self.stack.items[index] else return null;
+}
+
+pub fn push(self: *Context, allocator: std.mem.Allocator, val: Val) error{OutOfMemory}!void {
+    try self.stack.append(allocator, val);
+}
+
+pub fn pushSlice(self: *Context, allocator: std.mem.Allocator, vals: []const Val) error{OutOfMemory}!void {
+    try self.stack.appendSlice(allocator, vals);
+}
+
+pub fn pop(self: *Context) ?Val {
+    return self.stack.pop();
+}
+
+pub fn swapTop(self: *Context, val: Val) Vm.Error!void {
+    const len = self.stack.items.len;
+    if (len == 0) return Vm.Error.UndefinedBehavior;
+    self.stack.items[len - 1] = val;
+}
+
+pub fn stackSquash(self: *Context, n: u32) Vm.Error!void {
+    if (n < 2 or self.stack.items.len == 0)
+        return Vm.Error.UndefinedBehavior;
+    const top_idx = self.stack.items.len - 1;
+    const bottom_idx = self.stack.items.len - @as(usize, @intCast(n));
+    self.stack.items[bottom_idx] = self.stack.items[top_idx];
+    self.stack.shrinkRetainingCapacity(bottom_idx + 1);
+}

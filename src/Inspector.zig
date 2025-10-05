@@ -1,7 +1,9 @@
 const std = @import("std");
 
+const Handle = @import("object_pool.zig").Handle;
 const Module = @import("Module.zig");
 const Pair = @import("Pair.zig");
+const Proc = @import("Proc.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
@@ -14,10 +16,10 @@ pub fn init(vm: *Vm) Inspector {
     return Inspector{ .vm = vm };
 }
 
-pub inline fn asInt(_: Inspector, val: Val) Vm.Error!i64 {
+pub inline fn asInt(_: Inspector, val: Val) error{WrongType}!i64 {
     return switch (val.data) {
         .int => |n| n,
-        else => Vm.Error.WrongType,
+        else => error.WrongType,
     };
 }
 
@@ -28,9 +30,9 @@ pub inline fn asModule(_: Inspector, val: Val) Vm.Error!*Module {
     };
 }
 
-pub inline fn asPair(_: Inspector, val: Val) Vm.Error!*Pair {
+pub inline fn asPair(self: Inspector, val: Val) Vm.Error!*Pair {
     return switch (val.data) {
-        .pair => |cons| cons,
+        .pair => |h| self.vm.objects.pairs.get(h) orelse return Vm.Error.UndefinedBehavior,
         else => Vm.Error.WrongType,
     };
 }
@@ -42,7 +44,13 @@ pub inline fn asSymbol(_: Inspector, val: Val) Vm.Error!Symbol {
     };
 }
 
-pub fn asList(_: Inspector, allocator: std.mem.Allocator, val: Val) Vm.Error![]Val {
+const AsListError = error{
+    OutOfMemory,
+    UndefinedBehavior,
+    WrongType,
+};
+
+pub fn asList(self: Inspector, allocator: std.mem.Allocator, val: Val) AsListError![]Val {
     var items = std.ArrayList(Val){};
     errdefer items.deinit(allocator);
 
@@ -50,13 +58,32 @@ pub fn asList(_: Inspector, allocator: std.mem.Allocator, val: Val) Vm.Error![]V
     while (true) {
         switch (current.data) {
             .empty_list => break,
-            .pair => |cons| {
-                try items.append(allocator, cons.car);
-                current = cons.cdr;
+            .pair => |h| {
+                const pair = self.vm.objects.pairs.get(h) orelse
+                    return Vm.Error.UndefinedBehavior;
+                try items.append(allocator, pair.car);
+                current = pair.cdr;
             },
             else => return Vm.Error.WrongType,
         }
     }
 
     return try items.toOwnedSlice(allocator);
+}
+
+pub inline fn handleToProc(self: Inspector, h: Handle(Proc)) Vm.Error!*Proc {
+    return self.vm.objects.procs.get(h) orelse return Vm.Error.UndefinedBehavior;
+}
+
+pub inline fn handleToModule(self: Inspector, h: Handle(Module)) Vm.Error!*Module {
+    return self.vm.objects.modules.get(h) orelse return Vm.Error.UndefinedBehavior;
+}
+
+pub fn findModule(self: Inspector, path: []const Symbol.Interned) ?Handle(Module) {
+    var moduleIter = self.vm.objects.modules.iterator();
+    while (moduleIter.next()) |module| {
+        if (std.mem.eql(Symbol.Interned, module.value.namespace, path))
+            return module.handle;
+    }
+    return null;
 }
