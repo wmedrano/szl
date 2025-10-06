@@ -1,7 +1,7 @@
 const std = @import("std");
 
-const Handle = @import("../types/object_pool.zig").Handle;
 const Module = @import("../types/Module.zig");
+const Handle = @import("../types/object_pool.zig").Handle;
 const Pair = @import("../types/Pair.zig");
 const Proc = @import("../types/Proc.zig");
 const Symbol = @import("../types/Symbol.zig");
@@ -50,7 +50,7 @@ const AsListError = error{
     WrongType,
 };
 
-pub fn asList(self: Inspector, allocator: std.mem.Allocator, val: Val) AsListError![]Val {
+pub fn listToSliceAlloc(self: Inspector, allocator: std.mem.Allocator, val: Val) AsListError![]Val {
     var items = std.ArrayList(Val){};
     errdefer items.deinit(allocator);
 
@@ -69,6 +69,34 @@ pub fn asList(self: Inspector, allocator: std.mem.Allocator, val: Val) AsListErr
     }
 
     return try items.toOwnedSlice(allocator);
+}
+
+pub fn listToSliceExact(
+    self: Inspector,
+    val: Val,
+    len: comptime_int,
+) error{ WrongType, BadLength, UndefinedBehavior }![len]Val {
+    var items: [len]Val = undefined;
+    var actual_len: usize = 0;
+
+    var current = val;
+    while (true) {
+        switch (current.data) {
+            .empty_list => break,
+            .pair => |h| {
+                if (actual_len == len) return error.BadLength;
+                const pair = self.vm.objects.pairs.get(h) orelse
+                    return Vm.Error.UndefinedBehavior;
+                items[actual_len] = pair.car;
+                actual_len += 1;
+                current = pair.cdr;
+            },
+            else => return Vm.Error.WrongType,
+        }
+    }
+
+    if (actual_len != len) return error.BadLength;
+    return items;
 }
 
 pub inline fn handleToProc(self: Inspector, h: Handle(Proc)) Vm.Error!*Proc {

@@ -11,6 +11,7 @@ stack_frames: std.ArrayList(StackFrame),
 
 const StackFrame = struct {
     stack_start: u32 = 0,
+    arg_count: u32 = 0,
     instruction_idx: u32 = 0,
     instructions: []const Instruction = &.{},
 };
@@ -80,7 +81,13 @@ pub fn popStackFrame(self: *Context, comptime dest: TopDestination) Vm.Error!voi
     }
 }
 
-pub fn stackLocal(self: Context) []const Val {
+pub fn argCount(self: Context) u32 {
+    if (self.stack_frames.items.len == 0) return 0;
+    const frame = self.stack_frames.items[self.stack_frames.items.len - 1];
+    return frame.arg_count;
+}
+
+pub fn stackLocal(self: Context) []Val {
     if (self.stack_frames.items.len == 0) return &.{};
     const frame = self.stack_frames.items[self.stack_frames.items.len - 1];
     const start: usize = @intCast(frame.stack_start);
@@ -104,6 +111,10 @@ pub fn stackVal(self: Context, idx: u32) ?Val {
 
 pub fn push(self: *Context, allocator: std.mem.Allocator, val: Val) error{OutOfMemory}!void {
     try self.stack.append(allocator, val);
+}
+
+pub fn pushMany(self: *Context, allocator: std.mem.Allocator, val: Val, n: u32) error{OutOfMemory}!void {
+    try self.stack.appendNTimes(allocator, val, @intCast(n));
 }
 
 pub fn pushSlice(self: *Context, allocator: std.mem.Allocator, vals: []const Val) error{OutOfMemory}!void {

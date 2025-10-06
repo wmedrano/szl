@@ -1,7 +1,7 @@
 const std = @import("std");
 
-const Handle = @import("types/object_pool.zig").Handle;
 const Module = @import("types/Module.zig");
+const Handle = @import("types/object_pool.zig").Handle;
 const Proc = @import("types/Proc.zig");
 const Symbol = @import("types/Symbol.zig");
 const Val = @import("types/Val.zig");
@@ -9,8 +9,10 @@ const Vm = @import("Vm.zig");
 
 pub const Instruction = union(enum) {
     push_const: Val,
-    module_get: struct { module: Handle(Module), symbol: Symbol.Interned },
+    get_global: struct { module: Handle(Module), symbol: Symbol.Interned },
     get_arg: u32,
+    get_local: u32,
+    set_local: u32,
     jump: i32,
     jump_if_not: i32,
     squash: u32,
@@ -20,10 +22,20 @@ pub const Instruction = union(enum) {
     pub fn execute(self: Instruction, vm: *Vm) Vm.Error!void {
         switch (self) {
             .push_const => |val| try vm.context.push(vm.allocator(), val),
-            .module_get => |g| try moduleGet(vm, g.module, g.symbol),
+            .get_global => |g| try moduleGet(vm, g.module, g.symbol),
             .get_arg => |idx| {
                 const val = vm.context.stackLocal()[@intCast(idx)];
                 try vm.context.push(vm.allocator(), val);
+            },
+            .get_local => |idx| {
+                const val = vm.context.stackLocal()[@intCast(idx + vm.context.argCount())];
+                try vm.context.push(vm.allocator(), val);
+            },
+            .set_local => |idx| {
+                const local_stack = vm.context.stackLocal();
+                const stack_idx = vm.context.argCount() + idx;
+                const val = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
+                local_stack[@intCast(stack_idx)] = val;
             },
             .jump => |n| try vm.context.jump(n),
             .jump_if_not => |n| {
@@ -39,10 +51,7 @@ pub const Instruction = union(enum) {
 
 fn moduleGet(vm: *Vm, module: Handle(Module), symbol: Symbol.Interned) !void {
     const m = vm.inspector().handleToModule(module) catch return Vm.Error.UndefinedBehavior;
-    const val = m.getBySymbol(symbol) orelse {
-        std.debug.print("Trying to get symbol {f}\n", .{vm.pretty(Val.initSymbol(symbol))});
-        return Vm.Error.UndefinedBehavior;
-    };
+    const val = m.getBySymbol(symbol) orelse return Vm.Error.UndefinedBehavior;
     try vm.context.push(vm.allocator(), val);
 }
 
@@ -56,10 +65,12 @@ fn eval(vm: *Vm, arg_count: u32) !void {
         .empty_list, .boolean, .int, .module, .pair, .symbol => return Vm.Error.NotImplemented,
         .proc => |h| {
             const proc = try vm.inspector().handleToProc(h);
+            try vm.context.pushMany(vm.allocator(), Val.initEmptyList(), proc.locals_count);
             // TODO: Raise an error.
             if (arg_count != proc.arg_count) return Vm.Error.NotImplemented;
             try vm.context.pushStackFrame(vm.allocator(), .{
                 .stack_start = start,
+                .arg_count = arg_count,
                 .instructions = proc.instructions,
             });
         },

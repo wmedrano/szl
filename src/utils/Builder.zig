@@ -2,7 +2,6 @@ const std = @import("std");
 
 const Module = @import("../types/Module.zig");
 const Pair = @import("../types/Pair.zig");
-const Slot = @import("../types/Slot.zig");
 const Symbol = @import("../types/Symbol.zig");
 const Val = @import("../types/Val.zig");
 const Vm = @import("../Vm.zig");
@@ -78,7 +77,7 @@ pub inline fn makeEnvironment(
     // Initialize
     module.namespace = try self.vm.allocator().dupe(Symbol.Interned, namespace);
     for (definitions, 0..definitions.len) |def, idx| {
-        const slot = Slot{ .index = @intCast(idx) };
+        const slot: u32 = @intCast(idx);
         try module.slots.append(self.vm.allocator(), def.value);
         try module.symbol_to_slot.put(self.vm.allocator(), def.symbol, slot);
     }
