@@ -10,7 +10,7 @@ const Vm = @import("Vm.zig");
 pub const Instruction = union(enum) {
     push_const: Val,
     module_get: struct { module: Handle(Module), symbol: Symbol.Interned },
-    get_local: u32,
+    get_arg: u32,
     squash: u32,
     eval: u32,
     ret,
@@ -19,7 +19,7 @@ pub const Instruction = union(enum) {
         switch (self) {
             .push_const => |val| try vm.context.push(vm.allocator(), val),
             .module_get => |g| try moduleGet(vm, g.module, g.symbol),
-            .get_local => |idx| {
+            .get_arg => |idx| {
                 const val = vm.context.stackLocal()[@intCast(idx)];
                 try vm.context.push(vm.allocator(), val);
             },
@@ -39,8 +39,8 @@ fn moduleGet(vm: *Vm, module: Handle(Module), symbol: Symbol.Interned) !void {
     try vm.context.push(vm.allocator(), val);
 }
 
-fn eval(vm: *Vm, n: u32) !void {
-    const start = vm.context.stackLen() - n;
+fn eval(vm: *Vm, arg_count: u32) !void {
+    const start = vm.context.stackLen() - arg_count;
     const proc_idx = start - 1;
     const proc_val = vm.context.stackVal(proc_idx) orelse
         return Vm.Error.UndefinedBehavior;
@@ -49,12 +49,14 @@ fn eval(vm: *Vm, n: u32) !void {
         .empty_list, .int, .module, .pair, .symbol => return Vm.Error.NotImplemented,
         .proc => |h| {
             const proc = try vm.inspector().handleToProc(h);
+            // TODO: Raise an error.
+            if (arg_count != proc.arg_count) return Vm.Error.NotImplemented;
             try vm.context.pushStackFrame(vm.allocator(), .{
                 .stack_start = start,
                 .instructions = proc.instructions,
             });
         },
-        .proc_builtin => |b| return evalBuiltin(vm, b, n),
+        .proc_builtin => |b| return evalBuiltin(vm, b, arg_count),
     }
 }
 

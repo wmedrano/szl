@@ -7,6 +7,7 @@ const Proc = @This();
 
 instructions: []const Instruction,
 name: Symbol.Interned,
+arg_count: u32,
 
 pub fn deinit(self: *Proc, allocator: std.mem.Allocator) void {
     allocator.free(self.instructions);

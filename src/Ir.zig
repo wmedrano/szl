@@ -18,7 +18,7 @@ pub const Error = error{
 pub const IrKind = union(enum) {
     push_const: Val,
     get: Symbol.Interned,
-    get_local: u32,
+    get_arg: u32,
     eval: Eval,
     lambda: Lambda,
     ret,
@@ -30,18 +30,41 @@ pub const Eval = struct {
 };
 
 pub const Lambda = struct {
+    arg_count: u32,
     body: []Ir,
+};
+
+pub const Variable = struct {
+    name: ?Symbol.Interned,
+    location: Location,
+
+    pub const Location = union(enum) {
+        arg: u32,
+    };
 };
 
 pub const Builder = struct {
     arena: *std.heap.ArenaAllocator,
     vm: *Vm,
+    variables: std.ArrayList(Variable) = .{},
 
     pub fn init(arena: *std.heap.ArenaAllocator, vm: *Vm) Builder {
         return .{ .arena = arena, .vm = vm };
     }
 
-    pub fn build(self: Builder, expr: Val) Error!Ir {
+    fn resolveVariable(self: Builder, name: Symbol.Interned) ?Variable.Location {
+        var idx = self.variables.items.len;
+        while (idx > 0) {
+            idx -= 1;
+            const variable = self.variables.items[idx];
+            if (variable.name) |var_name| {
+                if (var_name.eq(name)) return variable.location;
+            }
+        }
+        return null;
+    }
+
+    pub fn build(self: *Builder, expr: Val) Error!Ir {
         switch (expr.data) {
             .empty_list => return Error.InvalidExpression,
             .int,
@@ -53,11 +76,11 @@ pub const Builder = struct {
                 const list = try self.valToSlice(expr);
                 return self.buildList(list);
             },
-            .symbol => |sym| return Ir{ .kind = IrKind{ .get = sym } },
+            .symbol => |sym| return self.buildSymbol(sym),
         }
     }
 
-    pub fn buildList(self: Builder, list: []const Val) Error!Ir {
+    fn buildList(self: *Builder, list: []const Val) Error!Ir {
         if (list.len == 0) return Error.InvalidExpression;
         const lambda = try self.vm.builder().makeSymbolInterned(Symbol.init("lambda"));
         if (list[0].asSymbol()) |sym| {
@@ -80,28 +103,47 @@ pub const Builder = struct {
         };
     }
 
-    pub fn buildLambda(self: Builder, parameters: Val, body: []const Val) Error!Ir {
-        // 1. Build body
+    fn buildLambda(self: *Builder, parameters: Val, body: []const Val) Error!Ir {
+        // 1. Populate bound variables.
+        const start_idx = self.variables.items.len;
+        const parameters_list = try self.valToSlice(parameters);
+        try self.variables.ensureUnusedCapacity(self.arena.allocator(), parameters_list.len);
+        for (parameters_list, 0..parameters_list.len) |param_val, idx| {
+            const param = param_val.asSymbol() orelse return Error.InvalidExpression;
+            try self.variables.appendBounded(Variable{
+                .name = param,
+                .location = .{ .arg = @intCast(idx) },
+            });
+        }
+        const end_idx = self.variables.items.len;
+
+        // 2. Compile body.
         const body_irs = try self.arena.allocator().alloc(Ir, body.len);
         for (body_irs, body) |*ir, expr| {
             ir.* = try self.build(expr);
         }
 
-        // 2. Resolve parameters
-        const parameters_list = try self.valToSlice(parameters);
-        for (parameters_list, 0..parameters_list.len) |param_val, idx| {
-            const param = param_val.asSymbol() orelse return Error.InvalidExpression;
-            for (body_irs) |*ir| {
-                ir.resolveVariable(param, @intCast(idx));
-            }
+        // 3. Remove parameters from scope.
+        for (self.variables.items[start_idx..end_idx]) |*variable| {
+            variable.name = null;
         }
 
-        // 3. Build IR
+        // 4. Build IR
         return Ir{
             .kind = .{
-                .lambda = .{ .body = body_irs },
+                .lambda = .{
+                    .arg_count = @intCast(parameters_list.len),
+                    .body = body_irs,
+                },
             },
         };
+    }
+
+    fn buildSymbol(self: Builder, symbol: Symbol.Interned) Error!Ir {
+        if (self.resolveVariable(symbol)) |variable| {
+            return Ir{ .kind = .{ .get_arg = variable.arg } };
+        }
+        return Ir{ .kind = .{ .get = symbol } };
     }
 
     fn valToSlice(self: Builder, val: Val) Error![]const Val {
@@ -113,20 +155,3 @@ pub const Builder = struct {
         return list;
     }
 };
-
-// TODO: Populate the variable instead of recursing down for better performance.
-fn resolveVariable(self: *Ir, name: Symbol.Interned, local_idx: u32) void {
-    switch (self.kind) {
-        .push_const => {},
-        .get => |sym| if (sym.eq(name)) {
-            self.kind = .{ .get_local = local_idx };
-        },
-        .get_local => {},
-        .eval => |e| {
-            e.proc.resolveVariable(name, local_idx);
-            for (e.args) |*arg| arg.resolveVariable(name, local_idx);
-        },
-        .lambda => @panic("todo"),
-        .ret => {},
-    }
-}
