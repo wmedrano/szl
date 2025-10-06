@@ -15,6 +15,7 @@ data: Data,
 
 pub const Data = union(enum) {
     empty_list,
+    boolean: bool,
     int: i64,
     pair: Handle(Pair),
     symbol: Symbol.Interned,
@@ -31,6 +32,10 @@ pub fn initInt(x: i64) Val {
     return Val{ .data = .{ .int = x } };
 }
 
+pub fn initBool(x: bool) Val {
+    return Val{ .data = .{ .boolean = x } };
+}
+
 pub fn initSymbol(sym: Symbol.Interned) Val {
     return Val{ .data = .{ .symbol = sym } };
 }
@@ -41,6 +46,13 @@ pub fn initBuiltinProc(proc: Proc.Builtin) Val {
 
 pub fn isNull(self: Val) bool {
     return self.data == .empty_list;
+}
+
+pub fn isTruthy(self: Val) bool {
+    switch (self.data) {
+        .boolean => |x| return x,
+        else => return true,
+    }
 }
 
 pub fn isProc(self: Val) bool {

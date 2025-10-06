@@ -55,13 +55,14 @@ fn addIr(self: *Compiler, ir: Ir) Error!void {
             .module_get = .{ .module = self.module, .symbol = sym },
         }),
         .get_arg => |idx| try self.addInstruction(.{ .get_arg = idx }),
+        .if_expr => |expr| try self.addIf(expr.test_expr.*, expr.true_expr.*, expr.false_expr.*),
         .eval => |e| {
             try self.addIr(e.proc.*);
             for (e.args) |arg| try self.addIr(arg);
             try self.addInstruction(.{ .eval = @intCast(e.args.len) });
         },
         .lambda => |l| try self.addInstruction(
-            Instruction{ .push_const = try self.buildLambda(l) },
+            Instruction{ .push_const = try self.addLambda(l) },
         ),
         .ret => try self.addInstruction(.{ .ret = {} }),
     }
@@ -71,7 +72,7 @@ fn addInstruction(self: *Compiler, instruction: Instruction) !void {
     try self.instructions.append(self.arena.allocator(), instruction);
 }
 
-fn buildLambda(self: *Compiler, lambda: Ir.Lambda) Error!Val {
+fn addLambda(self: *Compiler, lambda: Ir.Lambda) Error!Val {
     var sub_compiler = Compiler{
         .vm = self.vm,
         .arena = self.arena,
@@ -83,6 +84,32 @@ fn buildLambda(self: *Compiler, lambda: Ir.Lambda) Error!Val {
         try sub_compiler.addIr(ir);
     const proc = try sub_compiler.makeProc(lambda.arg_count);
     return proc.val;
+}
+
+fn jumpDistance(src: usize, dst: usize) i32 {
+    const dst_i32: i32 = @intCast(dst);
+    const src_i32: i32 = @intCast(src);
+    return dst_i32 - src_i32;
+}
+
+fn addIf(self: *Compiler, test_expr: Ir, true_expr: Ir, false_expr: Ir) !void {
+    // 1. Add expressions.
+    try self.addIr(test_expr);
+    const test_jump_idx = self.instructions.items.len;
+    try self.addInstruction(.{ .jump_if_not = 0 });
+    try self.addIr(true_expr);
+    const true_jump_idx = self.instructions.items.len;
+    try self.addInstruction(.{ .jump = 0 });
+    const false_start_idx = self.instructions.items.len;
+    try self.addIr(false_expr);
+    const end_idx = self.instructions.items.len;
+    // 2. Fix jump indices. The start index is after the start of the jump since
+    //    the counter is always advanced once the instruction is fetched, but
+    //    before it is executed.
+    self.instructions.items[test_jump_idx] =
+        Instruction{ .jump_if_not = jumpDistance(test_jump_idx + 1, false_start_idx) };
+    self.instructions.items[true_jump_idx] =
+        Instruction{ .jump = jumpDistance(true_jump_idx + 1, end_idx) };
 }
 
 pub fn makeProc(self: Compiler, arg_count: u32) Error!struct { val: Val, proc: Proc } {
@@ -97,4 +124,48 @@ pub fn makeProc(self: Compiler, arg_count: u32) Error!struct { val: Val, proc: P
     const handle = try self.vm.objects.procs.put(self.vm.allocator(), proc);
     const val = Val{ .data = .{ .proc = handle } };
     return .{ .val = val, .proc = proc };
+}
+
+test "if statement picks correct branch" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        Val.initInt(10),
+        try vm.evalStr("(if #t 10 20)"),
+    );
+    try testing.expectEqual(
+        Val.initInt(20),
+        try vm.evalStr("(if #f 10 20)"),
+    );
+}
+
+test "lambda is evaluated" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        Val.initInt(10),
+        try vm.evalStr("((lambda () (+ 1 2 3 4)))"),
+    );
+}
+
+test "lambda with args is evaluated" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        Val.initInt(10),
+        try vm.evalStr("((lambda (a b c d) (+ a b c d)) 1 2 3 4)"),
+    );
+}
+
+test "lambda with wrong number of args is error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectError(
+        error.NotImplemented,
+        vm.evalStr("((lambda (a b c d) (+ a b c d)) 1 2 3)"),
+    );
 }

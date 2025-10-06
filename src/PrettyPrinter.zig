@@ -13,6 +13,7 @@ val: Val,
 pub fn format(self: PrettyPrinter, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     switch (self.val.data) {
         .empty_list => try writer.writeAll("()"),
+        .boolean => |b| if (b) try writer.writeAll("#t") else try writer.writeAll("#f"),
         .int => |n| try writer.print("{}", .{n}),
         .pair => |h| {
             const pair = self.vm.objects.pairs.get(h) orelse {

@@ -11,6 +11,8 @@ pub const Instruction = union(enum) {
     push_const: Val,
     module_get: struct { module: Handle(Module), symbol: Symbol.Interned },
     get_arg: u32,
+    jump: i32,
+    jump_if_not: i32,
     squash: u32,
     eval: u32,
     ret,
@@ -22,6 +24,11 @@ pub const Instruction = union(enum) {
             .get_arg => |idx| {
                 const val = vm.context.stackLocal()[@intCast(idx)];
                 try vm.context.push(vm.allocator(), val);
+            },
+            .jump => |n| try vm.context.jump(n),
+            .jump_if_not => |n| {
+                const test_val = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
+                if (!test_val.isTruthy()) try vm.context.jump(n);
             },
             .squash => |n| try vm.context.stackSquash(n),
             .eval => |n| try eval(vm, n),
@@ -46,7 +53,7 @@ fn eval(vm: *Vm, arg_count: u32) !void {
         return Vm.Error.UndefinedBehavior;
     switch (proc_val.data) {
         // TODO: Raise an exception.
-        .empty_list, .int, .module, .pair, .symbol => return Vm.Error.NotImplemented,
+        .empty_list, .boolean, .int, .module, .pair, .symbol => return Vm.Error.NotImplemented,
         .proc => |h| {
             const proc = try vm.inspector().handleToProc(h);
             // TODO: Raise an error.

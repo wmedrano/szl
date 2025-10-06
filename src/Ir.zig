@@ -19,9 +19,16 @@ pub const IrKind = union(enum) {
     push_const: Val,
     get: Symbol.Interned,
     get_arg: u32,
+    if_expr: IfExpr,
     eval: Eval,
     lambda: Lambda,
     ret,
+};
+
+pub const IfExpr = struct {
+    test_expr: *Ir,
+    true_expr: *Ir,
+    false_expr: *Ir,
 };
 
 pub const Eval = struct {
@@ -67,6 +74,7 @@ pub const Builder = struct {
     pub fn build(self: *Builder, expr: Val) Error!Ir {
         switch (expr.data) {
             .empty_list => return Error.InvalidExpression,
+            .boolean,
             .int,
             .module,
             .proc,
@@ -83,10 +91,27 @@ pub const Builder = struct {
     fn buildList(self: *Builder, list: []const Val) Error!Ir {
         if (list.len == 0) return Error.InvalidExpression;
         const lambda = try self.vm.builder().makeSymbolInterned(Symbol.init("lambda"));
+        const if_sym = try self.vm.builder().makeSymbolInterned(Symbol.init("if"));
         if (list[0].asSymbol()) |sym| {
             if (sym.eq(lambda)) {
                 if (list.len < 2) return Error.InvalidExpression;
                 return self.buildLambda(list[1], list[2..]);
+            }
+            if (sym.eq(if_sym)) {
+                if (list.len != 4) return Error.InvalidExpression;
+                const exprs = try self.arena.allocator().alloc(Ir, list.len - 1);
+                exprs[0] = try self.build(list[1]); // test
+                exprs[1] = try self.build(list[2]); // true
+                exprs[2] = try self.build(list[3]); // false
+                return Ir{
+                    .kind = .{
+                        .if_expr = .{
+                            .test_expr = &exprs[0],
+                            .true_expr = &exprs[1],
+                            .false_expr = &exprs[2],
+                        },
+                    },
+                };
             }
         }
         const irs = try self.arena.allocator().alloc(Ir, list.len);

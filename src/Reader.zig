@@ -67,7 +67,7 @@ pub fn readNextImpl(self: *Reader) Vm.Error!ReadResult {
         .number => return try self.parseNumber(next_token.lexeme),
         .string => return Vm.Error.NotImplemented,
         .symbol => return try self.parseSymbol(next_token.lexeme),
-        .boolean => return Vm.Error.NotImplemented,
+        .boolean => return try self.parseBoolean(next_token.lexeme),
         .quote => return Vm.Error.NotImplemented,
         .quasiquote => return Vm.Error.NotImplemented,
         .unquote => return Vm.Error.NotImplemented,
@@ -89,6 +89,17 @@ fn parseNumber(_: Reader, token: []const u8) Vm.Error!ReadResult {
 fn parseSymbol(self: Reader, token: []const u8) Vm.Error!ReadResult {
     const symbol = try self.vm.builder().makeSymbol(Symbol.init(token));
     return ReadResult{ .atom = symbol };
+}
+
+fn parseBoolean(_: Reader, token: []const u8) Vm.Error!ReadResult {
+    const value = if (std.mem.eql(u8, token, "#t") or std.mem.eql(u8, token, "#true"))
+        true
+    else if (std.mem.eql(u8, token, "#f") or std.mem.eql(u8, token, "#false"))
+        false
+    else
+        return Vm.Error.ReadError;
+    const val = Val.initBool(value);
+    return ReadResult{ .atom = val };
 }
 
 fn expectReadNext(self: *Reader, expect: ?[]const u8, vm: *const Vm) !void {
@@ -153,5 +164,17 @@ test "read list with symbols" {
 
     var reader = Reader.init(&vm, "(define x 42)");
     try reader.expectReadNext("(define x 42)", &vm);
+    try reader.expectReadNext(null, &vm);
+}
+
+test "read boolean" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var reader = Reader.init(&vm, "#t #f #true #false");
+    try reader.expectReadNext("#t", &vm);
+    try reader.expectReadNext("#f", &vm);
+    try reader.expectReadNext("#t", &vm);
+    try reader.expectReadNext("#f", &vm);
     try reader.expectReadNext(null, &vm);
 }

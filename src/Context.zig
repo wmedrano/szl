@@ -45,6 +45,14 @@ pub fn nextInstruction(self: *Context) ?Instruction {
     return instruction;
 }
 
+pub fn jump(self: *Context, n: i32) !void {
+    if (self.stack_frames.items.len == 0) return error.UndefinedBehavior;
+    const frame_idx = self.stack_frames.items.len - 1;
+    const old_idx: i32 = @intCast(self.stack_frames.items[frame_idx].instruction_idx);
+    const new_idx = old_idx + n;
+    self.stack_frames.items[frame_idx].instruction_idx = @intCast(new_idx);
+}
+
 pub fn pushStackFrame(self: *Context, allocator: std.mem.Allocator, stack_frame: StackFrame) error{OutOfMemory}!void {
     return self.stack_frames.append(allocator, stack_frame);
 }
