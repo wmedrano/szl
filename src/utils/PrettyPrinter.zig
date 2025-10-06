@@ -1,9 +1,9 @@
 const std = @import("std");
 const testing = std.testing;
 
-const Symbol = @import("Symbol.zig");
-const Val = @import("Val.zig");
-const Vm = @import("Vm.zig");
+const Symbol = @import("../types/Symbol.zig");
+const Val = @import("../types/Val.zig");
+const Vm = @import("../Vm.zig");
 
 const PrettyPrinter = @This();
 

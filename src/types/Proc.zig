@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const Instruction = @import("instruction.zig").Instruction;
+const Instruction = @import("../instruction.zig").Instruction;
 const Symbol = @import("Symbol.zig");
 
 const Proc = @This();

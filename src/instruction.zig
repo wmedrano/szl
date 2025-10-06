@@ -1,10 +1,10 @@
 const std = @import("std");
 
-const Handle = @import("object_pool.zig").Handle;
-const Module = @import("Module.zig");
-const Proc = @import("Proc.zig");
-const Symbol = @import("Symbol.zig");
-const Val = @import("Val.zig");
+const Handle = @import("types/object_pool.zig").Handle;
+const Module = @import("types/Module.zig");
+const Proc = @import("types/Proc.zig");
+const Symbol = @import("types/Symbol.zig");
+const Val = @import("types/Val.zig");
 const Vm = @import("Vm.zig");
 
 pub const Instruction = union(enum) {

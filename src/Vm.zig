@@ -1,23 +1,35 @@
 const std = @import("std");
 const testing = std.testing;
 
-const Builder = @import("Builder.zig");
-const Compiler = @import("Compiler.zig");
+const Builder = @import("utils/Builder.zig");
+const Compiler = @import("compiler/Compiler.zig");
 const Context = @import("Context.zig");
-const Handle = @import("object_pool.zig").Handle;
-const Inspector = @import("Inspector.zig");
+const Handle = @import("types/object_pool.zig").Handle;
+const Inspector = @import("utils/Inspector.zig");
 const Instruction = @import("instruction.zig").Instruction;
-const Module = @import("Module.zig");
-const ObjectPool = @import("object_pool.zig").ObjectPool;
-const Objects = @import("Objects.zig");
-const Pair = @import("Pair.zig");
-const PrettyPrinter = @import("PrettyPrinter.zig");
-const Proc = @import("Proc.zig");
-const Reader = @import("Reader.zig");
-const Symbol = @import("Symbol.zig");
-const Val = @import("Val.zig");
+const Module = @import("types/Module.zig");
+const ObjectPool = @import("types/object_pool.zig").ObjectPool;
+const Pair = @import("types/Pair.zig");
+const PrettyPrinter = @import("utils/PrettyPrinter.zig");
+const Proc = @import("types/Proc.zig");
+const Reader = @import("compiler/Reader.zig");
+const Symbol = @import("types/Symbol.zig");
+const Val = @import("types/Val.zig");
 
 const Vm = @This();
+
+pub const Objects = struct {
+    symbols: Symbol.Interner,
+    pairs: ObjectPool(Pair) = .{},
+    modules: ObjectPool(Module) = .{},
+    procs: ObjectPool(Proc) = .{},
+
+    pub fn init(alloc: std.mem.Allocator) Objects {
+        return Objects{
+            .symbols = Symbol.Interner.init(alloc),
+        };
+    }
+};
 
 options: Options,
 objects: Objects,

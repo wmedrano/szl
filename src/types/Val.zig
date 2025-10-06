@@ -4,10 +4,10 @@ const testing = std.testing;
 const Handle = @import("object_pool.zig").Handle;
 const Module = @import("Module.zig");
 const Pair = @import("Pair.zig");
-const PrettyPrinter = @import("PrettyPrinter.zig");
+const PrettyPrinter = @import("../utils/PrettyPrinter.zig");
 const Proc = @import("Proc.zig");
 const Symbol = @import("Symbol.zig");
-const Vm = @import("Vm.zig");
+const Vm = @import("../Vm.zig");
 
 const Val = @This();
 

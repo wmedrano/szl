@@ -1,11 +1,11 @@
 const std = @import("std");
 
-const Module = @import("Module.zig");
-const Pair = @import("Pair.zig");
-const Slot = @import("Slot.zig");
-const Symbol = @import("Symbol.zig");
-const Val = @import("Val.zig");
-const Vm = @import("Vm.zig");
+const Module = @import("../types/Module.zig");
+const Pair = @import("../types/Pair.zig");
+const Slot = @import("../types/Slot.zig");
+const Symbol = @import("../types/Symbol.zig");
+const Val = @import("../types/Val.zig");
+const Vm = @import("../Vm.zig");
 
 const Builder = @This();
 

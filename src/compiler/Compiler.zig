@@ -1,20 +1,20 @@
 const std = @import("std");
 const testing = std.testing;
 
-const Builder = @import("Builder.zig");
-const Handle = @import("object_pool.zig").Handle;
-const Inspector = @import("Inspector.zig");
-const Instruction = @import("instruction.zig").Instruction;
+const Builder = @import("../utils/Builder.zig");
+const Handle = @import("../types/object_pool.zig").Handle;
+const Inspector = @import("../utils/Inspector.zig");
+const Instruction = @import("../instruction.zig").Instruction;
 const Ir = @import("Ir.zig");
-const Module = @import("Module.zig");
-const ObjectPool = @import("object_pool.zig").ObjectPool;
-const Pair = @import("Pair.zig");
-const PrettyPrinter = @import("PrettyPrinter.zig");
-const Proc = @import("Proc.zig");
+const Module = @import("../types/Module.zig");
+const ObjectPool = @import("../types/object_pool.zig").ObjectPool;
+const Pair = @import("../types/Pair.zig");
+const PrettyPrinter = @import("../utils/PrettyPrinter.zig");
+const Proc = @import("../types/Proc.zig");
 const Reader = @import("Reader.zig");
-const Symbol = @import("Symbol.zig");
-const Val = @import("Val.zig");
-const Vm = @import("Vm.zig");
+const Symbol = @import("../types/Symbol.zig");
+const Val = @import("../types/Val.zig");
+const Vm = @import("../Vm.zig");
 
 const Compiler = @This();
 

@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const Instruction = @import("instruction.zig").Instruction;
-const Val = @import("Val.zig");
+const Val = @import("types/Val.zig");
 const Vm = @import("Vm.zig");
 
 const Context = @This();

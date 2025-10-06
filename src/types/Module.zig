@@ -4,7 +4,7 @@ const testing = std.testing;
 const Slot = @import("Slot.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
-const Vm = @import("Vm.zig");
+const Vm = @import("../Vm.zig");
 
 const Module = @This();
 
