@@ -1,9 +1,11 @@
 const std = @import("std");
 
 const Module = @import("../types/Module.zig");
+const Handle = @import("../types/object_pool.zig").Handle;
 const Pair = @import("../types/Pair.zig");
 const Symbol = @import("../types/Symbol.zig");
 const Val = @import("../types/Val.zig");
+const Vector = @import("../types/Vector.zig");
 const Vm = @import("../Vm.zig");
 
 const Builder = @This();
@@ -85,4 +87,16 @@ pub inline fn makeEnvironment(
     // Return
     const val = Val{ .data = .{ .module = h } };
     return val;
+}
+
+pub inline fn makeVector(self: Builder, vals: []const Val) Vm.Error!Val {
+    const h = try self.makeVectorHandle(vals);
+    return Val{ .data = .{ .vector = h } };
+}
+
+pub inline fn makeVectorHandle(self: Builder, vals: []const Val) Vm.Error!Handle(Vector) {
+    const copy = try self.vm.allocator().dupe(Val, vals);
+    errdefer self.vm.allocator().free(copy);
+    const vec = Vector{ .data = std.ArrayList(Val).fromOwnedSlice(copy) };
+    return try self.vm.objects.vectors.put(self.vm.allocator(), vec);
 }

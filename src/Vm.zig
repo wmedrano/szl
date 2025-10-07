@@ -12,6 +12,7 @@ const Pair = @import("types/Pair.zig");
 const Proc = @import("types/Proc.zig");
 const Symbol = @import("types/Symbol.zig");
 const Val = @import("types/Val.zig");
+const Vector = @import("types/Vector.zig");
 const Builder = @import("utils/Builder.zig");
 const Inspector = @import("utils/Inspector.zig");
 const PrettyPrinter = @import("utils/PrettyPrinter.zig");
@@ -23,6 +24,7 @@ pub const Objects = struct {
     pairs: ObjectPool(Pair) = .{},
     modules: ObjectPool(Module) = .{},
     procs: ObjectPool(Proc) = .{},
+    vectors: ObjectPool(Vector) = .{},
 
     pub fn init(alloc: std.mem.Allocator) Objects {
         return Objects{
@@ -92,6 +94,11 @@ pub fn deinit(self: *Vm) void {
     while (procs_iter.next()) |proc|
         proc.value.deinit(self.allocator());
     self.objects.procs.deinit(self.allocator());
+
+    var vectors_iter = self.objects.vectors.iterator();
+    while (vectors_iter.next()) |vector|
+        vector.value.deinit(self.allocator());
+    self.objects.vectors.deinit(self.allocator());
 
     self.objects.symbols.deinit(self.allocator());
 }

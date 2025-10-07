@@ -74,6 +74,7 @@ const Builder = struct {
             .int,
             .module,
             .proc,
+            .closure,
             .proc_builtin,
             => return Ir{ .push_const = expr },
             .pair => {
@@ -81,6 +82,7 @@ const Builder = struct {
                 return self.buildList(list);
             },
             .symbol => |sym| return Ir{ .get = sym },
+            .vector => return Error.NotImplemented,
         }
     }
 

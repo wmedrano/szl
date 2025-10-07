@@ -12,6 +12,7 @@ stack_frames: std.ArrayList(StackFrame),
 const StackFrame = struct {
     stack_start: u32 = 0,
     arg_count: u32 = 0,
+    locals_count: u32 = 0,
     instruction_idx: u32 = 0,
     instructions: []const Instruction = &.{},
 };
@@ -87,11 +88,38 @@ pub fn argCount(self: Context) u32 {
     return frame.arg_count;
 }
 
-pub fn stackLocal(self: Context) []Val {
+fn stackLocal(self: Context) []Val {
     if (self.stack_frames.items.len == 0) return &.{};
     const frame = self.stack_frames.items[self.stack_frames.items.len - 1];
     const start: usize = @intCast(frame.stack_start);
     return self.stack.items[start..];
+}
+
+pub fn getCapture(self: Context, idx: u32) Vm.Error!Val {
+    if (self.stack_frames.items.len == 0) return Vm.Error.UndefinedBehavior;
+    const frame = self.stack_frames.items[self.stack_frames.items.len - 1];
+    const abs_idx = frame.stack_start + frame.arg_count + frame.locals_count + idx;
+    return self.stack.items[@intCast(abs_idx)];
+}
+
+pub fn getArg(self: Context, idx: u32) Vm.Error!Val {
+    if (self.stack_frames.items.len == 0) return Vm.Error.UndefinedBehavior;
+    const frame = self.stack_frames.items[self.stack_frames.items.len - 1];
+    const abs_idx = frame.stack_start + idx;
+    return self.stack.items[@intCast(abs_idx)];
+}
+
+pub fn getLocal(self: *Context, idx: u32) Vm.Error!Val {
+    if (self.stack_frames.items.len == 0) return Vm.Error.UndefinedBehavior;
+    const frame = self.stack_frames.items[self.stack_frames.items.len - 1];
+    const abs_idx = frame.stack_start + frame.arg_count + idx;
+    return self.stack.items[@intCast(abs_idx)];
+}
+
+pub fn setLocal(self: *Context, idx: u32, val: Val) void {
+    const local_stack = self.stackLocal();
+    const stack_idx = self.argCount() + idx;
+    local_stack[@intCast(stack_idx)] = val;
 }
 
 pub fn stackTopN(self: Context, n: u32) []const Val {
@@ -123,6 +151,11 @@ pub fn pushSlice(self: *Context, allocator: std.mem.Allocator, vals: []const Val
 
 pub fn pop(self: *Context) ?Val {
     return self.stack.pop();
+}
+
+pub fn popMany(self: *Context, n: u32) void {
+    const len = self.stack.items.len;
+    self.stack.shrinkRetainingCapacity(len - @as(usize, @intCast(n)));
 }
 
 pub fn swapTop(self: *Context, val: Val) Vm.Error!void {

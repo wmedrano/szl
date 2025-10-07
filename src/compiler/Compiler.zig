@@ -34,19 +34,26 @@ pub const Scope = struct {
     module: Handle(Module),
     args: []const Symbol.Interned = &.{},
     locals: std.ArrayList(Local) = .{},
+    captures: Captures = .{},
+    captures_count: u32 = 0,
 
     pub const Local = struct {
         name: Symbol.Interned,
         available: bool,
     };
 
+    /// A map from captured to symbol to its captured index. If captured index
+    /// is `null`, then the variable has not been captured.
+    pub const Captures = std.AutoHashMapUnmanaged(Symbol.Interned, ?u32);
+
     pub const Location = union(enum) {
         arg: u32,
         local: u32,
+        capture: u32,
         module: struct { module: Handle(Module), name: Symbol.Interned },
     };
 
-    pub fn resolve(self: Scope, name: Symbol.Interned) Location {
+    pub fn resolve(self: *Scope, name: Symbol.Interned) Location {
         for (self.args, 0..self.args.len) |arg, idx| {
             if (arg.eq(name)) return Location{ .arg = @intCast(idx) };
         }
@@ -57,7 +64,33 @@ pub const Scope = struct {
             if (item.available and item.name.eq(name))
                 return Location{ .local = @intCast(local_idx) };
         }
+        if (self.captures.getEntry(name)) |capture| {
+            if (capture.value_ptr.*) |idx| return Location{ .capture = idx };
+            const idx = self.captures_count;
+            capture.value_ptr.* = self.captures_count;
+            self.captures_count += 1;
+            return Location{ .capture = idx };
+        }
         return Location{ .module = .{ .module = self.module, .name = name } };
+    }
+
+    pub fn toCaptureCandidates(self: Scope, allocator: std.mem.Allocator) error{OutOfMemory}!Captures {
+        var ret = Captures{};
+        for (self.args) |arg| try ret.put(allocator, arg, null);
+        for (self.locals.items) |local|
+            if (local.available) try ret.put(allocator, local.name, null);
+        return ret;
+    }
+
+    pub fn capturesSlice(self: Scope, allocator: std.mem.Allocator) error{OutOfMemory}![]Symbol.Interned {
+        const ret = try allocator.alloc(Symbol.Interned, @intCast(self.captures_count));
+        var captures_iter = self.captures.iterator();
+        while (captures_iter.next()) |capture| {
+            if (capture.value_ptr.*) |idx| {
+                ret[@intCast(idx)] = capture.key_ptr.*;
+            }
+        }
+        return ret;
     }
 };
 
@@ -75,7 +108,8 @@ pub fn compile(self: *Compiler, expr: Val) Error!Val {
     try self.addIr(ir);
     // Build procedure
     const proc = try self.makeProc();
-    return proc.val;
+    if (proc.captures.len > 0) return Error.UndefinedBehavior;
+    return Val.initProc(proc.handle);
 }
 
 fn addIr(self: *Compiler, ir: Ir) Error!void {
@@ -89,9 +123,7 @@ fn addIr(self: *Compiler, ir: Ir) Error!void {
             for (e.args) |arg| try self.addIr(arg);
             try self.addInstruction(.{ .eval = @intCast(e.args.len) });
         },
-        .lambda => |l| try self.addInstruction(
-            Instruction{ .push_const = try self.addLambda(l) },
-        ),
+        .lambda => |l| try self.addLambda(l),
         .ret => try self.addInstruction(.{ .ret = {} }),
     }
 }
@@ -105,6 +137,7 @@ fn addGet(self: *Compiler, sym: Symbol.Interned) Error!void {
     const instruction = switch (self.scope.resolve(sym)) {
         .arg => |idx| Instruction{ .get_arg = idx },
         .local => |idx| Instruction{ .get_local = idx },
+        .capture => |idx| Instruction{ .get_capture = idx },
         .module => |m| Instruction{ .get_global = .{ .module = m.module, .symbol = m.name } },
     };
     try self.addInstruction(instruction);
@@ -114,13 +147,14 @@ fn addInstruction(self: *Compiler, instruction: Instruction) !void {
     try self.instructions.append(self.arena.allocator(), instruction);
 }
 
-fn addLambda(self: *Compiler, lambda: Ir.Lambda) Error!Val {
+fn addLambda(self: *Compiler, lambda: Ir.Lambda) Error!void {
     var sub_compiler = Compiler{
         .vm = self.vm,
         .arena = self.arena,
         .scope = Scope{
             .module = self.scope.module,
             .args = lambda.args,
+            .captures = try self.scope.toCaptureCandidates(self.arena.allocator()),
         },
     };
     if (lambda.body.len == 0)
@@ -128,7 +162,11 @@ fn addLambda(self: *Compiler, lambda: Ir.Lambda) Error!Val {
     for (lambda.body) |ir|
         try sub_compiler.addIr(ir);
     const proc = try sub_compiler.makeProc();
-    return proc.val;
+    if (proc.captures.len == 0) {
+        return self.addInstruction(.{ .push_const = Val.initProc(proc.handle) });
+    }
+    for (proc.captures) |capture| try self.addGet(capture);
+    try self.addInstruction(.{ .make_closure = .{ .proc = proc.handle, .capture_count = proc.proc.captures_count } });
 }
 
 fn jumpDistance(src: usize, dst: usize) i32 {
@@ -181,19 +219,24 @@ fn addLet(self: *Compiler, bindings: []const Ir.LetBinding, body: []Ir) !void {
     try self.addIrs(body);
 }
 
-pub fn makeProc(self: Compiler) Error!struct { val: Val, proc: Proc } {
+fn makeProc(self: Compiler) Error!struct {
+    handle: Handle(Proc),
+    proc: Proc,
+    captures: []Symbol.Interned,
+} {
     const builder = self.vm.builder();
     const name = try builder.makeSymbolInterned(Symbol.init("_"));
+    const captures = try self.scope.capturesSlice(self.arena.allocator());
     var proc = Proc{
         .name = name,
         .instructions = try self.vm.allocator().dupe(Instruction, self.instructions.items),
         .arg_count = @intCast(self.scope.args.len),
         .locals_count = @intCast(self.scope.locals.items.len),
+        .captures_count = @intCast(captures.len),
     };
     errdefer proc.deinit(self.vm.allocator());
     const handle = try self.vm.objects.procs.put(self.vm.allocator(), proc);
-    const val = Val{ .data = .{ .proc = handle } };
-    return .{ .val = val, .proc = proc };
+    return .{ .handle = handle, .proc = proc, .captures = captures };
 }
 
 test "if statement picks correct branch" {
@@ -247,5 +290,20 @@ test "lambda with wrong number of args is error" {
     try testing.expectError(
         error.NotImplemented,
         vm.evalStr("((lambda (a b c d) (+ a b c d)) 1 2 3)"),
+    );
+}
+
+test "lambda can capture environment" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const source =
+        \\ (let ((x 10))
+        \\   (let ((proc (lambda (y) (+ x y))))
+        \\     (proc 100)))
+    ;
+    try testing.expectEqual(
+        Val.initInt(110),
+        try vm.evalStr(source),
     );
 }

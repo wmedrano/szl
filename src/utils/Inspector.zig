@@ -6,6 +6,7 @@ const Pair = @import("../types/Pair.zig");
 const Proc = @import("../types/Proc.zig");
 const Symbol = @import("../types/Symbol.zig");
 const Val = @import("../types/Val.zig");
+const Vector = @import("../types/Vector.zig");
 const Vm = @import("../Vm.zig");
 
 const Inspector = @This();
@@ -101,6 +102,10 @@ pub fn listToSliceExact(
 
 pub inline fn handleToProc(self: Inspector, h: Handle(Proc)) Vm.Error!*Proc {
     return self.vm.objects.procs.get(h) orelse return Vm.Error.UndefinedBehavior;
+}
+
+pub inline fn handleToVector(self: Inspector, h: Handle(Vector)) Vm.Error!*Vector {
+    return self.vm.objects.vectors.get(h) orelse return Vm.Error.UndefinedBehavior;
 }
 
 pub inline fn handleToModule(self: Inspector, h: Handle(Module)) Vm.Error!*Module {
