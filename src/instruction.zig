@@ -11,7 +11,7 @@ const Vm = @import("Vm.zig");
 pub const Instruction = union(enum) {
     push_const: Val,
     get_global: struct { module: Handle(Module), symbol: Symbol.Interned },
-    get_arg: u32,
+    get_arg: i32,
     get_local: u32,
     get_capture: u32,
     set_global: Global,

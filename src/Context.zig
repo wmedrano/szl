@@ -102,10 +102,11 @@ pub fn getCapture(self: Context, idx: u32) Vm.Error!Val {
     return self.stack.items[@intCast(abs_idx)];
 }
 
-pub fn getArg(self: Context, idx: u32) Vm.Error!Val {
+// TODO: Document negative behavior.
+pub fn getArg(self: Context, idx: i32) Vm.Error!Val {
     if (self.stack_frames.items.len == 0) return Vm.Error.UndefinedBehavior;
     const frame = self.stack_frames.items[self.stack_frames.items.len - 1];
-    const abs_idx = frame.stack_start + idx;
+    const abs_idx = @as(i32, @intCast(frame.stack_start)) + idx;
     return self.stack.items[@intCast(abs_idx)];
 }
 

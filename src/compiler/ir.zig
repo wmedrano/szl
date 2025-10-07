@@ -52,6 +52,7 @@ pub const Ir = union(enum) {
     };
 
     pub const Lambda = struct {
+        name: ?Symbol.Interned,
         args: []Symbol.Interned,
         body: []Ir,
     };
@@ -107,13 +108,13 @@ const Builder = struct {
         if (list[0].asSymbol()) |sym| {
             if (sym.eq(define)) {
                 switch (list.len) {
-                    3 => return self.buildDefine(list[1], list[2]),
-                    else => return Error.InvalidExpression,
+                    0, 1, 2 => return Error.InvalidExpression,
+                    else => return self.buildDefine(list[1], list[2..]),
                 }
             }
             if (sym.eq(lambda)) {
                 if (list.len < 2) return Error.InvalidExpression;
-                return self.buildLambda(list[1], list[2..]);
+                return self.buildLambda(null, list[1], list[2..]);
             }
             if (sym.eq(if_sym)) {
                 switch (list.len) {
@@ -140,8 +141,16 @@ const Builder = struct {
         };
     }
 
-    fn buildDefine(self: *Builder, symbol_val: Val, expr: Val) Error!Ir {
-        if (symbol_val.asSymbol()) |sym| return self.buildDefineVal(sym, expr);
+    fn buildDefine(self: *Builder, symbol_val: Val, exprs: []const Val) Error!Ir {
+        // (define name value)
+        if (symbol_val.asSymbol()) |sym| {
+            if (exprs.len != 1) return Error.InvalidExpression;
+            return self.buildDefineVal(sym, exprs[0]);
+        }
+        // (define (name args...) body...)
+        if (symbol_val.data == .pair) {
+            return self.buildDefineProcedure(symbol_val, exprs);
+        }
         return Error.InvalidExpression;
     }
 
@@ -152,6 +161,24 @@ const Builder = struct {
             .define = .{
                 .symbol = symbol,
                 .expr = expr_ir,
+            },
+        };
+    }
+
+    fn buildDefineProcedure(self: *Builder, name_and_args: Val, body: []const Val) Error!Ir {
+        // name_and_args is (name arg1 arg2 ...)
+        const inspector = self.vm.inspector();
+        const pair = inspector.asPair(name_and_args) catch return Error.InvalidExpression;
+        const name = pair.car.asSymbol() orelse return Error.InvalidExpression;
+        const args = pair.cdr; // (arg1 arg2 ...)
+
+        // Build the IR
+        const expr = try self.arena.allocator().create(Ir);
+        expr.* = try self.buildLambda(name, args, body);
+        return Ir{
+            .define = .{
+                .symbol = name,
+                .expr = expr,
             },
         };
     }
@@ -191,13 +218,14 @@ const Builder = struct {
         };
     }
 
-    fn buildLambda(self: *Builder, parameters: Val, body: []const Val) Error!Ir {
+    fn buildLambda(self: *Builder, name: ?Symbol.Interned, parameters: Val, body: []const Val) Error!Ir {
         var lambda_builder = Builder{
             .arena = self.arena,
             .vm = self.vm,
         };
         return Ir{
             .lambda = .{
+                .name = name,
                 .args = try self.valToSymbolsSlice(parameters),
                 .body = try lambda_builder.buildMany(body),
             },

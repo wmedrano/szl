@@ -32,6 +32,7 @@ pub const Error = error{
 
 pub const Scope = struct {
     module: Handle(Module),
+    proc: ?Symbol.Interned = null,
     args: []const Symbol.Interned = &.{},
     locals: std.ArrayList(Local) = .{},
     captures: Captures = .{},
@@ -47,16 +48,14 @@ pub const Scope = struct {
     pub const Captures = std.AutoHashMapUnmanaged(Symbol.Interned, ?u32);
 
     pub const Location = union(enum) {
-        arg: u32,
+        arg: i32,
         local: u32,
         capture: u32,
         module: struct { module: Handle(Module), name: Symbol.Interned },
     };
 
     pub fn resolve(self: *Scope, name: Symbol.Interned) Location {
-        for (self.args, 0..self.args.len) |arg, idx| {
-            if (arg.eq(name)) return Location{ .arg = @intCast(idx) };
-        }
+        // Locals
         var local_idx = self.locals.items.len;
         while (local_idx > 0) {
             local_idx -= 1;
@@ -64,6 +63,15 @@ pub const Scope = struct {
             if (item.available and item.name.eq(name))
                 return Location{ .local = @intCast(local_idx) };
         }
+        // Args
+        for (self.args, 0..self.args.len) |arg, idx| {
+            if (arg.eq(name)) return Location{ .arg = @intCast(idx) };
+        }
+        // Proc
+        if (self.proc) |proc_name| {
+            if (proc_name.eq(name)) return Location{ .arg = -1 };
+        }
+        // Captures
         if (self.captures.getEntry(name)) |capture| {
             if (capture.value_ptr.*) |idx| return Location{ .capture = idx };
             const idx = self.captures_count;
@@ -107,7 +115,7 @@ pub fn compile(self: *Compiler, expr: Val) Error!Val {
     const ir = try Ir.init(self.arena, self.vm, expr);
     try self.addIr(ir);
     // Build procedure
-    const proc = try self.makeProc();
+    const proc = try self.makeProc(null);
     if (proc.captures.len > 0) return Error.UndefinedBehavior;
     return Val.initProc(proc.handle);
 }
@@ -162,7 +170,7 @@ fn addLambda(self: *Compiler, lambda: Ir.Lambda) Error!void {
         try sub_compiler.addIr(Ir{ .push_const = Val.initEmptyList() });
     for (lambda.body) |ir|
         try sub_compiler.addIr(ir);
-    const proc = try sub_compiler.makeProc();
+    const proc = try sub_compiler.makeProc(lambda.name);
     if (proc.captures.len == 0) {
         return self.addInstruction(.{ .push_const = Val.initProc(proc.handle) });
     }
@@ -225,16 +233,15 @@ fn addLet(self: *Compiler, bindings: []const Ir.LetBinding, body: []Ir) !void {
     try self.addIrs(body);
 }
 
-fn makeProc(self: Compiler) Error!struct {
+fn makeProc(self: Compiler, name: ?Symbol.Interned) Error!struct {
     handle: Handle(Proc),
     proc: Proc,
     captures: []Symbol.Interned,
 } {
-    const builder = self.vm.builder();
-    const name = try builder.makeSymbolInterned(Symbol.init("_"));
+    const proc_name = name orelse try self.vm.builder().makeSymbolInterned(Symbol.init("_"));
     const captures = try self.scope.capturesSlice(self.arena.allocator());
     var proc = Proc{
-        .name = name,
+        .name = proc_name,
         .instructions = try self.vm.allocator().dupe(Instruction, self.instructions.items),
         .arg_count = @intCast(self.scope.args.len),
         .locals_count = @intCast(self.scope.locals.items.len),
@@ -319,6 +326,16 @@ test "lambda is evaluated" {
     );
 }
 
+test "lambda without body is empty list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        Val.initEmptyList(),
+        try vm.evalStr("((lambda ()))"),
+    );
+}
+
 test "lambda with args is evaluated" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
@@ -352,4 +369,34 @@ test "lambda can capture environment" {
         Val.initInt(110),
         try vm.evalStr(source),
     );
+}
+
+test "define procedure with args shorthand" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        Val.initInt(7),
+        try vm.evalStr("(define (add a b) (+ a b)) (add 3 4)"),
+    );
+}
+
+test "define procedure with no args shorthand" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        Val.initInt(42),
+        try vm.evalStr("(define (get-answer) 42) (get-answer)"),
+    );
+}
+
+test "define can call recursively" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Returns a value if it is truthy, otherwise, call itself with `#t`.
+    _ = try vm.evalStr("(define (trivial arg) (if arg arg (trivial #t)))");
+    try testing.expectEqual(Val.initInt(10), try vm.evalStr("(trivial 10)"));
+    try testing.expectEqual(Val.initBool(true), try vm.evalStr("(trivial #f)"));
 }
