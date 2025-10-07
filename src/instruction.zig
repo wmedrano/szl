@@ -14,6 +14,7 @@ pub const Instruction = union(enum) {
     get_arg: u32,
     get_local: u32,
     get_capture: u32,
+    set_global: Global,
     set_local: u32,
     jump: i32,
     jump_if_not: i32,
@@ -21,6 +22,11 @@ pub const Instruction = union(enum) {
     eval: u32,
     make_closure: Closure,
     ret,
+
+    const Global = struct {
+        module: Handle(Module),
+        symbol: Symbol.Interned,
+    };
 
     const Closure = struct {
         proc: Handle(Proc),
@@ -42,6 +48,11 @@ pub const Instruction = union(enum) {
             .get_capture => |idx| {
                 const val = try vm.context.getCapture(idx);
                 try vm.context.push(vm.allocator(), val);
+            },
+            .set_global => |g| {
+                const val = vm.context.top() orelse return Vm.Error.UndefinedBehavior;
+                const m = try vm.inspector().handleToModule(g.module);
+                try m.setBySymbol(vm.allocator(), g.symbol, val);
             },
             .set_local => |idx| {
                 const val = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;

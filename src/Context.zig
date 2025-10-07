@@ -70,10 +70,10 @@ pub const TopDestination = enum {
 pub fn popStackFrame(self: *Context, comptime dest: TopDestination) Vm.Error!void {
     switch (dest) {
         .place_on_top => {
-            const top = self.pop() orelse return Vm.Error.UndefinedBehavior;
+            const top_val = self.pop() orelse return Vm.Error.UndefinedBehavior;
             const frame = self.stack_frames.pop() orelse StackFrame{};
             self.stack.shrinkRetainingCapacity(frame.stack_start);
-            try self.swapTop(top);
+            try self.swapTop(top_val);
         },
         .discard => {
             const frame = self.stack_frames.pop() orelse StackFrame{};
@@ -156,6 +156,12 @@ pub fn pop(self: *Context) ?Val {
 pub fn popMany(self: *Context, n: u32) void {
     const len = self.stack.items.len;
     self.stack.shrinkRetainingCapacity(len - @as(usize, @intCast(n)));
+}
+
+pub fn top(self: *Context) ?Val {
+    const len = self.stack.items.len;
+    if (len == 0) return null;
+    return self.stack.items[len - 1];
 }
 
 pub fn swapTop(self: *Context, val: Val) Vm.Error!void {

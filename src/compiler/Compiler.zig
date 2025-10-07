@@ -116,6 +116,7 @@ fn addIr(self: *Compiler, ir: Ir) Error!void {
     switch (ir) {
         .push_const => |v| try self.addInstruction(.{ .push_const = v }),
         .get => |sym| try self.addGet(sym),
+        .define => |d| try self.addDefine(d.symbol, d.expr.*),
         .if_expr => |expr| try self.addIf(expr.test_expr.*, expr.true_expr.*, expr.false_expr.*),
         .let_expr => |expr| try self.addLet(expr.bindings, expr.body),
         .eval => |e| {
@@ -173,6 +174,11 @@ fn jumpDistance(src: usize, dst: usize) i32 {
     const dst_i32: i32 = @intCast(dst);
     const src_i32: i32 = @intCast(src);
     return dst_i32 - src_i32;
+}
+
+fn addDefine(self: *Compiler, symbol: Symbol.Interned, expr: Ir) Error!void {
+    try self.addIr(expr);
+    try self.addInstruction(.{ .set_global = .{ .module = self.scope.module, .symbol = symbol } });
 }
 
 fn addIf(self: *Compiler, test_expr: Ir, true_expr: Ir, false_expr: Ir) !void {
@@ -239,6 +245,26 @@ fn makeProc(self: Compiler) Error!struct {
     return .{ .handle = handle, .proc = proc, .captures = captures };
 }
 
+test "define value can be referenced" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        Val.initInt(20),
+        try vm.evalStr("(define x 20) x"),
+    );
+}
+
+test "multiple defines uses latest" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(Val.initInt(20), try vm.evalStr("(define x 20)"));
+    try testing.expectEqual(Val.initInt(20), try vm.evalStr("x"));
+    try testing.expectEqual(Val.initInt(30), try vm.evalStr("(define x 30)"));
+    try testing.expectEqual(Val.initInt(30), try vm.evalStr("x"));
+}
+
 test "if statement picks correct branch" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
@@ -260,6 +286,26 @@ test "let is evaluated" {
     try testing.expectEqual(
         Val.initInt(3),
         try vm.evalStr("(let ((x 1) (y 2)) (+ x y))"),
+    );
+}
+
+test "let bindings can't reference themselves" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectError(
+        error.UndefinedBehavior,
+        vm.evalStr("(let ((x 1) (y x)) (+ x y))"),
+    );
+}
+
+test "let variable shadows global" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        Val.initInt(101),
+        try vm.evalStr("(define x 20) (let ((x 100)) (+ x 1))"),
     );
 }
 

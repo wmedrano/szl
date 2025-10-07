@@ -1,9 +1,9 @@
 const std = @import("std");
 const testing = std.testing;
 
+const Vm = @import("../Vm.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
-const Vm = @import("../Vm.zig");
 
 const Module = @This();
 
@@ -31,15 +31,17 @@ pub fn getBySymbol(self: Module, sym: Symbol.Interned) ?Val {
 
 pub fn set(self: *Module, slot: u32, val: Val) Vm.Error!void {
     const idx: usize = @intCast(slot);
-    if (self.slots.items.len >= idx) return Vm.Error.UndefinedBehavior;
-    self.slots.items[idx] = val;
+    if (idx < self.slots.items.len)
+        self.slots.items[idx] = val
+    else
+        return Vm.Error.UndefinedBehavior;
 }
 
-pub fn setBySymbol(self: *Module, vm: *Vm, sym: Symbol.Interned, val: Val) Vm.Error!void {
+pub fn setBySymbol(self: *Module, allocator: std.mem.Allocator, sym: Symbol.Interned, val: Val) Vm.Error!void {
     if (self.symbol_to_slot.get(sym)) |slot| {
-        return self.set(self, slot, val);
+        return self.set(slot, val);
     }
     const slot: u32 = @intCast(self.slots.items.len);
-    try self.slots.append(vm.allocator(), val);
-    try self.symbol_to_slot.put(vm.allocator(), sym, slot);
+    try self.slots.append(allocator, val);
+    try self.symbol_to_slot.put(allocator, sym, slot);
 }
