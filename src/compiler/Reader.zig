@@ -76,12 +76,30 @@ pub fn readNextImpl(self: *Reader) Vm.Error!ReadResult {
 }
 
 fn parseNumber(_: Reader, token: []const u8) Vm.Error!ReadResult {
+    if (token.len == 0) return Vm.Error.ReadError;
+
+    var is_negative = false;
+    var start_idx: usize = 0;
+
+    // Handle leading sign
+    if (token[0] == '-') {
+        is_negative = true;
+        start_idx = 1;
+    } else if (token[0] == '+') {
+        start_idx = 1;
+    }
+
+    if (start_idx >= token.len) return Vm.Error.ReadError;
+
     var n: i64 = 0;
-    for (token) |digit| {
+    for (token[start_idx..]) |digit| {
         if (digit < '0' or digit > '9') return Vm.Error.ReadError;
         n *= 10;
         n += digit - '0';
     }
+
+    if (is_negative) n = -n;
+
     const val = Val.initInt(n);
     return ReadResult{ .atom = val };
 }

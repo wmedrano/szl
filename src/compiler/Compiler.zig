@@ -111,10 +111,10 @@ pub fn init(arena: *std.heap.ArenaAllocator, vm: *Vm, module: Handle(Module)) Co
 }
 
 pub fn compile(self: *Compiler, expr: Val) Error!Val {
-    // Build IR
+    // Val -> Ir
     const ir = try Ir.init(self.arena, self.vm, expr);
     try self.addIr(ir);
-    // Build procedure
+    // Ir -> Val(Proc)
     const proc = try self.makeProc(null);
     if (proc.captures.len > 0) return Error.UndefinedBehavior;
     return Val.initProc(proc.handle);
@@ -371,7 +371,7 @@ test "lambda can capture environment" {
     );
 }
 
-test "define procedure with args shorthand" {
+test "define with args creates callable procedure" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
@@ -381,7 +381,7 @@ test "define procedure with args shorthand" {
     );
 }
 
-test "define procedure with no args shorthand" {
+test "define without args create callable thunk" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
@@ -395,8 +395,12 @@ test "define can call recursively" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    // Returns a value if it is truthy, otherwise, call itself with `#t`.
-    _ = try vm.evalStr("(define (trivial arg) (if arg arg (trivial #t)))");
-    try testing.expectEqual(Val.initInt(10), try vm.evalStr("(trivial 10)"));
-    try testing.expectEqual(Val.initBool(true), try vm.evalStr("(trivial #f)"));
+    const source =
+        \\ (define (fib n)
+        \\   (if (<= n 1)
+        \\       n
+        \\       (+ (fib (+ n -1)) (fib (+ n -2)))))
+        \\ (fib 10)
+    ;
+    try testing.expectEqual(Val.initInt(55), try vm.evalStr(source));
 }

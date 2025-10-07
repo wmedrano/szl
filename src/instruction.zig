@@ -1,4 +1,5 @@
 const std = @import("std");
+const testing = std.testing;
 
 const Module = @import("types/Module.zig");
 const Handle = @import("types/object_pool.zig").Handle;
@@ -126,6 +127,30 @@ fn evalBuiltin(vm: *Vm, builtin: Proc.Builtin, arg_count: u32) !void {
             // proc + args + return_value.
             try vm.context.stackSquash(arg_count + 2);
         },
+        .lte => {
+            // Validate all arguments are ints first.
+            // TODO: Raise an exception.
+            var int_args = try std.ArrayList(i64).initCapacity(vm.allocator(), arg_count);
+            defer int_args.deinit(vm.allocator());
+            for (args) |v| {
+                const val = inspector.asInt(v) catch return error.NotImplemented;
+                int_args.appendAssumeCapacity(val);
+            }
+
+            // Check if ordered.
+            var is_ordered = true;
+            if (int_args.items.len > 1) {
+                for (0..int_args.items.len - 1) |i| {
+                    if (int_args.items[i] > int_args.items[i + 1]) {
+                        is_ordered = false;
+                        break;
+                    }
+                }
+            }
+            try vm.context.push(vm.allocator(), Val.initBool(is_ordered));
+            // proc + args + return_value.
+            try vm.context.stackSquash(arg_count + 2);
+        },
     }
 }
 
@@ -136,4 +161,76 @@ fn makeClosure(vm: *Vm, proc: Handle(Proc), count: u32) !void {
     const captures_h = try vm.builder().makeVectorHandle(capture_vals);
     vm.context.popMany(count);
     try vm.context.push(vm.allocator(), Val.initClosure(proc, captures_h));
+}
+
+test "+ on ints sums ints" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        Val.initInt(10),
+        try vm.evalStr("(+ 1 2 3 4)"),
+    );
+}
+
+test "empty + returns 0" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        Val.initInt(0),
+        try vm.evalStr("(+)"),
+    );
+}
+
+test "+ on non-ints returns error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectError(Vm.Error.NotImplemented, vm.evalStr("(+ #t)"));
+}
+
+test "<= on ordered ints returns true" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        Val.initBool(true),
+        try vm.evalStr("(<= 1 2 3)"),
+    );
+}
+
+test "<= on non-ordered ints returns false" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        Val.initBool(false),
+        try vm.evalStr("(<= 3 2 1)"),
+    );
+}
+
+test "<= on equal ints returns true" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        Val.initBool(true),
+        try vm.evalStr("(<= 1 1 2)"),
+    );
+}
+
+test "<= with less than 2 args returns true" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(Val.initBool(true), try vm.evalStr("(<= )"));
+    try testing.expectEqual(Val.initBool(true), try vm.evalStr("(<= 1)"));
+}
+
+test "<= on non-ints returns error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectError(Vm.Error.NotImplemented, vm.evalStr("(<= #t)"));
 }

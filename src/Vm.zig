@@ -70,6 +70,10 @@ fn initLibraries(vm: *Vm) Error!void {
             .symbol = (try b.makeSymbol(Symbol.init("+"))).data.symbol,
             .value = Val.initBuiltinProc(Proc.Builtin.add),
         },
+        .{
+            .symbol = (try b.makeSymbol(Symbol.init("<="))).data.symbol,
+            .value = Val.initBuiltinProc(Proc.Builtin.lte),
+        },
     };
     _ = try b.makeEnvironment(&.{
         (try b.makeSymbol(Symbol.init("scheme"))).data.symbol,
