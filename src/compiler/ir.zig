@@ -25,7 +25,6 @@ pub const Ir = union(enum) {
     },
     eval: Eval,
     lambda: Lambda,
-    ret,
 
     pub fn init(arena: *std.heap.ArenaAllocator, vm: *Vm, expr: Val) Error!Ir {
         var builder = Builder{
@@ -81,6 +80,7 @@ const Builder = struct {
             .proc,
             .closure,
             .proc_builtin,
+            .continuation,
             => return Ir{ .push_const = expr },
             .pair => {
                 const list = try self.valToSlice(expr);

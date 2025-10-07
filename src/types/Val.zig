@@ -4,6 +4,7 @@ const testing = std.testing;
 const PrettyPrinter = @import("../utils/PrettyPrinter.zig");
 const Vm = @import("../Vm.zig");
 const Handle = @import("object_pool.zig").Handle;
+const Continuation = @import("Continuation.zig");
 const Module = @import("Module.zig");
 const Pair = @import("Pair.zig");
 const Proc = @import("Proc.zig");
@@ -30,6 +31,7 @@ pub const Data = union(enum) {
     closure: Closure,
     proc_builtin: Proc.Builtin,
     vector: Handle(Vector),
+    continuation: Handle(Continuation),
 };
 
 pub fn initEmptyList() Val {

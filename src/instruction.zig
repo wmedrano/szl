@@ -1,6 +1,8 @@
 const std = @import("std");
 const testing = std.testing;
 
+const Context = @import("Context.zig");
+const Continuation = @import("types/Continuation.zig");
 const Module = @import("types/Module.zig");
 const Handle = @import("types/object_pool.zig").Handle;
 const Proc = @import("types/Proc.zig");
@@ -78,7 +80,7 @@ fn moduleGet(vm: *Vm, module: Handle(Module), symbol: Symbol.Interned) !void {
     try vm.context.push(vm.allocator(), val);
 }
 
-fn eval(vm: *Vm, arg_count: u32) !void {
+fn eval(vm: *Vm, arg_count: u32) Vm.Error!void {
     const start = vm.context.stackLen() - arg_count;
     const proc_idx = start - 1;
     const proc_val = vm.context.stackVal(proc_idx) orelse
@@ -89,6 +91,7 @@ fn eval(vm: *Vm, arg_count: u32) !void {
         .proc => |h| try evalProc(vm, h, null, arg_count, start),
         .closure => |h| return try evalProc(vm, h.proc, h.captures, arg_count, start),
         .proc_builtin => |b| return evalBuiltin(vm, b, arg_count),
+        .continuation => |c| return evalContinuation(vm, c, arg_count),
     }
 }
 
@@ -151,7 +154,23 @@ fn evalBuiltin(vm: *Vm, builtin: Proc.Builtin, arg_count: u32) !void {
             // proc + args + return_value.
             try vm.context.stackSquash(arg_count + 2);
         },
+        .call_cc => {
+            if (arg_count != 1) return Vm.Error.NotImplemented;
+            const cont = try vm.builder().makeContinuation(vm.context);
+            try vm.context.push(vm.allocator(), cont);
+            try eval(vm, 1);
+        },
     }
+}
+
+fn evalContinuation(vm: *Vm, handle: Handle(Continuation), arg_count: u32) !void {
+    const inspector = vm.inspector();
+    if (arg_count != 1) return Vm.Error.NotImplemented;
+    const continuation = inspector.handleToContinuation(handle) catch
+        return Vm.Error.NotImplemented;
+    const arg = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
+    std.mem.swap(Context, &continuation.context, &vm.context);
+    try vm.context.push(vm.allocator(), arg);
 }
 
 fn makeClosure(vm: *Vm, proc: Handle(Proc), count: u32) !void {

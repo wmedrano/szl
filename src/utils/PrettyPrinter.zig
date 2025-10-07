@@ -1,6 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 
+const Continuation = @import("../types/Continuation.zig");
 const Module = @import("../types/Module.zig");
 const Handle = @import("../types/object_pool.zig").Handle;
 const Pair = @import("../types/Pair.zig");
@@ -32,6 +33,7 @@ pub fn format(self: PrettyPrinter, writer: *std.Io.Writer) std.Io.Writer.Error!v
         .closure => |h| try self.formatProc(writer, h.proc, h.captures),
         .proc_builtin => |p| try writer.print("#<procedure:{s}>", .{p.name()}),
         .vector => |h| try self.formatVector(writer, h),
+        .continuation => try writer.writeAll("#<procedure:continuation>"),
     }
 }
 

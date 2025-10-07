@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const Context = @import("../Context.zig");
+const Continuation = @import("../types/Continuation.zig");
 const Module = @import("../types/Module.zig");
 const Handle = @import("../types/object_pool.zig").Handle;
 const Pair = @import("../types/Pair.zig");
@@ -99,4 +101,15 @@ pub inline fn makeVectorHandle(self: Builder, vals: []const Val) Vm.Error!Handle
     errdefer self.vm.allocator().free(copy);
     const vec = Vector{ .data = std.ArrayList(Val).fromOwnedSlice(copy) };
     return try self.vm.objects.vectors.put(self.vm.allocator(), vec);
+}
+
+pub inline fn makeContinuationHandle(self: Builder, context: Context) Vm.Error!Handle(Continuation) {
+    var cont = try Continuation.init(self.vm.allocator(), context);
+    errdefer cont.deinit(self.vm.allocator());
+    return try self.vm.objects.continuations.put(self.vm.allocator(), cont);
+}
+
+pub inline fn makeContinuation(self: Builder, context: Context) Vm.Error!Val {
+    const h = try self.makeContinuationHandle(context);
+    return Val{ .data = .{ .continuation = h } };
 }

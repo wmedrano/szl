@@ -19,11 +19,13 @@ pub fn deinit(self: *Proc, allocator: std.mem.Allocator) void {
 pub const Builtin = union(enum) {
     add,
     lte,
+    call_cc,
 
     pub fn name(self: Builtin) []const u8 {
         return switch (self) {
             .add => "+",
             .lte => "<=",
+            .call_cc => "call/cc",
         };
     }
 };

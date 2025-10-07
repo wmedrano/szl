@@ -133,7 +133,6 @@ fn addIr(self: *Compiler, ir: Ir) Error!void {
             try self.addInstruction(.{ .eval = @intCast(e.args.len) });
         },
         .lambda => |l| try self.addLambda(l),
-        .ret => try self.addInstruction(.{ .ret = {} }),
     }
 }
 
@@ -403,4 +402,24 @@ test "define can call recursively" {
         \\ (fib 10)
     ;
     try testing.expectEqual(Val.initInt(55), try vm.evalStr(source));
+}
+
+test "call/cc that doesn't call continuation returns as normal" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+    try testing.expectEqual(
+        Val.initInt(2),
+        try vm.evalStr("(call/cc (lambda (k) 1 2))"),
+    );
+}
+
+test "call/cc that calls continuation returns specified value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(
+        Val.initInt(1),
+        // The final expression is an error. We never call it so the vm is ok.
+        try vm.evalStr("(call/cc (lambda (k) (k 1) (+ #f) 2))"),
+    );
 }

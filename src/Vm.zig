@@ -5,6 +5,7 @@ const Compiler = @import("compiler/Compiler.zig");
 const Reader = @import("compiler/Reader.zig");
 const Context = @import("Context.zig");
 const Instruction = @import("instruction.zig").Instruction;
+const Continuation = @import("types/Continuation.zig");
 const Module = @import("types/Module.zig");
 const Handle = @import("types/object_pool.zig").Handle;
 const ObjectPool = @import("types/object_pool.zig").ObjectPool;
@@ -25,6 +26,7 @@ pub const Objects = struct {
     modules: ObjectPool(Module) = .{},
     procs: ObjectPool(Proc) = .{},
     vectors: ObjectPool(Vector) = .{},
+    continuations: ObjectPool(Continuation) = .{},
 
     pub fn init(alloc: std.mem.Allocator) Objects {
         return Objects{
@@ -74,6 +76,14 @@ fn initLibraries(vm: *Vm) Error!void {
             .symbol = (try b.makeSymbol(Symbol.init("<="))).data.symbol,
             .value = Val.initBuiltinProc(Proc.Builtin.lte),
         },
+        .{
+            .symbol = (try b.makeSymbol(Symbol.init("call/cc"))).data.symbol,
+            .value = Val.initBuiltinProc(Proc.Builtin.call_cc),
+        },
+        .{
+            .symbol = (try b.makeSymbol(Symbol.init("call-with-current-continuation"))).data.symbol,
+            .value = Val.initBuiltinProc(Proc.Builtin.call_cc),
+        },
     };
     _ = try b.makeEnvironment(&.{
         (try b.makeSymbol(Symbol.init("scheme"))).data.symbol,
@@ -103,6 +113,11 @@ pub fn deinit(self: *Vm) void {
     while (vectors_iter.next()) |vector|
         vector.value.deinit(self.allocator());
     self.objects.vectors.deinit(self.allocator());
+
+    var continuations_iter = self.objects.continuations.iterator();
+    while (continuations_iter.next()) |continuation|
+        continuation.value.deinit(self.allocator());
+    self.objects.continuations.deinit(self.allocator());
 
     self.objects.symbols.deinit(self.allocator());
 }

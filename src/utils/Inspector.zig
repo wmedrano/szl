@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const Continuation = @import("../types/Continuation.zig");
 const Module = @import("../types/Module.zig");
 const Handle = @import("../types/object_pool.zig").Handle;
 const Pair = @import("../types/Pair.zig");
@@ -102,6 +103,10 @@ pub fn listToSliceExact(
 
 pub inline fn handleToProc(self: Inspector, h: Handle(Proc)) Vm.Error!*Proc {
     return self.vm.objects.procs.get(h) orelse return Vm.Error.UndefinedBehavior;
+}
+
+pub inline fn handleToContinuation(self: Inspector, h: Handle(Continuation)) Vm.Error!*Continuation {
+    return self.vm.objects.continuations.get(h) orelse return Vm.Error.UndefinedBehavior;
 }
 
 pub inline fn handleToVector(self: Inspector, h: Handle(Vector)) Vm.Error!*Vector {
