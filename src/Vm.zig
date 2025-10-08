@@ -4,6 +4,7 @@ const testing = std.testing;
 const Compiler = @import("compiler/Compiler.zig");
 const Reader = @import("compiler/Reader.zig");
 const Context = @import("Context.zig");
+const instruction = @import("instruction.zig");
 const Instruction = @import("instruction.zig").Instruction;
 const Continuation = @import("types/Continuation.zig");
 const Module = @import("types/Module.zig");
@@ -51,6 +52,7 @@ pub const Error = error{
     UndefinedBehavior,
     Unreachable,
     WrongType,
+    UncaughtException,
 };
 
 pub fn init(options: Options) Error!Vm {
@@ -83,6 +85,14 @@ fn initLibraries(vm: *Vm) Error!void {
         .{
             .symbol = (try b.makeSymbol(Symbol.init("call-with-current-continuation"))).data.symbol,
             .value = Val.initBuiltinProc(Proc.Builtin.call_cc),
+        },
+        .{
+            .symbol = (try b.makeSymbol(Symbol.init("with-exception-handler"))).data.symbol,
+            .value = Val.initBuiltinProc(Proc.Builtin.with_exception_handler),
+        },
+        .{
+            .symbol = (try b.makeSymbol(Symbol.init("raise-continuable"))).data.symbol,
+            .value = Val.initBuiltinProc(Proc.Builtin.raise_continuable),
         },
     };
     _ = try b.makeEnvironment(&.{
@@ -135,7 +145,7 @@ pub fn inspector(self: *Vm) Inspector {
 }
 
 pub fn pretty(self: *const Vm, val: Val) PrettyPrinter {
-    return val.pretty(self);
+    return PrettyPrinter{ .vm = self, .val = val };
 }
 
 test builder {
@@ -180,10 +190,7 @@ pub fn evalStr(self: *Vm, source: []const u8) Error!Val {
         self.context.reset();
         try self.context.push(self.allocator(), proc);
         try (Instruction{ .eval = 0 }).execute(self);
-        while (self.context.nextInstruction()) |instruction| {
-            try instruction.execute(self);
-        }
-        return_val = self.context.pop() orelse return Error.UndefinedBehavior;
+        return_val = try instruction.executeUntilEnd(self);
     }
     return return_val;
 }

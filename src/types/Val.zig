@@ -3,8 +3,8 @@ const testing = std.testing;
 
 const PrettyPrinter = @import("../utils/PrettyPrinter.zig");
 const Vm = @import("../Vm.zig");
-const Handle = @import("object_pool.zig").Handle;
 const Continuation = @import("Continuation.zig");
+const Handle = @import("object_pool.zig").Handle;
 const Module = @import("Module.zig");
 const Pair = @import("Pair.zig");
 const Proc = @import("Proc.zig");
@@ -92,10 +92,6 @@ pub fn asSymbol(self: Val) ?Symbol.Interned {
         .symbol => |s| return s,
         else => return null,
     }
-}
-
-pub fn pretty(self: Val, vm: *const Vm) PrettyPrinter {
-    return PrettyPrinter{ .vm = vm, .val = self };
 }
 
 pub fn eq(self: Val, other: Val) bool {

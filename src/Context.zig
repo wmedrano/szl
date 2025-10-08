@@ -14,6 +14,7 @@ const StackFrame = struct {
     arg_count: u32 = 0,
     locals_count: u32 = 0,
     instruction_idx: u32 = 0,
+    exception_handler: ?Val = null,
     instructions: []const Instruction = &.{},
 };
 
@@ -66,6 +67,24 @@ pub const TopDestination = enum {
     /// Do nothing with the top item.
     discard,
 };
+
+pub fn setExceptionHandler(self: *Context, handler: Val) error{UndefinedBehavior}!void {
+    if (self.stack_frames.items.len == 0) return error.UndefinedBehavior;
+    const idx = self.stack_frames.items.len - 1;
+    self.stack_frames.items[idx].exception_handler = handler;
+}
+
+pub fn currentExceptionHandler(self: Context) ?Val {
+    if (self.stack_frames.items.len == 0) return null;
+    var idx = self.stack_frames.items.len - 1;
+    while (idx > 0) {
+        idx -= 1;
+        if (self.stack_frames.items[idx].exception_handler) |handler| {
+            return handler;
+        }
+    }
+    return null;
+}
 
 pub fn popStackFrame(self: *Context, comptime dest: TopDestination) Vm.Error!void {
     switch (dest) {

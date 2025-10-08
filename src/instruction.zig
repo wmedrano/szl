@@ -74,11 +74,23 @@ pub const Instruction = union(enum) {
     }
 };
 
+pub fn executeUntilEnd(vm: *Vm) Vm.Error!Val {
+    while (vm.context.nextInstruction()) |instruction| {
+        try instruction.execute(vm);
+    }
+    return vm.context.top() orelse Val.initEmptyList();
+}
+
 fn moduleGet(vm: *Vm, module: Handle(Module), symbol: Symbol.Interned) !void {
     const m = vm.inspector().handleToModule(module) catch return Vm.Error.UndefinedBehavior;
     const val = m.getBySymbol(symbol) orelse return Vm.Error.UndefinedBehavior;
     try vm.context.push(vm.allocator(), val);
 }
+
+const EvalOptoins = struct {
+    arg_count: u32,
+    exception_handler: ?Val = null,
+};
 
 fn eval(vm: *Vm, arg_count: u32) Vm.Error!void {
     const start = vm.context.stackLen() - arg_count;
@@ -158,6 +170,21 @@ fn evalBuiltin(vm: *Vm, builtin: Proc.Builtin, arg_count: u32) !void {
             if (arg_count != 1) return Vm.Error.NotImplemented;
             const cont = try vm.builder().makeContinuation(vm.context);
             try vm.context.push(vm.allocator(), cont);
+            try eval(vm, 1);
+        },
+        .with_exception_handler => {
+            if (arg_count != 2) return Vm.Error.NotImplemented;
+            const thunk = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
+            const handler = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
+            try vm.context.setExceptionHandler(handler);
+            try vm.context.push(vm.allocator(), thunk);
+            try eval(vm, 0);
+        },
+        .raise_continuable => {
+            if (arg_count != 1) return Vm.Error.NotImplemented;
+            const handler = vm.context.currentExceptionHandler() orelse return Vm.Error.UncaughtException;
+            const obj = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
+            try vm.context.pushSlice(vm.allocator(), &.{ handler, obj });
             try eval(vm, 1);
         },
     }
@@ -252,4 +279,21 @@ test "<= on non-ints returns error" {
     defer vm.deinit();
 
     try testing.expectError(Vm.Error.NotImplemented, vm.evalStr("(<= #t)"));
+}
+
+test "raise-continuable calls exception handler and continues" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const source =
+        \\ (define (proc1 n) (raise-continuable n))
+        \\ (define (proc2 n) (proc1 n))
+        \\ (with-exception-handler
+        \\   (lambda (x) (+ x 100))
+        \\   (lambda () (proc2 5)))
+    ;
+    try testing.expectEqual(
+        Val.initInt(105),
+        try vm.evalStr(source),
+    );
 }
