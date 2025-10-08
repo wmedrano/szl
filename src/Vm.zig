@@ -94,15 +94,28 @@ fn initLibraries(vm: *Vm) Error!void {
             .symbol = (try b.makeSymbol(Symbol.init("raise-continuable"))).data.symbol,
             .value = Val.initBuiltinProc(Proc.Builtin.raise_continuable),
         },
+        .{
+            .symbol = (try b.makeSymbol(Symbol.init("%szl-raise-next"))).data.symbol,
+            .value = Val.initBuiltinProc(Proc.Builtin.szl_raise_next),
+        },
     };
-    _ = try b.makeEnvironment(&.{
+    const global_module = try b.makeEnvironment(&.{
         (try b.makeSymbol(Symbol.init("scheme"))).data.symbol,
         (try b.makeSymbol(Symbol.init("base"))).data.symbol,
     }, &base_definitions);
-    _ = try b.makeEnvironment(&.{
+    // TODO: Have REPL import global_module instead of redefining.
+    const repl_module = try b.makeEnvironment(&.{
         (try b.makeSymbol(Symbol.init("user"))).data.symbol,
         (try b.makeSymbol(Symbol.init("repl"))).data.symbol,
     }, &base_definitions);
+    for (&[_]Val{ global_module, repl_module }) |m| {
+        const source =
+            \\ (define (raise err)
+            \\   (raise-continuable err)
+            \\   (%szl-raise-next err))
+        ;
+        _ = try vm.evalStrIn(source, m.data.module);
+    }
 }
 
 pub fn deinit(self: *Vm) void {
@@ -178,13 +191,17 @@ test read {
 }
 
 pub fn evalStr(self: *Vm, source: []const u8) Error!Val {
-    var reader = self.read(source);
-    var return_val = Val.initEmptyList();
     const b = self.builder();
     const env = self.inspector().findModule(&.{
         try b.makeSymbolInterned(Symbol.init("user")),
         try b.makeSymbolInterned(Symbol.init("repl")),
     }) orelse return Error.Unreachable;
+    return self.evalStrIn(source, env);
+}
+
+fn evalStrIn(self: *Vm, source: []const u8, env: Handle(Module)) Error!Val {
+    var reader = self.read(source);
+    var return_val = Val.initEmptyList();
     while (try reader.readNext()) |raw_expr| {
         const proc = try self.compile(raw_expr, env);
         self.context.reset();

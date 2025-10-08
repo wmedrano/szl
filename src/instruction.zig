@@ -83,7 +83,9 @@ pub fn executeUntilEnd(vm: *Vm) Vm.Error!Val {
 
 fn moduleGet(vm: *Vm, module: Handle(Module), symbol: Symbol.Interned) !void {
     const m = vm.inspector().handleToModule(module) catch return Vm.Error.UndefinedBehavior;
-    const val = m.getBySymbol(symbol) orelse return Vm.Error.UndefinedBehavior;
+    const val = m.getBySymbol(symbol) orelse {
+        return Vm.Error.UndefinedBehavior;
+    };
     try vm.context.push(vm.allocator(), val);
 }
 
@@ -110,7 +112,9 @@ fn eval(vm: *Vm, arg_count: u32) Vm.Error!void {
 fn evalProc(vm: *Vm, h: Handle(Proc), maybe_captures: ?Handle(Vector), arg_count: u32, start: usize) !void {
     const proc = try vm.inspector().handleToProc(h);
     // 1. Check arguments.
-    if (arg_count != proc.arg_count) return Vm.Error.NotImplemented;
+    if (arg_count != proc.arg_count) {
+        return Vm.Error.NotImplemented;
+    }
     // 2. Initialize locals.
     try vm.context.pushMany(vm.allocator(), Val.initEmptyList(), proc.locals_count);
     // 3. Initialize captures.
@@ -132,6 +136,7 @@ fn evalProc(vm: *Vm, h: Handle(Proc), maybe_captures: ?Handle(Vector), arg_count
 
 fn evalBuiltin(vm: *Vm, builtin: Proc.Builtin, arg_count: u32) !void {
     const inspector = vm.inspector();
+    const builder = vm.builder();
     const args = vm.context.stackTopN(arg_count);
     switch (builtin) {
         .add => {
@@ -182,9 +187,25 @@ fn evalBuiltin(vm: *Vm, builtin: Proc.Builtin, arg_count: u32) !void {
         },
         .raise_continuable => {
             if (arg_count != 1) return Vm.Error.NotImplemented;
-            const handler = vm.context.currentExceptionHandler() orelse return Vm.Error.UncaughtException;
             const obj = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
+            const handler = vm.context.currentExceptionHandler() orelse return Vm.Error.UncaughtException;
             try vm.context.pushSlice(vm.allocator(), &.{ handler, obj });
+            try eval(vm, 1);
+        },
+        .szl_raise_next => {
+            if (arg_count != 1) return Vm.Error.NotImplemented;
+            const obj = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
+            _ = try vm.context.unwindUntilException();
+            try vm.context.popStackFrame(.discard);
+            _ = try vm.context.unwindUntilException();
+            const global_mod_handle = inspector.findModule(&.{
+                try builder.makeSymbolInterned(Symbol.init("scheme")),
+                try builder.makeSymbolInterned(Symbol.init("base")),
+            }) orelse return Vm.Error.UndefinedBehavior;
+            const global_mod = try inspector.handleToModule(global_mod_handle);
+            const raise_proc = global_mod.getBySymbol(try builder.makeSymbolInterned(Symbol.init("raise"))) orelse
+                return Vm.Error.UndefinedBehavior;
+            try vm.context.pushSlice(vm.allocator(), &.{ raise_proc, obj });
             try eval(vm, 1);
         },
     }
@@ -294,6 +315,43 @@ test "raise-continuable calls exception handler and continues" {
     ;
     try testing.expectEqual(
         Val.initInt(105),
+        try vm.evalStr(source),
+    );
+}
+
+test "raise calls all exceptions" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const source =
+        \\ (define one 0)
+        \\ (define two 0)
+        \\ (define (set-one! err) (define one 1))
+        \\ (define (set-two! err) (define two 2))
+        \\ (with-exception-handler set-one!
+        \\   (lambda ()
+        \\     (with-exception-handler set-two!
+        \\       (lambda () (raise -1)))))
+    ;
+    try testing.expectError(error.UncaughtException, vm.evalStr(source));
+    try testing.expectEqual(Val.initInt(1), try vm.evalStr("one"));
+    try testing.expectEqual(Val.initInt(2), try vm.evalStr("two"));
+}
+
+test "call/cc can stop exception from propagating" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // TODO: Use symbols instead of ints once supported by reader.
+    const source =
+        \\ (define (bad-thunk) (raise 0))
+        \\ (call/cc (lambda (exit)
+        \\   (with-exception-handler
+        \\     (lambda (err) (exit -1))
+        \\     bad-thunk)))
+    ;
+    try testing.expectEqual(
+        Val.initInt(-1),
         try vm.evalStr(source),
     );
 }

@@ -86,6 +86,16 @@ pub fn currentExceptionHandler(self: Context) ?Val {
     return null;
 }
 
+pub fn unwindUntilException(self: *Context) Vm.Error!?Val {
+    while (self.stack_frames.items.len > 0) {
+        const idx = self.stack_frames.items.len - 1;
+        const frame = self.stack_frames.items[idx];
+        if (frame.exception_handler) |handler| return handler;
+        try self.popStackFrame(.discard);
+    }
+    return null;
+}
+
 pub fn popStackFrame(self: *Context, comptime dest: TopDestination) Vm.Error!void {
     switch (dest) {
         .place_on_top => {

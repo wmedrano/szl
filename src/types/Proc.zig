@@ -24,6 +24,7 @@ pub const Builtin = union(enum) {
     call_cc,
     with_exception_handler,
     raise_continuable,
+    szl_raise_next,
 
     pub fn name(self: Builtin) []const u8 {
         return switch (self) {
@@ -32,6 +33,7 @@ pub const Builtin = union(enum) {
             .call_cc => "call/cc",
             .with_exception_handler => "with-exception-handler",
             .raise_continuable => "raise-continuable",
+            .szl_raise_next => "%szl-raise-next",
         };
     }
 };
