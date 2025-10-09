@@ -173,14 +173,17 @@ fn evalBuiltin(vm: *Vm, builtin: Proc.Builtin, arg_count: u32) !void {
         },
         .call_cc => {
             if (arg_count != 1) return Vm.Error.NotImplemented;
+            const proc = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
+            _ = vm.context.pop(); // The call/cc proc.
             const cont = try vm.builder().makeContinuation(vm.context);
-            try vm.context.push(vm.allocator(), cont);
+            try vm.context.pushSlice(vm.allocator(), &.{ proc, cont });
             try eval(vm, 1);
         },
         .with_exception_handler => {
             if (arg_count != 2) return Vm.Error.NotImplemented;
             const thunk = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
             const handler = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
+            _ = vm.context.pop(); // The with-exception-handler proc.
             try vm.context.setExceptionHandler(handler);
             try vm.context.push(vm.allocator(), thunk);
             try eval(vm, 0);
@@ -188,6 +191,7 @@ fn evalBuiltin(vm: *Vm, builtin: Proc.Builtin, arg_count: u32) !void {
         .raise_continuable => {
             if (arg_count != 1) return Vm.Error.NotImplemented;
             const obj = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
+            _ = vm.context.pop(); // raise-continuable
             const handler = vm.context.currentExceptionHandler() orelse return Vm.Error.UncaughtException;
             try vm.context.pushSlice(vm.allocator(), &.{ handler, obj });
             try eval(vm, 1);

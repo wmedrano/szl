@@ -113,32 +113,38 @@ pub fn init(arena: *std.heap.ArenaAllocator, vm: *Vm, module: Handle(Module)) Co
 pub fn compile(self: *Compiler, expr: Val) Error!Val {
     // Val -> Ir
     const ir = try Ir.init(self.arena, self.vm, expr);
-    try self.addIr(ir);
+    try self.addIr(ir, true);
     // Ir -> Val(Proc)
     const proc = try self.makeProc(null);
     if (proc.captures.len > 0) return Error.UndefinedBehavior;
     return Val.initProc(proc.handle);
 }
 
-fn addIr(self: *Compiler, ir: Ir) Error!void {
+fn addIr(self: *Compiler, ir: Ir, return_value: bool) Error!void {
     switch (ir) {
         .push_const => |v| try self.addInstruction(.{ .push_const = v }),
         .get => |sym| try self.addGet(sym),
         .define => |d| try self.addDefine(d.symbol, d.expr.*),
-        .if_expr => |expr| try self.addIf(expr.test_expr.*, expr.true_expr.*, expr.false_expr.*),
-        .let_expr => |expr| try self.addLet(expr.bindings, expr.body),
+        .if_expr => |expr| try self.addIf(expr.test_expr.*, expr.true_expr.*, expr.false_expr.*, return_value),
+        .let_expr => |expr| try self.addLet(expr.bindings, expr.body, return_value),
         .eval => |e| {
-            try self.addIr(e.proc.*);
-            for (e.args) |arg| try self.addIr(arg);
+            try self.addIr(e.proc.*, false);
+            for (e.args) |arg| try self.addIr(arg, false);
             try self.addInstruction(.{ .eval = @intCast(e.args.len) });
         },
         .lambda => |l| try self.addLambda(l),
     }
+    if (return_value) try self.addInstruction(.{ .ret = {} });
 }
 
-fn addIrs(self: *Compiler, irs: []const Ir) Error!void {
-    for (irs) |ir| try self.addIr(ir);
-    if (irs.len == 0) try self.addIr(Ir{ .push_const = Val.initEmptyList() });
+fn addIrs(self: *Compiler, irs: []const Ir, return_value: bool) Error!void {
+    if (irs.len == 0)
+        return self.addIr(Ir{ .push_const = Val.initEmptyList() }, true);
+    for (irs) |ir| try self.addIr(ir, false);
+    if (return_value)
+        try self.addInstruction(.{ .ret = {} })
+    else if (irs.len > 1)
+        try self.addInstruction(.{ .squash = @intCast(irs.len) });
 }
 
 fn addGet(self: *Compiler, sym: Symbol.Interned) Error!void {
@@ -165,10 +171,7 @@ fn addLambda(self: *Compiler, lambda: Ir.Lambda) Error!void {
             .captures = try self.scope.toCaptureCandidates(self.arena.allocator()),
         },
     };
-    if (lambda.body.len == 0)
-        try sub_compiler.addIr(Ir{ .push_const = Val.initEmptyList() });
-    for (lambda.body) |ir|
-        try sub_compiler.addIr(ir);
+    try sub_compiler.addIrs(lambda.body, true);
     const proc = try sub_compiler.makeProc(lambda.name);
     if (proc.captures.len == 0) {
         return self.addInstruction(.{ .push_const = Val.initProc(proc.handle) });
@@ -184,20 +187,21 @@ fn jumpDistance(src: usize, dst: usize) i32 {
 }
 
 fn addDefine(self: *Compiler, symbol: Symbol.Interned, expr: Ir) Error!void {
-    try self.addIr(expr);
+    try self.addIr(expr, false);
     try self.addInstruction(.{ .set_global = .{ .module = self.scope.module, .symbol = symbol } });
 }
 
-fn addIf(self: *Compiler, test_expr: Ir, true_expr: Ir, false_expr: Ir) !void {
+fn addIf(self: *Compiler, test_expr: Ir, true_expr: Ir, false_expr: Ir, return_value: bool) !void {
     // 1. Add expressions.
-    try self.addIr(test_expr);
+    try self.addIr(test_expr, false);
     const test_jump_idx = self.instructions.items.len;
     try self.addInstruction(.{ .jump_if_not = 0 });
-    try self.addIr(true_expr);
+    try self.addIr(true_expr, return_value);
     const true_jump_idx = self.instructions.items.len;
+    // TODO: Remove this jump instruction `return_value` is `true` as it will never run.
     try self.addInstruction(.{ .jump = 0 });
     const false_start_idx = self.instructions.items.len;
-    try self.addIr(false_expr);
+    try self.addIr(false_expr, return_value);
     const end_idx = self.instructions.items.len;
     // 2. Fix jump indices. The start index is after the start of the jump since
     //    the counter is always advanced once the instruction is fetched, but
@@ -206,9 +210,11 @@ fn addIf(self: *Compiler, test_expr: Ir, true_expr: Ir, false_expr: Ir) !void {
         Instruction{ .jump_if_not = jumpDistance(test_jump_idx + 1, false_start_idx) };
     self.instructions.items[true_jump_idx] =
         Instruction{ .jump = jumpDistance(true_jump_idx + 1, end_idx) };
+    if (return_value)
+        try self.addInstruction(.{ .ret = {} });
 }
 
-fn addLet(self: *Compiler, bindings: []const Ir.LetBinding, body: []Ir) !void {
+fn addLet(self: *Compiler, bindings: []const Ir.LetBinding, body: []Ir, return_value: bool) !void {
     // 1. Reserve bindings.
     const start_idx = self.scope.locals.items.len;
     const end_idx = self.scope.locals.items.len + bindings.len;
@@ -218,7 +224,7 @@ fn addLet(self: *Compiler, bindings: []const Ir.LetBinding, body: []Ir) !void {
     }
     // 2. Compute values.
     for (bindings, 0..bindings.len) |b, idx| {
-        try self.addIr(b.expr);
+        try self.addIr(b.expr, false);
         const local_idx = start_idx + idx;
         try self.addInstruction(Instruction{ .set_local = @intCast(local_idx) });
     }
@@ -229,7 +235,7 @@ fn addLet(self: *Compiler, bindings: []const Ir.LetBinding, body: []Ir) !void {
         l.available = false;
     };
     // 4. Evaluate body.
-    try self.addIrs(body);
+    try self.addIrs(body, return_value);
 }
 
 fn makeProc(self: Compiler, name: ?Symbol.Interned) Error!struct {

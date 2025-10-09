@@ -44,7 +44,7 @@ pub fn nextInstruction(self: *Context) ?Instruction {
     const instructions = frame.instructions;
     const idx: usize = @intCast(frame.instruction_idx);
     self.stack_frames.items[frame_idx].instruction_idx += 1;
-    const instruction = if (idx < instructions.len) instructions[idx] else Instruction{ .ret = {} };
+    const instruction = if (idx < instructions.len) instructions[idx] else return null;
     return instruction;
 }
 
