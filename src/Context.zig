@@ -7,9 +7,10 @@ const Vm = @import("Vm.zig");
 const Context = @This();
 
 stack: std.ArrayList(Val),
+stack_frame: StackFrame = StackFrame{},
 stack_frames: std.ArrayList(StackFrame),
 
-const StackFrame = struct {
+pub const StackFrame = struct {
     stack_start: u32 = 0,
     arg_count: u32 = 0,
     locals_count: u32 = 0,
@@ -21,9 +22,11 @@ const StackFrame = struct {
 pub fn init(allocator: std.mem.Allocator) !Context {
     var stack = try std.ArrayList(Val).initCapacity(allocator, 1024);
     errdefer stack.deinit(allocator);
+    var stack_frames = try std.ArrayList(StackFrame).initCapacity(allocator, 64);
+    errdefer stack_frames.deinit(allocator);
     return Context{
         .stack = stack,
-        .stack_frames = try std.ArrayList(StackFrame).initCapacity(allocator, 64),
+        .stack_frames = stack_frames,
     };
 }
 
@@ -35,29 +38,26 @@ pub fn deinit(self: *Context, allocator: std.mem.Allocator) void {
 pub fn reset(self: *Context) void {
     self.stack.clearRetainingCapacity();
     self.stack_frames.clearRetainingCapacity();
+    self.stack_frame = StackFrame{};
 }
 
 pub fn nextInstruction(self: *Context) ?Instruction {
-    if (self.stack_frames.items.len == 0) return null;
-    const frame_idx = self.stack_frames.items.len - 1;
-    const frame = self.stack_frames.items[frame_idx];
-    const instructions = frame.instructions;
-    const idx: usize = @intCast(frame.instruction_idx);
-    self.stack_frames.items[frame_idx].instruction_idx += 1;
+    const instructions = self.stack_frame.instructions;
+    const idx: usize = @intCast(self.stack_frame.instruction_idx);
+    self.stack_frame.instruction_idx += 1;
     const instruction = if (idx < instructions.len) instructions[idx] else return null;
     return instruction;
 }
 
 pub fn jump(self: *Context, n: i32) !void {
-    if (self.stack_frames.items.len == 0) return error.UndefinedBehavior;
-    const frame_idx = self.stack_frames.items.len - 1;
-    const old_idx: i32 = @intCast(self.stack_frames.items[frame_idx].instruction_idx);
+    const old_idx: i32 = @intCast(self.stack_frame.instruction_idx);
     const new_idx = old_idx + n;
-    self.stack_frames.items[frame_idx].instruction_idx = @intCast(new_idx);
+    self.stack_frame.instruction_idx = @intCast(new_idx);
 }
 
 pub fn pushStackFrame(self: *Context, allocator: std.mem.Allocator, stack_frame: StackFrame) error{OutOfMemory}!void {
-    return self.stack_frames.append(allocator, stack_frame);
+    try self.stack_frames.append(allocator, self.stack_frame);
+    self.stack_frame = stack_frame;
 }
 
 /// Describes what to do with the item on top.
@@ -69,83 +69,68 @@ pub const TopDestination = enum {
 };
 
 pub fn setExceptionHandler(self: *Context, handler: Val) error{UndefinedBehavior}!void {
-    if (self.stack_frames.items.len == 0) return error.UndefinedBehavior;
-    const idx = self.stack_frames.items.len - 1;
-    self.stack_frames.items[idx].exception_handler = handler;
+    self.stack_frame.exception_handler = handler;
 }
 
 pub fn currentExceptionHandler(self: Context) ?Val {
-    if (self.stack_frames.items.len == 0) return null;
-    var idx = self.stack_frames.items.len - 1;
+    if (self.stack_frame.exception_handler) |h| return h;
+    var idx = self.stack_frames.items.len;
     while (idx > 0) {
         idx -= 1;
-        if (self.stack_frames.items[idx].exception_handler) |handler| {
-            return handler;
-        }
+        if (self.stack_frames.items[idx].exception_handler) |h|
+            return h;
     }
     return null;
 }
 
 pub fn unwindBeforeExceptionHandler(self: *Context) Vm.Error!?Val {
-    while (self.stack_frames.items.len > 0) {
-        const idx = self.stack_frames.items.len - 1;
-        const frame = self.stack_frames.items[idx];
-        if (frame.exception_handler) |handler| {
-            self.stack_frames.items[idx].exception_handler = null;
-            return handler;
+    while (true) {
+        if (self.stack_frame.exception_handler) |h| {
+            try self.popStackFrame(.discard);
+            return h;
         }
+        if (self.stack_frames.items.len == 0) return null;
         try self.popStackFrame(.discard);
     }
-    return null;
 }
 
 pub fn popStackFrame(self: *Context, comptime dest: TopDestination) Vm.Error!void {
     switch (dest) {
         .place_on_top => {
             const top_val = self.pop() orelse return Vm.Error.UndefinedBehavior;
-            const frame = self.stack_frames.pop() orelse StackFrame{};
-            self.stack.shrinkRetainingCapacity(frame.stack_start);
+            self.stack.shrinkRetainingCapacity(self.stack_frame.stack_start);
+            self.stack_frame = self.stack_frames.pop() orelse StackFrame{};
             try self.swapTop(top_val);
         },
         .discard => {
-            const frame = self.stack_frames.pop() orelse StackFrame{};
-            self.stack.shrinkRetainingCapacity(frame.stack_start);
+            self.stack.shrinkRetainingCapacity(self.stack_frame.stack_start);
+            self.stack_frame = self.stack_frames.pop() orelse StackFrame{};
         },
     }
 }
 
 pub fn argCount(self: Context) u32 {
-    if (self.stack_frames.items.len == 0) return 0;
-    const frame = self.stack_frames.items[self.stack_frames.items.len - 1];
-    return frame.arg_count;
+    return self.stack_frame.arg_count;
 }
 
 fn stackLocal(self: Context) []Val {
-    if (self.stack_frames.items.len == 0) return &.{};
-    const frame = self.stack_frames.items[self.stack_frames.items.len - 1];
-    const start: usize = @intCast(frame.stack_start);
+    const start: usize = @intCast(self.stack_frame.stack_start);
     return self.stack.items[start..];
 }
 
 pub fn getCapture(self: Context, idx: u32) Vm.Error!Val {
-    if (self.stack_frames.items.len == 0) return Vm.Error.UndefinedBehavior;
-    const frame = self.stack_frames.items[self.stack_frames.items.len - 1];
-    const abs_idx = frame.stack_start + frame.arg_count + frame.locals_count + idx;
+    const abs_idx = self.stack_frame.stack_start + self.stack_frame.arg_count + self.stack_frame.locals_count + idx;
     return self.stack.items[@intCast(abs_idx)];
 }
 
 // TODO: Document negative behavior.
 pub fn getArg(self: Context, idx: i32) Vm.Error!Val {
-    if (self.stack_frames.items.len == 0) return Vm.Error.UndefinedBehavior;
-    const frame = self.stack_frames.items[self.stack_frames.items.len - 1];
-    const abs_idx = @as(i32, @intCast(frame.stack_start)) + idx;
+    const abs_idx = @as(i32, @intCast(self.stack_frame.stack_start)) + idx;
     return self.stack.items[@intCast(abs_idx)];
 }
 
 pub fn getLocal(self: *Context, idx: u32) Vm.Error!Val {
-    if (self.stack_frames.items.len == 0) return Vm.Error.UndefinedBehavior;
-    const frame = self.stack_frames.items[self.stack_frames.items.len - 1];
-    const abs_idx = frame.stack_start + frame.arg_count + idx;
+    const abs_idx = self.stack_frame.stack_start + self.stack_frame.arg_count + idx;
     return self.stack.items[@intCast(abs_idx)];
 }
 
