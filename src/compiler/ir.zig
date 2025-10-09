@@ -105,6 +105,7 @@ const Builder = struct {
         const if_sym = try self.vm.builder().makeSymbolInterned(Symbol.init("if"));
         const lambda = try self.vm.builder().makeSymbolInterned(Symbol.init("lambda"));
         const let = try self.vm.builder().makeSymbolInterned(Symbol.init("let"));
+        const quote = try self.vm.builder().makeSymbolInterned(Symbol.init("quote"));
         if (list[0].asSymbol()) |sym| {
             if (sym.eq(define)) {
                 switch (list.len) {
@@ -126,6 +127,12 @@ const Builder = struct {
                 switch (list.len) {
                     0, 1 => return Error.InvalidExpression,
                     else => return self.buildLet(list[1], list[2..]),
+                }
+            }
+            if (sym.eq(quote)) {
+                switch (list.len) {
+                    2 => return Ir{ .push_const = list[1] },
+                    else => return Error.InvalidExpression,
                 }
             }
         }

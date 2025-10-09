@@ -68,7 +68,20 @@ pub fn readNextImpl(self: *Reader) Vm.Error!ReadResult {
         .string => return Vm.Error.NotImplemented,
         .symbol => return try self.parseSymbol(next_token.lexeme),
         .boolean => return try self.parseBoolean(next_token.lexeme),
-        .quote => return Vm.Error.NotImplemented,
+        .quote => {
+            const next = try self.readNextImpl();
+            switch (next) {
+                .atom => |v| {
+                    const quote_symbol = try builder.makeSymbol(Symbol.init("quote"));
+                    const list_items = [_]Val{ quote_symbol, v };
+                    const quoted = try builder.makeList(&list_items);
+                    return ReadResult{ .atom = quoted };
+                },
+                .end => return Vm.Error.ReadError,
+                .end_expr => return Vm.Error.ReadError,
+                .dot => return Vm.Error.ReadError,
+            }
+        },
         .quasiquote => return Vm.Error.NotImplemented,
         .unquote => return Vm.Error.NotImplemented,
         .unquote_splicing => return Vm.Error.NotImplemented,

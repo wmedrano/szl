@@ -331,7 +331,7 @@ test "raise calls all exceptions" {
         \\ (with-exception-handler set-one!
         \\   (lambda ()
         \\     (with-exception-handler set-two!
-        \\       (lambda () (raise -1)))))
+        \\       (lambda () (raise 'exception)))))
     ;
     try testing.expectError(error.UncaughtException, vm.evalStr(source));
     try testing.expectEqual(Val.initInt(1), try vm.evalStr("one"));
@@ -342,16 +342,15 @@ test "call/cc can stop exception from propagating" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    // TODO: Use symbols instead of ints once supported by reader.
     const source =
-        \\ (define (bad-thunk) (raise 0))
+        \\ (define (bad-thunk) (raise 'bad))
         \\ (call/cc (lambda (exit)
         \\   (with-exception-handler
-        \\     (lambda (err) (exit -1))
+        \\     (lambda (err) (exit 'recovered))
         \\     bad-thunk)))
     ;
     try testing.expectEqual(
-        Val.initInt(-1),
+        try vm.builder().makeSymbol(Symbol.init("recovered")),
         try vm.evalStr(source),
     );
 }
