@@ -197,9 +197,9 @@ fn addIf(self: *Compiler, test_expr: Ir, true_expr: Ir, false_expr: Ir, return_v
     const test_jump_idx = self.instructions.items.len;
     try self.addInstruction(.{ .jump_if_not = 0 });
     try self.addIr(true_expr, return_value);
-    const true_jump_idx = self.instructions.items.len;
-    // TODO: Remove this jump instruction `return_value` is `true` as it will never run.
-    try self.addInstruction(.{ .jump = 0 });
+    const true_jump_idx: ?usize = if (return_value) null else self.instructions.items.len;
+    if (!return_value)
+        try self.addInstruction(.{ .jump = 0 });
     const false_start_idx = self.instructions.items.len;
     try self.addIr(false_expr, return_value);
     const end_idx = self.instructions.items.len;
@@ -208,10 +208,10 @@ fn addIf(self: *Compiler, test_expr: Ir, true_expr: Ir, false_expr: Ir, return_v
     //    before it is executed.
     self.instructions.items[test_jump_idx] =
         Instruction{ .jump_if_not = jumpDistance(test_jump_idx + 1, false_start_idx) };
-    self.instructions.items[true_jump_idx] =
-        Instruction{ .jump = jumpDistance(true_jump_idx + 1, end_idx) };
-    if (return_value)
-        try self.addInstruction(.{ .ret = {} });
+    if (true_jump_idx) |idx| {
+        self.instructions.items[idx] =
+            Instruction{ .jump = jumpDistance(idx + 1, end_idx) };
+    }
 }
 
 fn addLet(self: *Compiler, bindings: []const Ir.LetBinding, body: []Ir, return_value: bool) !void {
