@@ -86,11 +86,14 @@ pub fn currentExceptionHandler(self: Context) ?Val {
     return null;
 }
 
-pub fn unwindUntilException(self: *Context) Vm.Error!?Val {
+pub fn unwindBeforeExceptionHandler(self: *Context) Vm.Error!?Val {
     while (self.stack_frames.items.len > 0) {
         const idx = self.stack_frames.items.len - 1;
         const frame = self.stack_frames.items[idx];
-        if (frame.exception_handler) |handler| return handler;
+        if (frame.exception_handler) |handler| {
+            self.stack_frames.items[idx].exception_handler = null;
+            return handler;
+        }
         try self.popStackFrame(.discard);
     }
     return null;

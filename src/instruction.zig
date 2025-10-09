@@ -139,7 +139,7 @@ fn evalBuiltinLte(vm: *Vm, arg_count: u32) !void {
     const args = vm.context.stackTopN(arg_count);
 
     // Check if ordered by comparing adjacent pairs.
-    // TODO: Raise an exception.
+    // TODO: Raise an exception instead of NotImplemented.
     const is_ordered = switch (args.len) {
         0 => true,
         1 => blk: {
@@ -204,9 +204,7 @@ fn evalBuiltin(vm: *Vm, builtin: Proc.Builtin, arg_count: u32) !void {
         .szl_raise_next => {
             if (arg_count != 1) return Vm.Error.NotImplemented;
             const obj = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
-            _ = try vm.context.unwindUntilException();
-            try vm.context.popStackFrame(.discard);
-            _ = try vm.context.unwindUntilException();
+            _ = try vm.context.unwindBeforeExceptionHandler();
             const global_mod_handle = inspector.findModule(&.{
                 try builder.makeSymbolInterned(Symbol.init("scheme")),
                 try builder.makeSymbolInterned(Symbol.init("base")),
