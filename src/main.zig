@@ -3,17 +3,29 @@ const std = @import("std");
 const szl = @import("szl");
 
 pub fn main() !void {
+    // Initialize allocator
     var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
     defer _ = gpa.deinit();
 
+    // Read source
     var source = try readInput(gpa.allocator());
     defer source.deinit(gpa.allocator());
 
+    // Initialize stdout
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
+
+    // Evaluate each expression
     var vm = try szl.Vm.init(.{ .allocator = gpa.allocator() });
     defer vm.deinit();
     var reader = vm.read(source.items);
+    var expr_count: usize = 0;
     while (try reader.readNext()) |expr| {
-        try output(expr);
+        expr_count += 1;
+        const result = try vm.evalExpr(expr, null);
+        try stdout.print("\x1b[36m${}\x1b[0m => \x1b[32m{f}\x1b[0m\n", .{ expr_count, vm.pretty(result) });
+        try stdout.flush();
     }
 }
 
@@ -33,13 +45,4 @@ fn readInput(allocator: std.mem.Allocator) !std.ArrayList(u8) {
         try ret.appendSlice(allocator, input_buffer[0..len]);
     }
     return ret;
-}
-
-fn output(expr: szl.Val) !void {
-    var stdout_buffer: [1024]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
-    const stdout = &stdout_writer.interface;
-
-    try stdout.print("Expression: {f}\n", .{expr});
-    try stdout.flush();
 }

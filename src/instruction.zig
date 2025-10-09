@@ -134,6 +134,34 @@ fn evalProc(vm: *Vm, h: Handle(Proc), maybe_captures: ?Handle(Vector), arg_count
     });
 }
 
+fn evalBuiltinLte(vm: *Vm, arg_count: u32) !void {
+    const inspector = vm.inspector();
+    const args = vm.context.stackTopN(arg_count);
+
+    // Check if ordered by comparing adjacent pairs.
+    // TODO: Raise an exception.
+    const is_ordered = switch (args.len) {
+        0 => true,
+        1 => blk: {
+            // Validate single argument is an integer
+            _ = inspector.asInt(args[0]) catch return error.NotImplemented;
+            break :blk true;
+        },
+        else => blk: {
+            var prev = inspector.asInt(args[0]) catch return error.NotImplemented;
+            for (args[1..]) |v| {
+                const curr = inspector.asInt(v) catch return error.NotImplemented;
+                if (prev > curr) break :blk false;
+                prev = curr;
+            }
+            break :blk true;
+        },
+    };
+    try vm.context.push(vm.allocator(), Val.initBool(is_ordered));
+    // proc + args + return_value.
+    try vm.context.stackSquash(arg_count + 2);
+}
+
 fn evalBuiltin(vm: *Vm, builtin: Proc.Builtin, arg_count: u32) !void {
     const inspector = vm.inspector();
     const builder = vm.builder();
@@ -147,30 +175,7 @@ fn evalBuiltin(vm: *Vm, builtin: Proc.Builtin, arg_count: u32) !void {
             // proc + args + return_value.
             try vm.context.stackSquash(arg_count + 2);
         },
-        .lte => {
-            // Validate all arguments are ints first.
-            // TODO: Raise an exception.
-            var int_args = try std.ArrayList(i64).initCapacity(vm.allocator(), arg_count);
-            defer int_args.deinit(vm.allocator());
-            for (args) |v| {
-                const val = inspector.asInt(v) catch return error.NotImplemented;
-                int_args.appendAssumeCapacity(val);
-            }
-
-            // Check if ordered.
-            var is_ordered = true;
-            if (int_args.items.len > 1) {
-                for (0..int_args.items.len - 1) |i| {
-                    if (int_args.items[i] > int_args.items[i + 1]) {
-                        is_ordered = false;
-                        break;
-                    }
-                }
-            }
-            try vm.context.push(vm.allocator(), Val.initBool(is_ordered));
-            // proc + args + return_value.
-            try vm.context.stackSquash(arg_count + 2);
-        },
+        .lte => try evalBuiltinLte(vm, arg_count),
         .call_cc => {
             if (arg_count != 1) return Vm.Error.NotImplemented;
             const proc = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
@@ -240,7 +245,7 @@ test "+ on ints sums ints" {
 
     try testing.expectEqual(
         Val.initInt(10),
-        try vm.evalStr("(+ 1 2 3 4)"),
+        try vm.evalStr("(+ 1 2 3 4)", null),
     );
 }
 
@@ -250,7 +255,7 @@ test "empty + returns 0" {
 
     try testing.expectEqual(
         Val.initInt(0),
-        try vm.evalStr("(+)"),
+        try vm.evalStr("(+)", null),
     );
 }
 
@@ -258,7 +263,7 @@ test "+ on non-ints returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.NotImplemented, vm.evalStr("(+ #t)"));
+    try testing.expectError(Vm.Error.NotImplemented, vm.evalStr("(+ #t)", null));
 }
 
 test "<= on ordered ints returns true" {
@@ -267,7 +272,7 @@ test "<= on ordered ints returns true" {
 
     try testing.expectEqual(
         Val.initBool(true),
-        try vm.evalStr("(<= 1 2 3)"),
+        try vm.evalStr("(<= 1 2 3)", null),
     );
 }
 
@@ -277,7 +282,7 @@ test "<= on non-ordered ints returns false" {
 
     try testing.expectEqual(
         Val.initBool(false),
-        try vm.evalStr("(<= 3 2 1)"),
+        try vm.evalStr("(<= 3 2 1)", null),
     );
 }
 
@@ -287,7 +292,7 @@ test "<= on equal ints returns true" {
 
     try testing.expectEqual(
         Val.initBool(true),
-        try vm.evalStr("(<= 1 1 2)"),
+        try vm.evalStr("(<= 1 1 2)", null),
     );
 }
 
@@ -295,15 +300,15 @@ test "<= with less than 2 args returns true" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(Val.initBool(true), try vm.evalStr("(<= )"));
-    try testing.expectEqual(Val.initBool(true), try vm.evalStr("(<= 1)"));
+    try testing.expectEqual(Val.initBool(true), try vm.evalStr("(<= )", null));
+    try testing.expectEqual(Val.initBool(true), try vm.evalStr("(<= 1)", null));
 }
 
 test "<= on non-ints returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.NotImplemented, vm.evalStr("(<= #t)"));
+    try testing.expectError(Vm.Error.NotImplemented, vm.evalStr("(<= #t)", null));
 }
 
 test "raise-continuable calls exception handler and continues" {
@@ -319,7 +324,7 @@ test "raise-continuable calls exception handler and continues" {
     ;
     try testing.expectEqual(
         Val.initInt(105),
-        try vm.evalStr(source),
+        try vm.evalStr(source, null),
     );
 }
 
@@ -337,9 +342,9 @@ test "raise calls all exceptions" {
         \\     (with-exception-handler set-two!
         \\       (lambda () (raise 'exception)))))
     ;
-    try testing.expectError(error.UncaughtException, vm.evalStr(source));
-    try testing.expectEqual(Val.initInt(1), try vm.evalStr("one"));
-    try testing.expectEqual(Val.initInt(2), try vm.evalStr("two"));
+    try testing.expectError(error.UncaughtException, vm.evalStr(source, null));
+    try testing.expectEqual(Val.initInt(1), try vm.evalStr("one", null));
+    try testing.expectEqual(Val.initInt(2), try vm.evalStr("two", null));
 }
 
 test "call/cc can stop exception from propagating" {
@@ -355,6 +360,6 @@ test "call/cc can stop exception from propagating" {
     ;
     try testing.expectEqual(
         try vm.builder().makeSymbol(Symbol.init("recovered")),
-        try vm.evalStr(source),
+        try vm.evalStr(source, null),
     );
 }

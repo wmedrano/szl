@@ -114,7 +114,7 @@ fn initLibraries(vm: *Vm) Error!void {
             \\   (raise-continuable err)
             \\   (%szl-raise-next err))
         ;
-        _ = try vm.evalStrIn(source, m.data.module);
+        _ = try vm.evalStr(source, m.data.module);
     }
 }
 
@@ -190,26 +190,22 @@ test read {
     );
 }
 
-pub fn evalStr(self: *Vm, source: []const u8) Error!Val {
-    const b = self.builder();
-    const env = self.inspector().findModule(&.{
-        try b.makeSymbolInterned(Symbol.init("user")),
-        try b.makeSymbolInterned(Symbol.init("repl")),
-    }) orelse return Error.Unreachable;
-    return self.evalStrIn(source, env);
-}
-
-fn evalStrIn(self: *Vm, source: []const u8, env: Handle(Module)) Error!Val {
+pub fn evalStr(self: *Vm, source: []const u8, maybe_env: ?Handle(Module)) Error!Val {
     var reader = self.read(source);
     var return_val = Val.initEmptyList();
     while (try reader.readNext()) |raw_expr| {
-        const proc = try self.compile(raw_expr, env);
-        self.context.reset();
-        try self.context.push(self.allocator(), proc);
-        try (Instruction{ .eval = 0 }).execute(self);
-        return_val = try instruction.executeUntilEnd(self);
+        return_val = try self.evalExpr(raw_expr, maybe_env);
     }
     return return_val;
+}
+
+pub fn evalExpr(self: *Vm, expr: Val, maybe_env: ?Handle(Module)) Error!Val {
+    const env = maybe_env orelse try self.inspector().getReplEnv();
+    const proc = try self.compile(expr, env);
+    self.context.reset();
+    try self.context.push(self.allocator(), proc);
+    try (Instruction{ .eval = 0 }).execute(self);
+    return try instruction.executeUntilEnd(self);
 }
 
 fn compile(self: *Vm, expr: Val, env: Handle(Module)) !Val {
@@ -226,6 +222,6 @@ test evalStr {
 
     try testing.expectEqual(
         Val.initInt(42),
-        try vm.evalStr("((lambda (x) (+ x 30 2)) 10)"),
+        try vm.evalStr("((lambda (x) (+ x 30 2)) 10)", null),
     );
 }

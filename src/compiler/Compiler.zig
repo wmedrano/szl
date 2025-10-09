@@ -263,7 +263,7 @@ test "define value can be referenced" {
 
     try testing.expectEqual(
         Val.initInt(20),
-        try vm.evalStr("(define x 20) x"),
+        try vm.evalStr("(define x 20) x", null),
     );
 }
 
@@ -271,10 +271,10 @@ test "multiple defines uses latest" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(Val.initInt(20), try vm.evalStr("(define x 20)"));
-    try testing.expectEqual(Val.initInt(20), try vm.evalStr("x"));
-    try testing.expectEqual(Val.initInt(30), try vm.evalStr("(define x 30)"));
-    try testing.expectEqual(Val.initInt(30), try vm.evalStr("x"));
+    try testing.expectEqual(Val.initInt(20), try vm.evalStr("(define x 20)", null));
+    try testing.expectEqual(Val.initInt(20), try vm.evalStr("x", null));
+    try testing.expectEqual(Val.initInt(30), try vm.evalStr("(define x 30)", null));
+    try testing.expectEqual(Val.initInt(30), try vm.evalStr("x", null));
 }
 
 test "if statement picks correct branch" {
@@ -283,11 +283,11 @@ test "if statement picks correct branch" {
 
     try testing.expectEqual(
         Val.initInt(10),
-        try vm.evalStr("(if #t 10 20)"),
+        try vm.evalStr("(if #t 10 20)", null),
     );
     try testing.expectEqual(
         Val.initInt(20),
-        try vm.evalStr("(if #f 10 20)"),
+        try vm.evalStr("(if #f 10 20)", null),
     );
 }
 
@@ -297,7 +297,7 @@ test "let is evaluated" {
 
     try testing.expectEqual(
         Val.initInt(3),
-        try vm.evalStr("(let ((x 1) (y 2)) (+ x y))"),
+        try vm.evalStr("(let ((x 1) (y 2)) (+ x y))", null),
     );
 }
 
@@ -307,7 +307,7 @@ test "let bindings can't reference themselves" {
 
     try testing.expectError(
         error.UndefinedBehavior,
-        vm.evalStr("(let ((x 1) (y x)) (+ x y))"),
+        vm.evalStr("(let ((x 1) (y x)) (+ x y))", null),
     );
 }
 
@@ -317,7 +317,7 @@ test "let variable shadows global" {
 
     try testing.expectEqual(
         Val.initInt(101),
-        try vm.evalStr("(define x 20) (let ((x 100)) (+ x 1))"),
+        try vm.evalStr("(define x 20) (let ((x 100)) (+ x 1))", null),
     );
 }
 
@@ -327,7 +327,7 @@ test "lambda is evaluated" {
 
     try testing.expectEqual(
         Val.initInt(10),
-        try vm.evalStr("((lambda () (+ 1 2 3 4)))"),
+        try vm.evalStr("((lambda () (+ 1 2 3 4)))", null),
     );
 }
 
@@ -337,7 +337,7 @@ test "lambda without body is empty list" {
 
     try testing.expectEqual(
         Val.initEmptyList(),
-        try vm.evalStr("((lambda ()))"),
+        try vm.evalStr("((lambda ()))", null),
     );
 }
 
@@ -347,7 +347,7 @@ test "lambda with args is evaluated" {
 
     try testing.expectEqual(
         Val.initInt(10),
-        try vm.evalStr("((lambda (a b c d) (+ a b c d)) 1 2 3 4)"),
+        try vm.evalStr("((lambda (a b c d) (+ a b c d)) 1 2 3 4)", null),
     );
 }
 
@@ -357,7 +357,7 @@ test "lambda with wrong number of args is error" {
 
     try testing.expectError(
         error.NotImplemented,
-        vm.evalStr("((lambda (a b c d) (+ a b c d)) 1 2 3)"),
+        vm.evalStr("((lambda (a b c d) (+ a b c d)) 1 2 3)", null),
     );
 }
 
@@ -372,7 +372,7 @@ test "lambda can capture environment" {
     ;
     try testing.expectEqual(
         Val.initInt(110),
-        try vm.evalStr(source),
+        try vm.evalStr(source, null),
     );
 }
 
@@ -382,7 +382,7 @@ test "define with args creates callable procedure" {
 
     try testing.expectEqual(
         Val.initInt(7),
-        try vm.evalStr("(define (add a b) (+ a b)) (add 3 4)"),
+        try vm.evalStr("(define (add a b) (+ a b)) (add 3 4)", null),
     );
 }
 
@@ -392,7 +392,7 @@ test "define without args create callable thunk" {
 
     try testing.expectEqual(
         Val.initInt(42),
-        try vm.evalStr("(define (get-answer) 42) (get-answer)"),
+        try vm.evalStr("(define (get-answer) 42) (get-answer)", null),
     );
 }
 
@@ -407,7 +407,7 @@ test "define can call recursively" {
         \\       (+ (fib (+ n -1)) (fib (+ n -2)))))
         \\ (fib 10)
     ;
-    try testing.expectEqual(Val.initInt(55), try vm.evalStr(source));
+    try testing.expectEqual(Val.initInt(55), try vm.evalStr(source, null));
 }
 
 test "call/cc that doesn't call continuation returns as normal" {
@@ -415,7 +415,7 @@ test "call/cc that doesn't call continuation returns as normal" {
     defer vm.deinit();
     try testing.expectEqual(
         Val.initInt(2),
-        try vm.evalStr("(call/cc (lambda (k) 1 2))"),
+        try vm.evalStr("(call/cc (lambda (k) 1 2))", null),
     );
 }
 
@@ -426,6 +426,6 @@ test "call/cc that calls continuation returns specified value" {
     try testing.expectEqual(
         Val.initInt(1),
         // The final expression is an error. We never call it so the vm is ok.
-        try vm.evalStr("(call/cc (lambda (k) (k 1) (+ #f) 2))"),
+        try vm.evalStr("(call/cc (lambda (k) (k 1) (+ #f) 2))", null),
     );
 }

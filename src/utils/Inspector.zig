@@ -125,3 +125,11 @@ pub fn findModule(self: Inspector, path: []const Symbol.Interned) ?Handle(Module
     }
     return null;
 }
+
+pub fn getReplEnv(self: Inspector) Vm.Error!Handle(Module) {
+    const b = self.vm.builder();
+    return self.findModule(&.{
+        try b.makeSymbolInterned(Symbol.init("user")),
+        try b.makeSymbolInterned(Symbol.init("repl")),
+    }) orelse return Vm.Error.Unreachable;
+}

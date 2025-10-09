@@ -50,6 +50,10 @@ pub fn initSymbol(sym: Symbol.Interned) Val {
     return Val{ .data = .{ .symbol = sym } };
 }
 
+pub fn initModule(mod: Handle(Module)) Val {
+    return Val{ .data = .{ .module = mod } };
+}
+
 pub fn initProc(proc: Handle(Proc)) Val {
     return Val{ .data = .{ .proc = proc } };
 }
