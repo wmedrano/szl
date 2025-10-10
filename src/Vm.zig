@@ -1,6 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 
+const builtins = @import("builtins.zig");
 const Compiler = @import("compiler/Compiler.zig");
 const Reader = @import("compiler/Reader.zig");
 const Context = @import("Context.zig");
@@ -9,7 +10,6 @@ const Instruction = @import("instruction.zig").Instruction;
 const Continuation = @import("types/Continuation.zig");
 const Module = @import("types/Module.zig");
 const NativeProc = @import("types/NativeProc.zig");
-const builtins = @import("builtins.zig");
 const Handle = @import("types/object_pool.zig").Handle;
 const ObjectPool = @import("types/object_pool.zig").ObjectPool;
 const Pair = @import("types/Pair.zig");
@@ -89,6 +89,10 @@ fn initLibraries(vm: *Vm) Error!void {
         .{
             .symbol = (try b.makeStaticSymbolHandle("<=")),
             .value = Val.initNativeProc(&builtins.lte),
+        },
+        .{
+            .symbol = (try b.makeStaticSymbolHandle("apply")),
+            .value = Val.initNativeProc(&builtins.apply),
         },
         .{
             .symbol = (try b.makeStaticSymbolHandle("call/cc")),

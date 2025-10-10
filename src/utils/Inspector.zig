@@ -153,3 +153,36 @@ pub fn getReplEnv(self: Inspector) Vm.Error!Handle(Module) {
         try b.makeStaticSymbolHandle("repl"),
     }) orelse return Vm.Error.Unreachable;
 }
+
+/// Iterator for traversing Scheme-style linked lists (pairs).
+/// Iterates through the car of each pair until reaching an empty list.
+pub const PairIterator = struct {
+    inspector: Inspector,
+    current: Val,
+
+    /// Returns the car of the current pair and advances to the cdr.
+    /// Returns null when reaching an empty list.
+    /// Returns WrongType error if current value is not a pair or empty list.
+    pub fn next(self: *PairIterator) Vm.Error!?Val {
+        return switch (self.current.data) {
+            .empty_list => null,
+            .pair => |h| {
+                const pair = self.inspector.vm.objects.pairs.get(h) orelse
+                    return Vm.Error.UndefinedBehavior;
+                const result = pair.car;
+                self.current = pair.cdr;
+                return result;
+            },
+            else => Vm.Error.WrongType,
+        };
+    }
+};
+
+/// Creates an iterator for traversing a linked list of pairs.
+/// The iterator yields each car value in sequence until reaching an empty list.
+pub fn iteratePairs(self: Inspector, val: Val) PairIterator {
+    return PairIterator{
+        .inspector = self,
+        .current = val,
+    };
+}

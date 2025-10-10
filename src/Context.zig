@@ -154,6 +154,15 @@ pub fn stackTopN(self: Context, n: u32) []const Val {
     return self.stack.items[start_idx..];
 }
 
+/// Returns a mutable slice of the top N stack values.
+/// This API is unstable - it's unclear whether exposing mutable access
+/// to the internal stack is the right design choice.
+pub fn stackTopNUnstable(self: Context, n: u32) []Val {
+    const start = self.stackLen() - n;
+    const start_idx: usize = @intCast(start);
+    return self.stack.items[start_idx..];
+}
+
 pub fn stackLen(self: Context) u32 {
     return @intCast(self.stack.items.len);
 }

@@ -128,6 +128,28 @@ fn szlRaiseNextImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
     try (Instruction{ .eval = 1 }).execute(vm);
 }
 
+pub const apply = NativeProc{
+    .name = "apply",
+    .unsafe_impl = &applyImpl,
+};
+
+fn applyImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
+    if (arg_count < 2) return Vm.Error.NotImplemented;
+    const args = vm.context.stackTopNUnstable(arg_count);
+    const proc = args[0];
+    @memmove(args[0 .. args.len - 1], args[1..]);
+    _ = vm.context.pop();
+    const proc_args = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
+    var rest_iter = vm.inspector().iteratePairs(proc_args);
+    var proc_args_count = arg_count - 2;
+    while (try rest_iter.next()) |next| {
+        proc_args_count += 1;
+        try vm.context.push(vm.allocator(), next);
+    }
+    try vm.context.push(vm.allocator(), proc);
+    try (Instruction{ .eval = proc_args_count }).execute(vm);
+}
+
 pub const import = NativeProc{
     .name = "import",
     .unsafe_impl = &importImpl,
@@ -337,11 +359,11 @@ test "proc-instructions reveals bytecode" {
     defer vm.deinit();
 
     try vm.expectEval(
-        "((get-arg 0) (push-const 1) (get-global #<environment:module:(user repl)> <=) (eval 2) (jump-if-not 2) (get-arg 0) (jump 14) (get-arg 0) (push-const -1) (get-global #<environment:module:(user repl)> +) (eval 2) (get-global #<environment:module:(user repl)> fib) (eval 1) (get-arg 0) (push-const -2) (get-global #<environment:module:(user repl)> +) (eval 2) (get-global #<environment:module:(user repl)> fib) (eval 1) (get-global #<environment:module:(user repl)> +) (eval 2) (ret))",
+        "((get-arg 0) (push-const 1) (get-global #<environment:module:(user repl)> <=) (eval 2) (jump-if-not 2) (get-arg 0) (jump 14) (get-arg 0) (push-const 1) (get-global #<environment:module:(user repl)> -) (eval 2) (get-global #<environment:module:(user repl)> fib) (eval 1) (get-arg 0) (push-const 2) (get-global #<environment:module:(user repl)> -) (eval 2) (get-global #<environment:module:(user repl)> fib) (eval 1) (get-global #<environment:module:(user repl)> +) (eval 2) (ret))",
         \\ (define (fib n) (if (<= n 1)
         \\                   n
-        \\                   (+ (fib (+ n -1))
-        \\                      (fib (+ n -2)))))
+        \\                   (+ (fib (- n 1))
+        \\                      (fib (- n 2)))))
         \\ (import '(sizzle unstable compiler))
         \\ (proc-instructions fib)
         ,
@@ -377,4 +399,32 @@ test "string-length on non-string returns error" {
 
     try testing.expectError(Vm.Error.WrongType, vm.evalStr("(string-length 42)", null));
     try testing.expectError(Vm.Error.WrongType, vm.evalStr("(string-length #t)", null));
+}
+
+test "apply with only list argument then evaluates correctly" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("10", "(apply + '(1 2 3 4))");
+}
+
+test "apply with one arg and list then evaluates correctly" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("20", "(apply + 10 '(1 2 3 4))");
+}
+
+test "apply with two args and list then evaluates correctly" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("40", "(apply + 10 20 '(1 2 3 4))");
+}
+
+test "apply with three args and list then evaluates correctly" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("70", "(apply + 10 20 30 '(1 2 3 4))");
 }
