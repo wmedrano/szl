@@ -9,6 +9,7 @@ const Instruction = @import("instruction.zig").Instruction;
 const Continuation = @import("types/Continuation.zig");
 const Module = @import("types/Module.zig");
 const NativeProc = @import("types/NativeProc.zig");
+const builtins = @import("builtins.zig");
 const Handle = @import("types/object_pool.zig").Handle;
 const ObjectPool = @import("types/object_pool.zig").ObjectPool;
 const Pair = @import("types/Pair.zig");
@@ -79,39 +80,43 @@ fn initLibraries(vm: *Vm) Error!void {
     }, &[_]Builder.Definition{
         .{
             .symbol = (try b.makeStaticSymbolHandle("+")),
-            .value = Val.initNativeProc(&NativeProc.add),
+            .value = Val.initNativeProc(&builtins.add),
+        },
+        .{
+            .symbol = (try b.makeStaticSymbolHandle("-")),
+            .value = Val.initNativeProc(&builtins.sub),
         },
         .{
             .symbol = (try b.makeStaticSymbolHandle("<=")),
-            .value = Val.initNativeProc(&NativeProc.lte),
+            .value = Val.initNativeProc(&builtins.lte),
         },
         .{
             .symbol = (try b.makeStaticSymbolHandle("call/cc")),
-            .value = Val.initNativeProc(&NativeProc.call_cc),
+            .value = Val.initNativeProc(&builtins.call_cc),
         },
         .{
             .symbol = (try b.makeStaticSymbolHandle("call-with-current-continuation")),
-            .value = Val.initNativeProc(&NativeProc.call_cc),
+            .value = Val.initNativeProc(&builtins.call_cc),
         },
         .{
             .symbol = (try b.makeStaticSymbolHandle("with-exception-handler")),
-            .value = Val.initNativeProc(&NativeProc.with_exception_handler),
+            .value = Val.initNativeProc(&builtins.with_exception_handler),
         },
         .{
             .symbol = (try b.makeStaticSymbolHandle("raise-continuable")),
-            .value = Val.initNativeProc(&NativeProc.raise_continuable),
+            .value = Val.initNativeProc(&builtins.raise_continuable),
         },
         .{
             .symbol = (try b.makeStaticSymbolHandle("%szl-raise-next")),
-            .value = Val.initNativeProc(&NativeProc.szl_raise_next),
+            .value = Val.initNativeProc(&builtins.szl_raise_next),
         },
         .{
             .symbol = (try b.makeStaticSymbolHandle("import")),
-            .value = Val.initNativeProc(&NativeProc.import),
+            .value = Val.initNativeProc(&builtins.import),
         },
         .{
             .symbol = (try b.makeStaticSymbolHandle("string-length")),
-            .value = Val.initNativeProc(&NativeProc.string_length),
+            .value = Val.initNativeProc(&builtins.string_length),
         },
     });
     _ = try vm.evalStr(
@@ -128,7 +133,7 @@ fn initLibraries(vm: *Vm) Error!void {
     }, &[_]Builder.Definition{
         .{
             .symbol = (try b.makeStaticSymbolHandle("proc-instructions")),
-            .value = Val.initNativeProc(&NativeProc.proc_instructions),
+            .value = Val.initNativeProc(&builtins.proc_instructions),
         },
     });
     _ = try vm.evalStr("", sizzle_unstable_compiler_handle);
