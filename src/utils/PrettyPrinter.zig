@@ -6,6 +6,7 @@ const Module = @import("../types/Module.zig");
 const Handle = @import("../types/object_pool.zig").Handle;
 const Pair = @import("../types/Pair.zig");
 const Proc = @import("../types/Proc.zig");
+const String = @import("../types/String.zig");
 const Symbol = @import("../types/Symbol.zig");
 const Val = @import("../types/Val.zig");
 const Vector = @import("../types/Vector.zig");
@@ -22,6 +23,12 @@ pub fn format(self: PrettyPrinter, writer: *std.Io.Writer) std.Io.Writer.Error!v
         .boolean => |b| if (b) try writer.writeAll("#t") else try writer.writeAll("#f"),
         .int => |n| try writer.print("{}", .{n}),
         .pair => |h| try self.formatPair(writer, h),
+        .string => |h| {
+            const string = self.vm.objects.strings.get(h) orelse {
+                return writer.print("#<string-{}>", .{h.id});
+            };
+            try writer.print("\"{s}\"", .{string.asSlice()});
+        },
         .symbol => |h| {
             const s = self.vm.objects.symbols.asString(h) orelse {
                 return writer.print("#<symbol-{}>", .{h.id});

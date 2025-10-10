@@ -9,6 +9,7 @@ const Module = @import("Module.zig");
 const NativeProc = @import("NativeProc.zig");
 const Pair = @import("Pair.zig");
 const Proc = @import("Proc.zig");
+const String = @import("String.zig");
 const Symbol = @import("Symbol.zig");
 const Vector = @import("Vector.zig");
 
@@ -26,6 +27,7 @@ pub const Data = union(enum) {
     boolean: bool,
     int: i64,
     pair: Handle(Pair),
+    string: Handle(String),
     symbol: Symbol,
     module: Handle(Module),
     proc: Handle(Proc),

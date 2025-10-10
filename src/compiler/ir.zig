@@ -76,6 +76,7 @@ const Builder = struct {
             .empty_list => return Error.InvalidExpression,
             .boolean,
             .int,
+            .string,
             .module,
             .proc,
             .closure,

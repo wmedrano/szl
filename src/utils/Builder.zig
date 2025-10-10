@@ -5,6 +5,7 @@ const Continuation = @import("../types/Continuation.zig");
 const Module = @import("../types/Module.zig");
 const Handle = @import("../types/object_pool.zig").Handle;
 const Pair = @import("../types/Pair.zig");
+const String = @import("../types/String.zig");
 const Symbol = @import("../types/Symbol.zig");
 const Val = @import("../types/Val.zig");
 const Vector = @import("../types/Vector.zig");
@@ -64,6 +65,12 @@ pub inline fn makeSymbolHandle(self: Builder, symbol: []const u8) error{OutOfMem
 
 pub inline fn makeStaticSymbolHandle(self: Builder, symbol: []const u8) error{OutOfMemory}!Symbol {
     return try self.vm.objects.symbols.internStatic(self.vm.allocator(), symbol);
+}
+
+pub inline fn makeString(self: Builder, s: []const u8) Vm.Error!Val {
+    const string = try String.init(self.vm.allocator(), s);
+    const h = try self.vm.objects.strings.put(self.vm.allocator(), string);
+    return Val{ .data = .{ .string = h } };
 }
 
 pub const Definition = struct {

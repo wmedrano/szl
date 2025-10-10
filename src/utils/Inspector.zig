@@ -5,6 +5,7 @@ const Module = @import("../types/Module.zig");
 const Handle = @import("../types/object_pool.zig").Handle;
 const Pair = @import("../types/Pair.zig");
 const Proc = @import("../types/Proc.zig");
+const String = @import("../types/String.zig");
 const Symbol = @import("../types/Symbol.zig");
 const Val = @import("../types/Val.zig");
 const Vector = @import("../types/Vector.zig");
@@ -44,6 +45,17 @@ pub inline fn asSymbol(_: Inspector, val: Val) Vm.Error!Symbol {
         .symbol => |sym| sym,
         else => Vm.Error.WrongType,
     };
+}
+
+pub inline fn asString(self: Inspector, val: Val) Vm.Error!*String {
+    return switch (val.data) {
+        .string => |h| self.vm.objects.strings.get(h) orelse return Vm.Error.UndefinedBehavior,
+        else => Vm.Error.WrongType,
+    };
+}
+
+pub inline fn handleToString(self: Inspector, h: Handle(String)) Vm.Error!*String {
+    return self.vm.objects.strings.get(h) orelse return Vm.Error.UndefinedBehavior;
 }
 
 const AsListError = error{

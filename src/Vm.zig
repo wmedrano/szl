@@ -13,6 +13,7 @@ const Handle = @import("types/object_pool.zig").Handle;
 const ObjectPool = @import("types/object_pool.zig").ObjectPool;
 const Pair = @import("types/Pair.zig");
 const Proc = @import("types/Proc.zig");
+const String = @import("types/String.zig");
 const Symbol = @import("types/Symbol.zig");
 const Val = @import("types/Val.zig");
 const Vector = @import("types/Vector.zig");
@@ -25,6 +26,7 @@ const Vm = @This();
 pub const Objects = struct {
     symbols: Symbol.Interner,
     pairs: ObjectPool(Pair) = .{},
+    strings: ObjectPool(String) = .{},
     modules: ObjectPool(Module) = .{},
     procs: ObjectPool(Proc) = .{},
     vectors: ObjectPool(Vector) = .{},
@@ -107,6 +109,10 @@ fn initLibraries(vm: *Vm) Error!void {
             .symbol = (try b.makeStaticSymbolHandle("import")),
             .value = Val.initNativeProc(&NativeProc.import),
         },
+        .{
+            .symbol = (try b.makeStaticSymbolHandle("string-length")),
+            .value = Val.initNativeProc(&NativeProc.string_length),
+        },
     });
     _ = try vm.evalStr(
         \\ (define (raise err)
@@ -147,6 +153,9 @@ pub fn deinit(self: *Vm) void {
             obj.deinit(this.allocator);
         }
     }{ .allocator = self.allocator() };
+
+    self.objects.strings.applyAll(standard_deinit);
+    self.objects.strings.deinit(self.allocator());
 
     self.objects.modules.applyAll(standard_deinit);
     self.objects.modules.deinit(self.allocator());

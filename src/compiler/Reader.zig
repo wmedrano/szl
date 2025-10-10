@@ -79,7 +79,7 @@ pub fn readNextImpl(self: *Reader) Vm.Error!ReadResult {
         .right_paren => return ReadResult{ .end_expr = {} },
         .dot => return ReadResult{ .dot = {} },
         .number => return try self.parseNumber(next_token.lexeme),
-        .string => return Vm.Error.NotImplemented,
+        .string => return try self.parseString(next_token.lexeme),
         .symbol => return try self.parseSymbol(next_token.lexeme),
         .boolean => return try self.parseBoolean(next_token.lexeme),
         .quote => {
@@ -145,6 +145,41 @@ fn parseBoolean(_: Reader, token: []const u8) Vm.Error!ReadResult {
         return Vm.Error.ReadError;
     const val = Val.initBool(value);
     return ReadResult{ .atom = val };
+}
+
+fn parseString(self: Reader, token: []const u8) Vm.Error!ReadResult {
+    // Token includes the quotes, so we need to strip them
+    if (token.len < 2 or token[0] != '"' or token[token.len - 1] != '"') {
+        return Vm.Error.ReadError;
+    }
+
+    const content = token[1 .. token.len - 1];
+
+    // Process escape sequences
+    var unescaped = std.ArrayList(u8){};
+    defer unescaped.deinit(self.vm.allocator());
+
+    var i: usize = 0;
+    while (i < content.len) : (i += 1) {
+        if (content[i] == '\\' and i + 1 < content.len) {
+            // Handle escape sequences
+            i += 1;
+            const escaped_char = switch (content[i]) {
+                'n' => '\n',
+                't' => '\t',
+                'r' => '\r',
+                '\\' => '\\',
+                '"' => '"',
+                else => content[i], // Unknown escape, just use the character
+            };
+            try unescaped.append(self.vm.allocator(), escaped_char);
+        } else {
+            try unescaped.append(self.vm.allocator(), content[i]);
+        }
+    }
+
+    const string_val = try self.vm.builder().makeString(unescaped.items);
+    return ReadResult{ .atom = string_val };
 }
 
 fn expectReadNext(self: *Reader, expect: ?[]const u8, vm: *const Vm) !void {
