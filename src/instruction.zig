@@ -14,7 +14,8 @@ const Vm = @import("Vm.zig");
 pub const Instruction = union(enum) {
     push_const: Val,
     get_global: struct { module: Handle(Module), symbol: Symbol.Interned },
-    get_arg: i32,
+    get_proc,
+    get_arg: u32,
     get_local: u32,
     get_capture: u32,
     set_global: Global,
@@ -40,6 +41,10 @@ pub const Instruction = union(enum) {
         switch (self) {
             .push_const => |val| try vm.context.push(vm.allocator(), val),
             .get_global => |g| try moduleGet(vm, g.module, g.symbol),
+            .get_proc => {
+                const val = vm.context.getProc();
+                try vm.context.push(vm.allocator(), val);
+            },
             .get_arg => |idx| {
                 const val = try vm.context.getArg(idx);
                 try vm.context.push(vm.allocator(), val);
@@ -95,10 +100,8 @@ const EvalOptions = struct {
 };
 
 fn eval(vm: *Vm, arg_count: u32) Vm.Error!void {
+    const proc_val = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
     const start = vm.context.stackLen() - arg_count;
-    const proc_idx = start - 1;
-    const proc_val = vm.context.stackVal(proc_idx) orelse
-        return Vm.Error.UndefinedBehavior;
     switch (proc_val.data) {
         // TODO: Raise an exception.
         .empty_list, .boolean, .int, .module, .pair, .symbol, .vector => return Vm.Error.NotImplemented,
@@ -130,6 +133,7 @@ fn evalProc(vm: *Vm, h: Handle(Proc), maybe_captures: ?Handle(Vector), arg_count
         .stack_start = @intCast(start),
         .arg_count = arg_count,
         .locals_count = proc.locals_count,
+        .proc = if (maybe_captures) |c| Val.initClosure(h, c) else Val.initProc(h),
         .instructions = proc.instructions,
     });
 }
@@ -157,9 +161,8 @@ fn evalBuiltinLte(vm: *Vm, arg_count: u32) !void {
             break :blk true;
         },
     };
+    vm.context.popMany(arg_count);
     try vm.context.push(vm.allocator(), Val.initBool(is_ordered));
-    // proc + args + return_value.
-    try vm.context.stackSquash(arg_count + 2);
 }
 
 fn evalBuiltin(vm: *Vm, builtin: Proc.Builtin, arg_count: u32) !void {
@@ -171,39 +174,34 @@ fn evalBuiltin(vm: *Vm, builtin: Proc.Builtin, arg_count: u32) !void {
             var sum: i64 = 0;
             // TODO: Raise an exception.
             for (args) |v| sum += inspector.asInt(v) catch return error.NotImplemented;
+            vm.context.popMany(arg_count);
             try vm.context.push(vm.allocator(), Val.initInt(sum));
-            // proc + args + return_value.
-            try vm.context.stackSquash(arg_count + 2);
         },
         .lte => try evalBuiltinLte(vm, arg_count),
         .call_cc => {
             if (arg_count != 1) return Vm.Error.NotImplemented;
-            const proc = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
-            _ = vm.context.pop(); // The call/cc proc.
+            const proc = vm.context.pop() orelse return Vm.Error.NotImplemented;
             const cont = try vm.builder().makeContinuation(vm.context);
-            try vm.context.pushSlice(vm.allocator(), &.{ proc, cont });
+            try vm.context.pushSlice(vm.allocator(), &.{ cont, proc });
             try eval(vm, 1);
         },
         .with_exception_handler => {
             if (arg_count != 2) return Vm.Error.NotImplemented;
             const thunk = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
             const handler = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
-            _ = vm.context.pop(); // The with-exception-handler proc.
             try vm.context.setExceptionHandler(handler);
             try vm.context.push(vm.allocator(), thunk);
             try eval(vm, 0);
         },
         .raise_continuable => {
             if (arg_count != 1) return Vm.Error.NotImplemented;
-            const obj = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
-            _ = vm.context.pop(); // raise-continuable
             const handler = vm.context.currentExceptionHandler() orelse return Vm.Error.UncaughtException;
-            try vm.context.pushSlice(vm.allocator(), &.{ handler, obj });
+            try vm.context.push(vm.allocator(), handler);
             try eval(vm, 1);
         },
         .szl_raise_next => {
             if (arg_count != 1) return Vm.Error.NotImplemented;
-            const obj = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
+            const err = vm.context.top() orelse return Vm.Error.UndefinedBehavior;
             _ = try vm.context.unwindBeforeExceptionHandler();
             const global_mod_handle = inspector.findModule(&.{
                 try builder.makeSymbolInterned(Symbol.init("scheme")),
@@ -212,7 +210,7 @@ fn evalBuiltin(vm: *Vm, builtin: Proc.Builtin, arg_count: u32) !void {
             const global_mod = try inspector.handleToModule(global_mod_handle);
             const raise_proc = global_mod.getBySymbol(try builder.makeSymbolInterned(Symbol.init("raise"))) orelse
                 return Vm.Error.UndefinedBehavior;
-            try vm.context.pushSlice(vm.allocator(), &.{ raise_proc, obj });
+            try vm.context.pushSlice(vm.allocator(), &.{ err, raise_proc });
             try eval(vm, 1);
         },
     }
@@ -221,9 +219,9 @@ fn evalBuiltin(vm: *Vm, builtin: Proc.Builtin, arg_count: u32) !void {
 fn evalContinuation(vm: *Vm, handle: Handle(Continuation), arg_count: u32) !void {
     const inspector = vm.inspector();
     if (arg_count != 1) return Vm.Error.NotImplemented;
+    const arg = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
     const continuation = inspector.handleToContinuation(handle) catch
         return Vm.Error.NotImplemented;
-    const arg = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
     std.mem.swap(Context, &continuation.context, &vm.context);
     try vm.context.push(vm.allocator(), arg);
 }

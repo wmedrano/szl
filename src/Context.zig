@@ -15,6 +15,7 @@ pub const StackFrame = struct {
     arg_count: u32 = 0,
     locals_count: u32 = 0,
     instruction_idx: u32 = 0,
+    proc: Val = Val.initEmptyList(),
     exception_handler: ?Val = null,
     instructions: []const Instruction = &.{},
 };
@@ -97,10 +98,10 @@ pub fn unwindBeforeExceptionHandler(self: *Context) Vm.Error!?Val {
 pub fn popStackFrame(self: *Context, comptime dest: TopDestination) Vm.Error!void {
     switch (dest) {
         .place_on_top => {
-            const top_val = self.pop() orelse return Vm.Error.UndefinedBehavior;
-            self.stack.shrinkRetainingCapacity(self.stack_frame.stack_start);
+            const top_val = self.stack.items[self.stack.items.len - 1];
+            self.stack.items[self.stack_frame.stack_start] = top_val;
+            self.stack.shrinkRetainingCapacity(self.stack_frame.stack_start + 1);
             self.stack_frame = self.stack_frames.pop() orelse StackFrame{};
-            try self.swapTop(top_val);
         },
         .discard => {
             self.stack.shrinkRetainingCapacity(self.stack_frame.stack_start);
@@ -118,14 +119,17 @@ fn stackLocal(self: Context) []Val {
     return self.stack.items[start..];
 }
 
+pub fn getProc(self: Context) Val {
+    return self.stack_frame.proc;
+}
+
 pub fn getCapture(self: Context, idx: u32) Vm.Error!Val {
     const abs_idx = self.stack_frame.stack_start + self.stack_frame.arg_count + self.stack_frame.locals_count + idx;
     return self.stack.items[@intCast(abs_idx)];
 }
 
-// TODO: Document negative behavior.
-pub fn getArg(self: Context, idx: i32) Vm.Error!Val {
-    const abs_idx = @as(i32, @intCast(self.stack_frame.stack_start)) + idx;
+pub fn getArg(self: Context, idx: u32) Vm.Error!Val {
+    const abs_idx = self.stack_frame.stack_start + idx;
     return self.stack.items[@intCast(abs_idx)];
 }
 
@@ -180,12 +184,6 @@ pub fn top(self: *Context) ?Val {
     const len = self.stack.items.len;
     if (len == 0) return null;
     return self.stack.items[len - 1];
-}
-
-pub fn swapTop(self: *Context, val: Val) Vm.Error!void {
-    const len = self.stack.items.len;
-    if (len == 0) return Vm.Error.UndefinedBehavior;
-    self.stack.items[len - 1] = val;
 }
 
 pub fn stackSquash(self: *Context, n: u32) Vm.Error!void {

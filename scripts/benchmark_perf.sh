@@ -9,7 +9,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 echo -e "${GREEN}Building with ReleaseFast optimization...${NC}"
-zig build -Doptimize=ReleaseFast
+zig build -Doptimize=ReleaseSafe
 
 echo ""
 echo -e "${BLUE}Running benchmark: examples/fib.scm${NC}"

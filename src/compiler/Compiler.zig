@@ -48,7 +48,8 @@ pub const Scope = struct {
     pub const Captures = std.AutoHashMapUnmanaged(Symbol.Interned, ?u32);
 
     pub const Location = union(enum) {
-        arg: i32,
+        proc,
+        arg: u32,
         local: u32,
         capture: u32,
         module: struct { module: Handle(Module), name: Symbol.Interned },
@@ -69,7 +70,7 @@ pub const Scope = struct {
         }
         // Proc
         if (self.proc) |proc_name| {
-            if (proc_name.eq(name)) return Location{ .arg = -1 };
+            if (proc_name.eq(name)) return Location{ .proc = {} };
         }
         // Captures
         if (self.captures.getEntry(name)) |capture| {
@@ -145,6 +146,7 @@ fn addIrs(self: *Compiler, irs: []const Ir, return_value: bool) Error!void {
 
 fn addGet(self: *Compiler, sym: Symbol.Interned) Error!void {
     const instruction = switch (self.scope.resolve(sym)) {
+        .proc => Instruction{ .get_proc = {} },
         .arg => |idx| Instruction{ .get_arg = idx },
         .local => |idx| Instruction{ .get_local = idx },
         .capture => |idx| Instruction{ .get_capture = idx },
@@ -154,8 +156,8 @@ fn addGet(self: *Compiler, sym: Symbol.Interned) Error!void {
 }
 
 fn addEval(self: *Compiler, e: anytype) Error!void {
-    try self.addIr(e.proc.*, false);
     for (e.args) |arg| try self.addIr(arg, false);
+    try self.addIr(e.proc.*, false);
     try self.addInstruction(.{ .eval = @intCast(e.args.len) });
 }
 

@@ -146,7 +146,7 @@ pub fn deinit(self: *Vm) void {
     self.objects.symbols.deinit(self.allocator());
 }
 
-pub fn allocator(self: Vm) std.mem.Allocator {
+pub inline fn allocator(self: Vm) std.mem.Allocator {
     return self.options.allocator;
 }
 
