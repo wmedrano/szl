@@ -73,7 +73,7 @@ pub inline fn makeEnvironment(
     self: Builder,
     namespace: []const Symbol.Interned,
     definitions: []const Definition,
-) Vm.Error!Val {
+) Vm.Error!Handle(Module) {
     // Create
     const h = try self.vm.objects.modules.put(self.vm.allocator(), Module{});
     const module = self.vm.objects.modules.get(h) orelse return Vm.Error.Unreachable;
@@ -87,8 +87,7 @@ pub inline fn makeEnvironment(
     }
 
     // Return
-    const val = Val{ .data = .{ .module = h } };
-    return val;
+    return h;
 }
 
 pub inline fn makeVector(self: Builder, vals: []const Val) Vm.Error!Val {

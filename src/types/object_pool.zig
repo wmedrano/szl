@@ -45,5 +45,11 @@ pub fn ObjectPool(comptime T: type) type {
         pub fn iterator(self: *const Self) ObjectIterator {
             return ObjectIterator{ .pool = self };
         }
+
+        pub fn applyAll(self: Self, closure: anytype) void {
+            for (self.objects.items) |*obj| {
+                closure.apply(obj);
+            }
+        }
     };
 }

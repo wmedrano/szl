@@ -220,6 +220,6 @@ test "format environment produces namespace in parens" {
     try testing.expectFmt(
         "#<environment:module:(scheme base)>",
         "{f}",
-        .{vm.pretty(env)},
+        .{vm.pretty(Val.initModule(env))},
     );
 }

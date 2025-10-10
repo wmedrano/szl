@@ -69,7 +69,11 @@ pub fn init(options: Options) Error!Vm {
 fn initLibraries(vm: *Vm) Error!void {
     const b = vm.builder();
 
-    const base_definitions = [_]Builder.Definition{
+    // Initialize global module
+    const global_handle = try b.makeEnvironment(&.{
+        (try b.makeSymbol(Symbol.init("scheme"))).data.symbol,
+        (try b.makeSymbol(Symbol.init("base"))).data.symbol,
+    }, &[_]Builder.Definition{
         .{
             .symbol = (try b.makeSymbol(Symbol.init("+"))).data.symbol,
             .value = Val.initBuiltinProc(Proc.Builtin.add),
@@ -98,48 +102,45 @@ fn initLibraries(vm: *Vm) Error!void {
             .symbol = (try b.makeSymbol(Symbol.init("%szl-raise-next"))).data.symbol,
             .value = Val.initBuiltinProc(Proc.Builtin.szl_raise_next),
         },
-    };
-    const global_module = try b.makeEnvironment(&.{
-        (try b.makeSymbol(Symbol.init("scheme"))).data.symbol,
-        (try b.makeSymbol(Symbol.init("base"))).data.symbol,
-    }, &base_definitions);
-    // TODO: Have REPL import global_module instead of redefining.
-    const repl_module = try b.makeEnvironment(&.{
+    });
+    const source =
+        \\ (define (raise err)
+        \\   (raise-continuable err)
+        \\   (%szl-raise-next err))
+    ;
+    _ = try vm.evalStr(source, global_handle);
+
+    // Initialize repl module
+    const repl_handle = try b.makeEnvironment(&.{
         (try b.makeSymbol(Symbol.init("user"))).data.symbol,
         (try b.makeSymbol(Symbol.init("repl"))).data.symbol,
-    }, &base_definitions);
-    for (&[_]Val{ global_module, repl_module }) |m| {
-        const source =
-            \\ (define (raise err)
-            \\   (raise-continuable err)
-            \\   (%szl-raise-next err))
-        ;
-        _ = try vm.evalStr(source, m.data.module);
-    }
+    }, &.{});
+    const repl_mod = try vm.inspector().handleToModule(repl_handle);
+    const global_mod = try vm.inspector().handleToModule(global_handle);
+    try repl_mod.import(vm.allocator(), global_mod.*);
 }
 
 pub fn deinit(self: *Vm) void {
     self.context.deinit(self.allocator());
     self.objects.pairs.deinit(self.allocator());
 
-    var modules_iter = self.objects.modules.iterator();
-    while (modules_iter.next()) |module|
-        module.value.deinit(self.allocator());
+    const standard_deinit = struct {
+        allocator: std.mem.Allocator,
+        pub fn apply(this: @This(), obj: anytype) void {
+            obj.deinit(this.allocator);
+        }
+    }{ .allocator = self.allocator() };
+
+    self.objects.modules.applyAll(standard_deinit);
     self.objects.modules.deinit(self.allocator());
 
-    var procs_iter = self.objects.procs.iterator();
-    while (procs_iter.next()) |proc|
-        proc.value.deinit(self.allocator());
+    self.objects.procs.applyAll(standard_deinit);
     self.objects.procs.deinit(self.allocator());
 
-    var vectors_iter = self.objects.vectors.iterator();
-    while (vectors_iter.next()) |vector|
-        vector.value.deinit(self.allocator());
+    self.objects.vectors.applyAll(standard_deinit);
     self.objects.vectors.deinit(self.allocator());
 
-    var continuations_iter = self.objects.continuations.iterator();
-    while (continuations_iter.next()) |continuation|
-        continuation.value.deinit(self.allocator());
+    self.objects.continuations.applyAll(standard_deinit);
     self.objects.continuations.deinit(self.allocator());
 
     self.objects.symbols.deinit(self.allocator());
