@@ -3,6 +3,14 @@ const std = @import("std");
 const szl = @import("szl");
 const Tokenizer = @import("szl").Tokenizer;
 
+const LineEditor = @import("utils/LineEditor.zig");
+
+// ANSI color codes
+const COLOR_CYAN = "\x1b[36m";
+const COLOR_GREEN = "\x1b[32m";
+const COLOR_RED = "\x1b[31m";
+const COLOR_RESET = "\x1b[0m";
+
 pub fn main() !void {
     // Initialize allocator
     var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
@@ -35,81 +43,11 @@ fn runScript(allocator: std.mem.Allocator) !void {
     while (try reader.readNext()) |expr| {
         expr_count += 1;
         const result = try vm.evalExpr(expr, null);
-        try stdout.print("\x1b[36m${}\x1b[0m => \x1b[32m{f}\x1b[0m\n", .{ expr_count, vm.pretty(result) });
+        try stdout.print(
+            COLOR_CYAN ++ "${}" ++ COLOR_RESET ++ " => " ++ COLOR_GREEN ++ "{f}" ++ COLOR_RESET ++ "\n",
+            .{ expr_count, vm.pretty(result) },
+        );
         try stdout.flush();
-    }
-}
-
-fn runRepl(allocator: std.mem.Allocator) !void {
-    // Initialize stdin and stdout
-    var stdin_buffer: [4096]u8 = undefined;
-    var stdin = std.fs.File.stdin().reader(&stdin_buffer);
-
-    var stdout_buffer: [1024]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
-    const stdout = &stdout_writer.interface;
-
-    // Initialize VM once for the entire session
-    var vm = try szl.Vm.init(.{ .allocator = allocator });
-    defer vm.deinit();
-
-    // Buffer to accumulate incomplete expressions
-    var input_buffer = std.ArrayList(u8).empty;
-    defer input_buffer.deinit(allocator);
-
-    var expr_count: usize = 0;
-
-    while (true) {
-        // Print prompt
-        const prompt = if (input_buffer.items.len == 0) "szl> " else "...> ";
-        try stdout.writeAll(prompt);
-        try stdout.flush();
-
-        // Read a line
-        const line = stdin.interface.takeDelimiterExclusive('\n') catch |err| switch (err) {
-            error.EndOfStream => {
-                // EOF (Ctrl+D) - exit gracefully
-                try stdout.writeAll("\n");
-                try stdout.flush();
-                return;
-            },
-            error.StreamTooLong => {
-                try stdout.writeAll("\x1b[31mError: Input line too long\x1b[0m\n");
-                try stdout.flush();
-                continue;
-            },
-            else => return err,
-        };
-
-        // Append line to buffer
-        try input_buffer.appendSlice(allocator, line);
-        try input_buffer.append(allocator, '\n');
-
-        // Check if expression is complete
-        switch (Tokenizer.isComplete(input_buffer.items)) {
-            .complete => {},
-            .missing_close_paren => continue, // Wait for more input
-            .malformed => {
-                try stdout.writeAll("\x1b[31mError: Malformed expression (extra closing parenthesis)\x1b[0m\n");
-                try stdout.flush();
-                input_buffer.clearRetainingCapacity();
-                continue;
-            },
-        }
-
-        // Evaluate the expression
-        var reader = vm.read(input_buffer.items);
-        defer input_buffer.clearRetainingCapacity();
-        while (try reader.readNext()) |expr| {
-            expr_count += 1;
-            const result = vm.evalExpr(expr, null) catch |err| {
-                try stdout.print("\x1b[31mError: {}\x1b[0m\n", .{err});
-                try stdout.flush();
-                continue;
-            };
-            try stdout.print("\x1b[36m${}\x1b[0m => \x1b[32m{f}\x1b[0m\n", .{ expr_count, vm.pretty(result) });
-            try stdout.flush();
-        }
     }
 }
 
@@ -129,4 +67,70 @@ fn readInput(allocator: std.mem.Allocator) !std.ArrayList(u8) {
         try ret.appendSlice(allocator, input_buffer[0..len]);
     }
     return ret;
+}
+
+fn runRepl(allocator: std.mem.Allocator) !void {
+    // Initialize VM once for the entire session
+    var vm = try szl.Vm.init(.{ .allocator = allocator });
+    defer vm.deinit();
+
+    // Initialize line editor
+    var editor = try LineEditor.init(allocator);
+    defer editor.deinit();
+
+    // Buffer to accumulate incomplete expressions
+    var input_buffer = std.ArrayList(u8).empty;
+    defer input_buffer.deinit(allocator);
+
+    var expr_count: usize = 0;
+
+    while (true) {
+        // Get prompt based on state
+        const prompt = if (input_buffer.items.len == 0) "szl> " else "...> ";
+
+        // Read a line using the line editor
+        const line = try editor.readLine(prompt);
+        if (line == null) return;
+        try input_buffer.appendSlice(allocator, line.?);
+        try input_buffer.append(allocator, '\n');
+
+        // Check if expression is complete
+        switch (Tokenizer.isComplete(input_buffer.items)) {
+            .complete => {},
+            .missing_close_paren => continue, // Wait for more input
+            .malformed => {
+                const stdout = std.fs.File.stdout();
+                try stdout.writeAll(
+                    COLOR_RED ++ "Error: Malformed expression (extra closing parenthesis)" ++ COLOR_RESET ++ "\n",
+                );
+                input_buffer.clearRetainingCapacity();
+                continue;
+            },
+        }
+
+        // Evaluate the expression
+        var reader = vm.read(input_buffer.items);
+        defer input_buffer.clearRetainingCapacity();
+        const stdout = std.fs.File.stdout();
+        while (try reader.readNext()) |expr| {
+            expr_count += 1;
+            const result = vm.evalExpr(expr, null) catch |err| {
+                var buf: [512]u8 = undefined;
+                const msg = try std.fmt.bufPrint(
+                    &buf,
+                    COLOR_RED ++ "Error: {}" ++ COLOR_RESET ++ "\n",
+                    .{err},
+                );
+                try stdout.writeAll(msg);
+                continue;
+            };
+            var buf: [512]u8 = undefined;
+            const msg = try std.fmt.bufPrint(
+                &buf,
+                COLOR_CYAN ++ "${}" ++ COLOR_RESET ++ " => " ++ COLOR_GREEN ++ "{f}" ++ COLOR_RESET ++ "\n",
+                .{ expr_count, vm.pretty(result) },
+            );
+            try stdout.writeAll(msg);
+        }
+    }
 }
