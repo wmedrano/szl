@@ -11,52 +11,69 @@ const NativeProc = @This();
 name: []const u8,
 unsafe_impl: *const fn (*Vm, arg_count: u32) Vm.Error!void,
 
-pub const add = NativeProc{
-    .name = "+",
-    .unsafe_impl = &addImpl,
+pub const Result = union(enum) {
+    val: Val,
+    err: Vm.Error,
 };
 
-fn addImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
-    const inspector = vm.inspector();
-    const args = vm.context.stackTopN(arg_count);
-    var sum: i64 = 0;
-    // TODO: Raise an exception.
-    for (args) |v| sum += inspector.asInt(v) catch return error.NotImplemented;
-    vm.context.popMany(arg_count);
-    try vm.context.push(vm.allocator(), Val.initInt(sum));
+pub fn withRawArgs(T: type) NativeProc {
+    return struct {
+        const def = NativeProc{
+            .name = T.name,
+            .unsafe_impl = &wrapped,
+        };
+
+        fn wrapped(vm: *Vm, arg_count: u32) Vm.Error!void {
+            const args = vm.context.stackTopN(arg_count);
+            const result = T.impl(vm, args);
+            const val = switch (result) {
+                .val => |v| v,
+                .err => |e| return e,
+            };
+            vm.context.popMany(arg_count);
+            try vm.context.push(vm.allocator(), val);
+        }
+    }.def;
 }
 
-pub const lte = NativeProc{
-    .name = "<=",
-    .unsafe_impl = &lteImpl,
-};
+pub const add = withRawArgs(struct {
+    const name = "+";
+    inline fn impl(vm: *Vm, args: []const Val) Result {
+        const inspector = vm.inspector();
+        var sum: i64 = 0;
+        // TODO: Raise an exception.
+        for (args) |v| sum += inspector.asInt(v) catch return .{ .err = error.NotImplemented };
+        return .{ .val = Val.initInt(sum) };
+    }
+});
 
-fn lteImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
-    const inspector = vm.inspector();
-    const args = vm.context.stackTopN(arg_count);
+pub const lte = withRawArgs(struct {
+    const name = "<=";
+    inline fn impl(vm: *Vm, args: []const Val) Result {
+        const inspector = vm.inspector();
 
-    // Check if ordered by comparing adjacent pairs.
-    // TODO: Raise an exception instead of NotImplemented.
-    const is_ordered = switch (args.len) {
-        0 => true,
-        1 => blk: {
-            // Validate single argument is an integer
-            _ = inspector.asInt(args[0]) catch return error.NotImplemented;
-            break :blk true;
-        },
-        else => blk: {
-            var prev = inspector.asInt(args[0]) catch return error.NotImplemented;
-            for (args[1..]) |v| {
-                const curr = inspector.asInt(v) catch return error.NotImplemented;
-                if (prev > curr) break :blk false;
-                prev = curr;
-            }
-            break :blk true;
-        },
-    };
-    vm.context.popMany(arg_count);
-    try vm.context.push(vm.allocator(), Val.initBool(is_ordered));
-}
+        // Check if ordered by comparing adjacent pairs.
+        // TODO: Raise an exception instead of NotImplemented.
+        const is_ordered = switch (args.len) {
+            0 => true,
+            1 => blk: {
+                // Validate single argument is an integer
+                _ = inspector.asInt(args[0]) catch return .{ .err = error.NotImplemented };
+                break :blk true;
+            },
+            else => blk: {
+                var prev = inspector.asInt(args[0]) catch return .{ .err = error.NotImplemented };
+                for (args[1..]) |v| {
+                    const curr = inspector.asInt(v) catch return .{ .err = error.NotImplemented };
+                    if (prev > curr) break :blk false;
+                    prev = curr;
+                }
+                break :blk true;
+            },
+        };
+        return .{ .val = Val.initBool(is_ordered) };
+    }
+});
 
 pub const call_cc = NativeProc{
     .name = "call/cc",
@@ -119,24 +136,65 @@ fn szlRaiseNextImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
     try (Instruction{ .eval = 1 }).execute(vm);
 }
 
+pub const import = NativeProc{
+    .name = "import",
+    .unsafe_impl = &importImpl,
+};
+
+// TODO: This should support the full `import` syntax specified by r7rs.
+fn importImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
+    if (arg_count != 1) return Vm.Error.NotImplemented;
+    const inspector = vm.inspector();
+    const module_specifier = try inspector.listToSliceAlloc(vm.allocator(), vm.context.top() orelse
+        return Vm.Error.UndefinedBehavior);
+    defer vm.allocator().free(module_specifier);
+    const module_symbols = try vm.allocator().alloc(Symbol.Interned, module_specifier.len);
+    defer vm.allocator().free(module_symbols);
+    for (module_specifier, module_symbols) |val, *sym| {
+        sym.* = val.asSymbol() orelse return Vm.Error.NotImplemented;
+    }
+    // TODO: Import into the correct environment.
+    const dst_module = try inspector.getReplEnv();
+    const src_module = inspector.findModule(module_symbols) orelse return Vm.Error.NotImplemented;
+    try (try inspector.handleToModule(dst_module)).import(
+        vm.allocator(),
+        (try inspector.handleToModule(src_module)).*,
+    );
+}
+
+pub const proc_instructions = withRawArgs(struct {
+    const name = "proc-instructions";
+    inline fn impl(vm: *Vm, args: []const Val) Result {
+        if (args.len != 1) return .{ .err = error.NotImplemented };
+        const proc_val = args[0];
+        const proc_handle = switch (proc_val.data) {
+            .proc => |h| h,
+            .closure => |c| c.proc,
+            else => return .{ .err = error.NotImplemented },
+        };
+        const proc = vm.objects.procs.get(proc_handle) orelse return .{ .err = error.UndefinedBehavior };
+        const instructions = vm.allocator().alloc(Val, proc.instructions.len) catch |e| return .{ .err = e };
+        defer vm.allocator().free(instructions);
+        for (instructions, proc.instructions) |*dst, src| {
+            dst.* = src.toVal(vm) catch |e| return .{ .err = e };
+        }
+        const list = vm.builder().makeList(instructions) catch |e| return .{ .err = e };
+        return .{ .val = list };
+    }
+});
+
 test "+ on ints sums ints" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.initInt(10),
-        try vm.evalStr("(+ 1 2 3 4)", null),
-    );
+    try vm.expectEval("10", "(+ 1 2 3 4)");
 }
 
 test "empty + returns 0" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.initInt(0),
-        try vm.evalStr("(+)", null),
-    );
+    try vm.expectEval("0", "(+)");
 }
 
 test "+ on non-ints returns error" {
@@ -150,38 +208,29 @@ test "<= on ordered ints returns true" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.initBool(true),
-        try vm.evalStr("(<= 1 2 3)", null),
-    );
+    try vm.expectEval("#t", "(<= 1 2 3)");
 }
 
 test "<= on non-ordered ints returns false" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.initBool(false),
-        try vm.evalStr("(<= 3 2 1)", null),
-    );
+    try vm.expectEval("#f", "(<= 3 2 1)");
 }
 
 test "<= on equal ints returns true" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.initBool(true),
-        try vm.evalStr("(<= 1 1 2)", null),
-    );
+    try vm.expectEval("#t", "(<= 1 1 2)");
 }
 
 test "<= with less than 2 args returns true" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(Val.initBool(true), try vm.evalStr("(<= )", null));
-    try testing.expectEqual(Val.initBool(true), try vm.evalStr("(<= 1)", null));
+    try vm.expectEval("#t", "(<= )");
+    try vm.expectEval("#t", "(<= 1)");
 }
 
 test "<= on non-ints returns error" {
@@ -195,16 +244,14 @@ test "raise-continuable calls exception handler and continues" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const source =
+    try vm.expectEval(
+        "105",
         \\ (define (proc1 n) (raise-continuable n))
         \\ (define (proc2 n) (proc1 n))
         \\ (with-exception-handler
         \\   (lambda (x) (+ x 100))
         \\   (lambda () (proc2 5)))
-    ;
-    try testing.expectEqual(
-        Val.initInt(105),
-        try vm.evalStr(source, null),
+        ,
     );
 }
 
@@ -223,23 +270,37 @@ test "raise calls all exceptions" {
         \\       (lambda () (raise 'exception)))))
     ;
     try testing.expectError(error.UncaughtException, vm.evalStr(source, null));
-    try testing.expectEqual(Val.initInt(1), try vm.evalStr("one", null));
-    try testing.expectEqual(Val.initInt(2), try vm.evalStr("two", null));
+    try vm.expectEval("1", "one");
+    try vm.expectEval("2", "two");
 }
 
 test "call/cc can stop exception from propagating" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    const source =
+    try vm.expectEval(
+        "recovered",
         \\ (define (bad-thunk) (raise 'bad))
         \\ (call/cc (lambda (exit)
         \\   (with-exception-handler
         \\     (lambda (err) (exit 'recovered))
         \\     bad-thunk)))
-    ;
-    try testing.expectEqual(
-        try vm.builder().makeSymbol(Symbol.init("recovered")),
-        try vm.evalStr(source, null),
+        ,
+    );
+}
+
+test "proc-instructions reveals bytecode" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval(
+        "((get-arg 0) (push-const 1) (get-global #<environment:module:(user repl)> <=) (eval 2) (jump-if-not 2) (get-arg 0) (jump 14) (get-arg 0) (push-const -1) (get-global #<environment:module:(user repl)> +) (eval 2) (get-global #<environment:module:(user repl)> fib) (eval 1) (get-arg 0) (push-const -2) (get-global #<environment:module:(user repl)> +) (eval 2) (get-global #<environment:module:(user repl)> fib) (eval 1) (get-global #<environment:module:(user repl)> +) (eval 2) (ret))",
+        \\ (define (fib n) (if (<= n 1)
+        \\                   n
+        \\                   (+ (fib (+ n -1))
+        \\                      (fib (+ n -2)))))
+        \\ (import '(sizzle unstable compiler))
+        \\ (proc-instructions fib)
+        ,
     );
 }

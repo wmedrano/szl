@@ -70,7 +70,7 @@ pub fn init(options: Options) Error!Vm {
 fn initLibraries(vm: *Vm) Error!void {
     const b = vm.builder();
 
-    // Initialize global module
+    // (scheme base)
     const global_handle = try b.makeEnvironment(&.{
         (try b.makeSymbol(Symbol.init("scheme"))).data.symbol,
         (try b.makeSymbol(Symbol.init("base"))).data.symbol,
@@ -103,15 +103,31 @@ fn initLibraries(vm: *Vm) Error!void {
             .symbol = (try b.makeSymbol(Symbol.init("%szl-raise-next"))).data.symbol,
             .value = Val.initNativeProc(&NativeProc.szl_raise_next),
         },
+        .{
+            .symbol = (try b.makeSymbol(Symbol.init("import"))).data.symbol,
+            .value = Val.initNativeProc(&NativeProc.import),
+        },
     });
-    const source =
+    _ = try vm.evalStr(
         \\ (define (raise err)
         \\   (raise-continuable err)
         \\   (%szl-raise-next err))
-    ;
-    _ = try vm.evalStr(source, global_handle);
+    , global_handle);
 
-    // Initialize repl module
+    // (sizzle unstable compiler)
+    const sizzle_unstable_compiler_handle = try b.makeEnvironment(&.{
+        (try b.makeSymbol(Symbol.init("sizzle"))).data.symbol,
+        (try b.makeSymbol(Symbol.init("unstable"))).data.symbol,
+        (try b.makeSymbol(Symbol.init("compiler"))).data.symbol,
+    }, &[_]Builder.Definition{
+        .{
+            .symbol = (try b.makeSymbol(Symbol.init("proc-instructions"))).data.symbol,
+            .value = Val.initNativeProc(&NativeProc.proc_instructions),
+        },
+    });
+    _ = try vm.evalStr("", sizzle_unstable_compiler_handle);
+
+    // (user repl)
     const repl_handle = try b.makeEnvironment(&.{
         (try b.makeSymbol(Symbol.init("user"))).data.symbol,
         (try b.makeSymbol(Symbol.init("repl"))).data.symbol,
@@ -199,6 +215,11 @@ pub fn evalStr(self: *Vm, source: []const u8, maybe_env: ?Handle(Module)) Error!
         return_val = try self.evalExpr(raw_expr, maybe_env);
     }
     return return_val;
+}
+
+pub fn expectEval(self: *Vm, expect: []const u8, source: []const u8) !void {
+    const actual = try self.evalStr(source, null);
+    try testing.expectFmt(expect, "{f}", .{self.pretty(actual)});
 }
 
 pub fn evalExpr(self: *Vm, expr: Val, maybe_env: ?Handle(Module)) Error!Val {

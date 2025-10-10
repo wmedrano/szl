@@ -38,6 +38,111 @@ pub const Instruction = union(enum) {
         capture_count: u32,
     };
 
+    pub fn toVal(self: Instruction, vm: *Vm) Vm.Error!Val {
+        const builder = vm.builder();
+        switch (self) {
+            .push_const => |val| {
+                const items = [_]Val{
+                    try builder.makeSymbol(Symbol.init("push-const")),
+                    val,
+                };
+                return builder.makeList(&items);
+            },
+            .get_global => |g| {
+                const items = [_]Val{
+                    try builder.makeSymbol(Symbol.init("get-global")),
+                    Val{ .data = .{ .module = g.module } },
+                    Val.initSymbol(g.symbol),
+                };
+                return builder.makeList(&items);
+            },
+            .get_proc => {
+                const items = [_]Val{
+                    try builder.makeSymbol(Symbol.init("get-proc")),
+                };
+                return builder.makeList(&items);
+            },
+            .get_arg => |idx| {
+                const items = [_]Val{
+                    try builder.makeSymbol(Symbol.init("get-arg")),
+                    Val.initInt(@intCast(idx)),
+                };
+                return builder.makeList(&items);
+            },
+            .get_local => |idx| {
+                const items = [_]Val{
+                    try builder.makeSymbol(Symbol.init("get-local")),
+                    Val.initInt(@intCast(idx)),
+                };
+                return builder.makeList(&items);
+            },
+            .get_capture => |idx| {
+                const items = [_]Val{
+                    try builder.makeSymbol(Symbol.init("get-capture")),
+                    Val.initInt(@intCast(idx)),
+                };
+                return builder.makeList(&items);
+            },
+            .set_global => |g| {
+                const items = [_]Val{
+                    try builder.makeSymbol(Symbol.init("set-global")),
+                    Val{ .data = .{ .module = g.module } },
+                    Val.initSymbol(g.symbol),
+                };
+                return builder.makeList(&items);
+            },
+            .set_local => |idx| {
+                const items = [_]Val{
+                    try builder.makeSymbol(Symbol.init("set-local")),
+                    Val.initInt(@intCast(idx)),
+                };
+                return builder.makeList(&items);
+            },
+            .jump => |n| {
+                const items = [_]Val{
+                    try builder.makeSymbol(Symbol.init("jump")),
+                    Val.initInt(n),
+                };
+                return builder.makeList(&items);
+            },
+            .jump_if_not => |n| {
+                const items = [_]Val{
+                    try builder.makeSymbol(Symbol.init("jump-if-not")),
+                    Val.initInt(n),
+                };
+                return builder.makeList(&items);
+            },
+            .squash => |n| {
+                const items = [_]Val{
+                    try builder.makeSymbol(Symbol.init("squash")),
+                    Val.initInt(@intCast(n)),
+                };
+                return builder.makeList(&items);
+            },
+            .eval => |n| {
+                const items = [_]Val{
+                    try builder.makeSymbol(Symbol.init("eval")),
+                    Val.initInt(@intCast(n)),
+                };
+                return builder.makeList(&items);
+            },
+            .make_closure => |c| {
+                const items = [_]Val{
+                    try builder.makeSymbol(Symbol.init("make-closure")),
+                    Val.initProc(c.proc),
+                    Val.initInt(@intCast(c.capture_count)),
+                };
+                return builder.makeList(&items);
+            },
+            .ret => {
+                const items = [_]Val{
+                    try builder.makeSymbol(Symbol.init("ret")),
+                };
+                return builder.makeList(&items);
+            },
+        }
+    }
+
     pub fn execute(self: Instruction, vm: *Vm) Vm.Error!void {
         switch (self) {
             .push_const => |val| try vm.context.push(vm.allocator(), val),

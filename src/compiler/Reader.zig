@@ -2,9 +2,9 @@ const std = @import("std");
 const testing = std.testing;
 
 const Symbol = @import("../types/Symbol.zig");
-const Tokenizer = @import("Tokenizer.zig");
 const Val = @import("../types/Val.zig");
 const Vm = @import("../Vm.zig");
+const Tokenizer = @import("Tokenizer.zig");
 
 const Reader = @This();
 
@@ -26,6 +26,20 @@ pub fn readNext(self: *Reader) Vm.Error!?Val {
         .dot => return Vm.Error.ReadError,
         .end => return null,
     }
+}
+
+pub const ReadOneError = Vm.Error || error{
+    NoValue,
+    TooManyValues,
+};
+
+pub fn readOne(vm: *Vm, source: []const u8) ReadOneError!Val {
+    var reader = Reader.init(vm, source);
+    const first = try reader.readNext() orelse return ReadOneError.NoValue;
+    if (try reader.readNext()) |_| {
+        return ReadOneError.TooManyValues;
+    }
+    return first;
 }
 
 const ReadResult = union(enum) {
