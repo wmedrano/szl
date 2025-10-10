@@ -8,6 +8,7 @@ const instruction = @import("instruction.zig");
 const Instruction = @import("instruction.zig").Instruction;
 const Continuation = @import("types/Continuation.zig");
 const Module = @import("types/Module.zig");
+const NativeProc = @import("types/NativeProc.zig");
 const Handle = @import("types/object_pool.zig").Handle;
 const ObjectPool = @import("types/object_pool.zig").ObjectPool;
 const Pair = @import("types/Pair.zig");
@@ -76,31 +77,31 @@ fn initLibraries(vm: *Vm) Error!void {
     }, &[_]Builder.Definition{
         .{
             .symbol = (try b.makeSymbol(Symbol.init("+"))).data.symbol,
-            .value = Val.initBuiltinProc(Proc.Builtin.add),
+            .value = Val.initNativeProc(&NativeProc.add),
         },
         .{
             .symbol = (try b.makeSymbol(Symbol.init("<="))).data.symbol,
-            .value = Val.initBuiltinProc(Proc.Builtin.lte),
+            .value = Val.initNativeProc(&NativeProc.lte),
         },
         .{
             .symbol = (try b.makeSymbol(Symbol.init("call/cc"))).data.symbol,
-            .value = Val.initBuiltinProc(Proc.Builtin.call_cc),
+            .value = Val.initNativeProc(&NativeProc.call_cc),
         },
         .{
             .symbol = (try b.makeSymbol(Symbol.init("call-with-current-continuation"))).data.symbol,
-            .value = Val.initBuiltinProc(Proc.Builtin.call_cc),
+            .value = Val.initNativeProc(&NativeProc.call_cc),
         },
         .{
             .symbol = (try b.makeSymbol(Symbol.init("with-exception-handler"))).data.symbol,
-            .value = Val.initBuiltinProc(Proc.Builtin.with_exception_handler),
+            .value = Val.initNativeProc(&NativeProc.with_exception_handler),
         },
         .{
             .symbol = (try b.makeSymbol(Symbol.init("raise-continuable"))).data.symbol,
-            .value = Val.initBuiltinProc(Proc.Builtin.raise_continuable),
+            .value = Val.initNativeProc(&NativeProc.raise_continuable),
         },
         .{
             .symbol = (try b.makeSymbol(Symbol.init("%szl-raise-next"))).data.symbol,
-            .value = Val.initBuiltinProc(Proc.Builtin.szl_raise_next),
+            .value = Val.initNativeProc(&NativeProc.szl_raise_next),
         },
     });
     const source =

@@ -79,7 +79,7 @@ const Builder = struct {
             .module,
             .proc,
             .closure,
-            .proc_builtin,
+            .native_proc,
             .continuation,
             => return Ir{ .push_const = expr },
             .pair => {

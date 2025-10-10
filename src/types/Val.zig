@@ -6,6 +6,7 @@ const Vm = @import("../Vm.zig");
 const Continuation = @import("Continuation.zig");
 const Handle = @import("object_pool.zig").Handle;
 const Module = @import("Module.zig");
+const NativeProc = @import("NativeProc.zig");
 const Pair = @import("Pair.zig");
 const Proc = @import("Proc.zig");
 const Symbol = @import("Symbol.zig");
@@ -29,7 +30,7 @@ pub const Data = union(enum) {
     module: Handle(Module),
     proc: Handle(Proc),
     closure: Closure,
-    proc_builtin: Proc.Builtin,
+    native_proc: *const NativeProc,
     vector: Handle(Vector),
     continuation: Handle(Continuation),
 };
@@ -69,8 +70,8 @@ pub fn initClosure(proc: Handle(Proc), captures: Handle(Vector)) Val {
     };
 }
 
-pub fn initBuiltinProc(proc: Proc.Builtin) Val {
-    return Val{ .data = .{ .proc_builtin = proc } };
+pub fn initNativeProc(proc: *const NativeProc) Val {
+    return Val{ .data = .{ .native_proc = proc } };
 }
 
 pub fn isNull(self: Val) bool {
@@ -86,7 +87,7 @@ pub fn isTruthy(self: Val) bool {
 
 pub fn isProc(self: Val) bool {
     return switch (self.data) {
-        .proc, .closure, .proc_builtin => true,
+        .proc, .closure, .native_proc => true,
         else => false,
     };
 }

@@ -15,25 +15,3 @@ pub fn deinit(self: *Proc, allocator: std.mem.Allocator) void {
     allocator.free(self.instructions);
     self.instructions = &.{};
 }
-
-pub const Builtin = union(enum) {
-    // Arithmetic
-    add,
-    lte,
-    // Control flow
-    call_cc,
-    with_exception_handler,
-    raise_continuable,
-    szl_raise_next,
-
-    pub fn name(self: Builtin) []const u8 {
-        return switch (self) {
-            .add => "+",
-            .lte => "<=",
-            .call_cc => "call/cc",
-            .with_exception_handler => "with-exception-handler",
-            .raise_continuable => "raise-continuable",
-            .szl_raise_next => "%szl-raise-next",
-        };
-    }
-};

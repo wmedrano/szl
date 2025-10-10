@@ -31,7 +31,7 @@ pub fn format(self: PrettyPrinter, writer: *std.Io.Writer) std.Io.Writer.Error!v
         .module => |h| try self.formatModule(writer, h),
         .proc => |h| try self.formatProc(writer, h, null),
         .closure => |h| try self.formatProc(writer, h.proc, h.captures),
-        .proc_builtin => |p| try writer.print("#<procedure:{s}>", .{p.name()}),
+        .native_proc => |p| try writer.print("#<procedure:native:{s}>", .{p.name}),
         .vector => |h| try self.formatVector(writer, h),
         .continuation => try writer.writeAll("#<procedure:continuation>"),
     }
