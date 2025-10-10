@@ -72,39 +72,39 @@ fn initLibraries(vm: *Vm) Error!void {
 
     // (scheme base)
     const global_handle = try b.makeEnvironment(&.{
-        (try b.makeSymbol(Symbol.init("scheme"))).data.symbol,
-        (try b.makeSymbol(Symbol.init("base"))).data.symbol,
+        (try b.makeStaticSymbolHandle("scheme")),
+        (try b.makeStaticSymbolHandle("base")),
     }, &[_]Builder.Definition{
         .{
-            .symbol = (try b.makeSymbol(Symbol.init("+"))).data.symbol,
+            .symbol = (try b.makeStaticSymbolHandle("+")),
             .value = Val.initNativeProc(&NativeProc.add),
         },
         .{
-            .symbol = (try b.makeSymbol(Symbol.init("<="))).data.symbol,
+            .symbol = (try b.makeStaticSymbolHandle("<=")),
             .value = Val.initNativeProc(&NativeProc.lte),
         },
         .{
-            .symbol = (try b.makeSymbol(Symbol.init("call/cc"))).data.symbol,
+            .symbol = (try b.makeStaticSymbolHandle("call/cc")),
             .value = Val.initNativeProc(&NativeProc.call_cc),
         },
         .{
-            .symbol = (try b.makeSymbol(Symbol.init("call-with-current-continuation"))).data.symbol,
+            .symbol = (try b.makeStaticSymbolHandle("call-with-current-continuation")),
             .value = Val.initNativeProc(&NativeProc.call_cc),
         },
         .{
-            .symbol = (try b.makeSymbol(Symbol.init("with-exception-handler"))).data.symbol,
+            .symbol = (try b.makeStaticSymbolHandle("with-exception-handler")),
             .value = Val.initNativeProc(&NativeProc.with_exception_handler),
         },
         .{
-            .symbol = (try b.makeSymbol(Symbol.init("raise-continuable"))).data.symbol,
+            .symbol = (try b.makeStaticSymbolHandle("raise-continuable")),
             .value = Val.initNativeProc(&NativeProc.raise_continuable),
         },
         .{
-            .symbol = (try b.makeSymbol(Symbol.init("%szl-raise-next"))).data.symbol,
+            .symbol = (try b.makeStaticSymbolHandle("%szl-raise-next")),
             .value = Val.initNativeProc(&NativeProc.szl_raise_next),
         },
         .{
-            .symbol = (try b.makeSymbol(Symbol.init("import"))).data.symbol,
+            .symbol = (try b.makeStaticSymbolHandle("import")),
             .value = Val.initNativeProc(&NativeProc.import),
         },
     });
@@ -116,12 +116,12 @@ fn initLibraries(vm: *Vm) Error!void {
 
     // (sizzle unstable compiler)
     const sizzle_unstable_compiler_handle = try b.makeEnvironment(&.{
-        (try b.makeSymbol(Symbol.init("sizzle"))).data.symbol,
-        (try b.makeSymbol(Symbol.init("unstable"))).data.symbol,
-        (try b.makeSymbol(Symbol.init("compiler"))).data.symbol,
+        (try b.makeStaticSymbolHandle("sizzle")),
+        (try b.makeStaticSymbolHandle("unstable")),
+        (try b.makeStaticSymbolHandle("compiler")),
     }, &[_]Builder.Definition{
         .{
-            .symbol = (try b.makeSymbol(Symbol.init("proc-instructions"))).data.symbol,
+            .symbol = (try b.makeStaticSymbolHandle("proc-instructions")),
             .value = Val.initNativeProc(&NativeProc.proc_instructions),
         },
     });
@@ -129,8 +129,8 @@ fn initLibraries(vm: *Vm) Error!void {
 
     // (user repl)
     const repl_handle = try b.makeEnvironment(&.{
-        (try b.makeSymbol(Symbol.init("user"))).data.symbol,
-        (try b.makeSymbol(Symbol.init("repl"))).data.symbol,
+        (try b.makeStaticSymbolHandle("user")),
+        (try b.makeStaticSymbolHandle("repl")),
     }, &.{});
     const repl_mod = try vm.inspector().handleToModule(repl_handle);
     const global_mod = try vm.inspector().handleToModule(global_handle);

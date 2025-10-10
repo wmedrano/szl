@@ -16,8 +16,12 @@ pub const StackFrame = struct {
     locals_count: u32 = 0,
     instruction_idx: u32 = 0,
     proc: Val = Val.initEmptyList(),
-    exception_handler: ?Val = null,
+    exception_handler: Val = Val.initEmptyList(),
     instructions: []const Instruction = &.{},
+
+    pub inline fn exceptionHandler(self: StackFrame) ?Val {
+        return if (self.exception_handler.isNull()) null else self.exception_handler;
+    }
 };
 
 pub fn init(allocator: std.mem.Allocator) !Context {
@@ -74,11 +78,11 @@ pub fn setExceptionHandler(self: *Context, handler: Val) error{UndefinedBehavior
 }
 
 pub fn currentExceptionHandler(self: Context) ?Val {
-    if (self.stack_frame.exception_handler) |h| return h;
+    if (self.stack_frame.exceptionHandler()) |h| return h;
     var idx = self.stack_frames.items.len;
     while (idx > 0) {
         idx -= 1;
-        if (self.stack_frames.items[idx].exception_handler) |h|
+        if (self.stack_frames.items[idx].exceptionHandler()) |h|
             return h;
     }
     return null;
@@ -86,7 +90,7 @@ pub fn currentExceptionHandler(self: Context) ?Val {
 
 pub fn unwindBeforeExceptionHandler(self: *Context) Vm.Error!?Val {
     while (true) {
-        if (self.stack_frame.exception_handler) |h| {
+        if (self.stack_frame.exceptionHandler()) |h| {
             try self.popStackFrame(.discard);
             return h;
         }

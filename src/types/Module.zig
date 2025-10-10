@@ -8,9 +8,9 @@ const Val = @import("Val.zig");
 
 const Module = @This();
 
-namespace: []const Symbol.Interned = &.{},
+namespace: []const Symbol = &.{},
 slots: std.ArrayList(Val) = .{},
-symbol_to_slot: std.AutoHashMapUnmanaged(Symbol.Interned, u32) = .{},
+symbol_to_slot: std.AutoHashMapUnmanaged(Symbol, u32) = .{},
 
 pub fn deinit(self: *Module, allocator: std.mem.Allocator) void {
     allocator.free(self.namespace);
@@ -22,13 +22,13 @@ pub fn getBySlot(self: Module, slot: u32) ?Val {
     return self.slots.items[@intCast(slot)];
 }
 
-pub fn getBySymbol(self: Module, sym: Symbol.Interned) ?Val {
+pub fn getBySymbol(self: Module, sym: Symbol) ?Val {
     const slot = self.symbol_to_slot.get(sym) orelse return null;
     const idx: usize = @intCast(slot);
     return self.slots.items[idx];
 }
 
-pub fn setBySymbol(self: *Module, allocator: std.mem.Allocator, sym: Symbol.Interned, val: Val) Vm.Error!void {
+pub fn setBySymbol(self: *Module, allocator: std.mem.Allocator, sym: Symbol, val: Val) Vm.Error!void {
     if (self.symbol_to_slot.get(sym)) |slot| {
         const idx: usize = @intCast(slot);
         if (idx < self.slots.items.len)

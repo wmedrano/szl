@@ -2,24 +2,16 @@ const std = @import("std");
 
 const Symbol = @This();
 
-string: []const u8,
+id: u32,
 
-pub fn init(str: []const u8) Symbol {
-    return Symbol{ .string = str };
+pub fn eq(self: Symbol, other: Symbol) bool {
+    return self.id == other.id;
 }
-
-pub const Interned = packed struct {
-    id: u32,
-
-    pub fn eq(self: Interned, other: Interned) bool {
-        return self.id == other.id;
-    }
-};
 
 pub const Interner = struct {
     arena: std.heap.ArenaAllocator,
-    string_to_interned: std.StringHashMapUnmanaged(Interned) = .{},
-    interned_to_symbol: std.ArrayListUnmanaged(Symbol) = .{},
+    string_to_symbol: std.StringHashMapUnmanaged(Symbol) = .{},
+    symbol_to_string: std.ArrayListUnmanaged([]const u8) = .{},
 
     pub fn init(allocator: std.mem.Allocator) Interner {
         return .{
@@ -28,46 +20,41 @@ pub const Interner = struct {
     }
 
     pub fn deinit(self: *Interner, allocator: std.mem.Allocator) void {
-        self.string_to_interned.deinit(allocator);
-        self.interned_to_symbol.deinit(allocator);
+        self.string_to_symbol.deinit(allocator);
+        self.symbol_to_string.deinit(allocator);
         self.arena.deinit();
     }
 
-    pub fn intern(self: *Interner, allocator: std.mem.Allocator, symbol: Symbol) !Interned {
-        if (self.string_to_interned.get(symbol.string)) |interned| {
+    pub fn intern(self: *Interner, allocator: std.mem.Allocator, str: []const u8) !Symbol {
+        if (self.string_to_symbol.get(str)) |interned| {
             return interned;
         }
-        const owned_string = try self.arena.allocator().dupe(u8, symbol.string);
-        const id: u32 = @intCast(self.interned_to_symbol.items.len);
-        const interned = Interned{ .id = id };
-        try self.interned_to_symbol.append(allocator, Symbol{ .string = owned_string });
-        try self.string_to_interned.put(allocator, owned_string, interned);
+        const owned_string = try self.arena.allocator().dupe(u8, str);
+        const id: u32 = @intCast(self.symbol_to_string.items.len);
+        const interned = Symbol{ .id = id };
+        try self.symbol_to_string.append(allocator, owned_string);
+        try self.string_to_symbol.put(allocator, owned_string, interned);
         return interned;
     }
 
-    pub fn internStatic(self: *Interner, allocator: std.mem.Allocator, symbol: Symbol) !Interned {
-        if (self.string_to_interned.get(symbol.string)) |interned| {
+    pub fn internStatic(self: *Interner, allocator: std.mem.Allocator, str: []const u8) !Symbol {
+        if (self.string_to_symbol.get(str)) |interned| {
             return interned;
         }
-        const id: u32 = @intCast(self.interned_to_symbol.items.len);
-        const interned = Interned{ .id = id };
-        try self.interned_to_symbol.append(allocator, symbol);
-        try self.string_to_interned.put(allocator, symbol.string, interned);
+        const id: u32 = @intCast(self.symbol_to_string.items.len);
+        const interned = Symbol{ .id = id };
+        try self.symbol_to_string.append(allocator, str);
+        try self.string_to_symbol.put(allocator, str, interned);
         return interned;
     }
 
-    pub fn asSymbol(self: Interner, interned: Interned) ?Symbol {
-        if (interned.id >= self.interned_to_symbol.items.len) {
+    pub fn asString(self: Interner, interned: Symbol) ?[]const u8 {
+        if (interned.id >= self.symbol_to_string.items.len) {
             return null;
         }
-        return self.interned_to_symbol.items[interned.id];
+        return self.symbol_to_string.items[interned.id];
     }
 };
-
-test "Symbol.init" {
-    const sym = Symbol.init("hello");
-    try std.testing.expectEqualStrings("hello", sym.string);
-}
 
 test "Interner.init and deinit" {
     const allocator = std.testing.allocator;
@@ -80,11 +67,8 @@ test "Interner.intern deduplicates symbols" {
     var interner = Interner.init(allocator);
     defer interner.deinit(allocator);
 
-    const sym1 = Symbol.init("test");
-    const sym2 = Symbol.init("test");
-
-    const interned1 = try interner.intern(allocator, sym1);
-    const interned2 = try interner.intern(allocator, sym2);
+    const interned1 = try interner.intern(allocator, "test");
+    const interned2 = try interner.intern(allocator, "test");
     try std.testing.expectEqual(interned1.id, interned2.id);
 }
 
@@ -93,8 +77,8 @@ test "Interner.intern creates unique IDs for different symbols" {
     var interner = Interner.init(allocator);
     defer interner.deinit(allocator);
 
-    const interned1 = try interner.intern(allocator, Symbol.init("foo"));
-    const interned2 = try interner.intern(allocator, Symbol.init("bar"));
+    const interned1 = try interner.intern(allocator, "foo");
+    const interned2 = try interner.intern(allocator, "bar");
 
     try std.testing.expect(interned1.id != interned2.id);
 }
@@ -104,11 +88,11 @@ test "Interner.asSymbol retrieves correct symbol" {
     var interner = Interner.init(allocator);
     defer interner.deinit(allocator);
 
-    const interned = try interner.intern(allocator, Symbol.init("hello"));
+    const interned = try interner.intern(allocator, "hello");
 
     try std.testing.expectEqualDeep(
-        Symbol.init("hello"),
-        interner.asSymbol(interned),
+        "hello",
+        interner.asString(interned),
     );
 }
 
@@ -117,8 +101,8 @@ test "Interner.asSymbol returns null for invalid ID" {
     var interner = Interner.init(allocator);
     defer interner.deinit(allocator);
 
-    const invalid = Interned{ .id = 999 };
-    try std.testing.expectEqual(null, interner.asSymbol(invalid));
+    const invalid = Symbol{ .id = 999 };
+    try std.testing.expectEqual(null, interner.asString(invalid));
 }
 
 test "Interner.internStatic with static string" {
@@ -126,14 +110,12 @@ test "Interner.internStatic with static string" {
     var interner = Interner.init(allocator);
     defer interner.deinit(allocator);
 
-    const static_str = "static_symbol";
-    const sym = Symbol.init(static_str);
-
-    const interned = try interner.internStatic(allocator, sym);
+    const static_str = "static-symbol";
+    const interned = try interner.internStatic(allocator, "static-symbol");
 
     try std.testing.expectEqualDeep(
-        Symbol.init(static_str),
-        interner.asSymbol(interned),
+        static_str,
+        interner.asString(interned),
     );
 }
 
@@ -144,8 +126,8 @@ test "Interner.internStatic deduplicates like intern" {
 
     const static_str = "duplicate";
 
-    const interned1 = try interner.internStatic(allocator, Symbol.init(static_str));
-    const interned2 = try interner.internStatic(allocator, Symbol.init(static_str));
+    const interned1 = try interner.internStatic(allocator, static_str);
+    const interned2 = try interner.internStatic(allocator, static_str);
 
     try std.testing.expectEqual(interned1.id, interned2.id);
 }
@@ -160,15 +142,15 @@ test "Interner.intern uses arena for string storage" {
     @memcpy(buffer[0..5], "temp!");
     const temp_str = buffer[0..5];
 
-    const sym = Symbol.init(temp_str);
+    const sym = temp_str;
     const interned = try interner.intern(allocator, sym);
 
     // Modify the original buffer to prove we copied
     @memcpy(buffer[0..5], "xxxxx");
 
     try std.testing.expectEqualDeep(
-        Symbol.init("temp!"),
-        interner.asSymbol(interned),
+        "temp!",
+        interner.asString(interned),
     );
 }
 
@@ -180,7 +162,7 @@ test "Interner multiple symbols with sequential IDs" {
     const symbols = [_][]const u8{ "first", "second", "third" };
 
     for (symbols, 0..) |str, i| {
-        const sym = Symbol.init(str);
+        const sym = str;
         const interned = try interner.intern(allocator, sym);
         try std.testing.expectEqual(i, interned.id);
     }

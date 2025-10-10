@@ -32,30 +32,30 @@ pub const Error = error{
 
 pub const Scope = struct {
     module: Handle(Module),
-    proc: ?Symbol.Interned,
-    args: []const Symbol.Interned = &.{},
+    proc: ?Symbol,
+    args: []const Symbol = &.{},
     locals: std.ArrayList(Local) = .{},
     captures: Captures = .{},
     captures_count: u32 = 0,
 
     pub const Local = struct {
-        name: Symbol.Interned,
+        name: Symbol,
         available: bool,
     };
 
     /// A map from captured to symbol to its captured index. If captured index
     /// is `null`, then the variable has not been captured.
-    pub const Captures = std.AutoHashMapUnmanaged(Symbol.Interned, ?u32);
+    pub const Captures = std.AutoHashMapUnmanaged(Symbol, ?u32);
 
     pub const Location = union(enum) {
         proc,
         arg: u32,
         local: u32,
         capture: u32,
-        module: struct { module: Handle(Module), name: Symbol.Interned },
+        module: struct { module: Handle(Module), name: Symbol },
     };
 
-    pub fn resolve(self: *Scope, name: Symbol.Interned) Location {
+    pub fn resolve(self: *Scope, name: Symbol) Location {
         // Locals
         var local_idx = self.locals.items.len;
         while (local_idx > 0) {
@@ -91,8 +91,8 @@ pub const Scope = struct {
         return ret;
     }
 
-    pub fn capturesSlice(self: Scope, allocator: std.mem.Allocator) error{OutOfMemory}![]Symbol.Interned {
-        const ret = try allocator.alloc(Symbol.Interned, @intCast(self.captures_count));
+    pub fn capturesSlice(self: Scope, allocator: std.mem.Allocator) error{OutOfMemory}![]Symbol {
+        const ret = try allocator.alloc(Symbol, @intCast(self.captures_count));
         var captures_iter = self.captures.iterator();
         while (captures_iter.next()) |capture| {
             if (capture.value_ptr.*) |idx| {
@@ -144,7 +144,7 @@ fn addIrs(self: *Compiler, irs: []const Ir, return_value: bool) Error!void {
         try self.addInstruction(.{ .squash = @intCast(irs.len) });
 }
 
-fn addGet(self: *Compiler, sym: Symbol.Interned) Error!void {
+fn addGet(self: *Compiler, sym: Symbol) Error!void {
     const instruction = switch (self.scope.resolve(sym)) {
         .proc => Instruction{ .get_proc = {} },
         .arg => |idx| Instruction{ .get_arg = idx },
@@ -191,7 +191,7 @@ fn jumpDistance(src: usize, dst: usize) i32 {
     return dst_i32 - src_i32;
 }
 
-fn addDefine(self: *Compiler, symbol: Symbol.Interned, expr: Ir) Error!void {
+fn addDefine(self: *Compiler, symbol: Symbol, expr: Ir) Error!void {
     try self.addIr(expr, false);
     try self.addInstruction(.{ .set_global = .{ .module = self.scope.module, .symbol = symbol } });
 }
@@ -243,12 +243,12 @@ fn addLet(self: *Compiler, bindings: []const Ir.LetBinding, body: []Ir, return_v
     try self.addIrs(body, return_value);
 }
 
-fn makeProc(self: Compiler, name: ?Symbol.Interned) Error!struct {
+fn makeProc(self: Compiler, name: ?Symbol) Error!struct {
     handle: Handle(Proc),
     proc: Proc,
-    captures: []Symbol.Interned,
+    captures: []Symbol,
 } {
-    const proc_name = name orelse try self.vm.builder().makeSymbolInterned(Symbol.init("_"));
+    const proc_name = name orelse try self.vm.builder().makeStaticSymbolHandle("_");
     const captures = try self.scope.capturesSlice(self.arena.allocator());
     var proc = Proc{
         .name = proc_name,

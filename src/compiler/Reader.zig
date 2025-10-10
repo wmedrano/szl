@@ -63,7 +63,7 @@ pub fn readNextImpl(self: *Reader) Vm.Error!ReadResult {
                     .atom => |v| try elements.append(self.vm.allocator(), v),
                     .end_expr => {
                         const res = if (dot_idx == elements.items.len)
-                            try builder.makeImproperList(elements.items)
+                            try builder.makePairs(elements.items)
                         else
                             try builder.makeList(elements.items);
                         return ReadResult{ .atom = res };
@@ -86,7 +86,7 @@ pub fn readNextImpl(self: *Reader) Vm.Error!ReadResult {
             const next = try self.readNextImpl();
             switch (next) {
                 .atom => |v| {
-                    const quote_symbol = try builder.makeSymbol(Symbol.init("quote"));
+                    const quote_symbol = try builder.makeStaticSymbol("quote");
                     const list_items = [_]Val{ quote_symbol, v };
                     const quoted = try builder.makeList(&list_items);
                     return ReadResult{ .atom = quoted };
@@ -132,7 +132,7 @@ fn parseNumber(_: Reader, token: []const u8) Vm.Error!ReadResult {
 }
 
 fn parseSymbol(self: Reader, token: []const u8) Vm.Error!ReadResult {
-    const symbol = try self.vm.builder().makeSymbol(Symbol.init(token));
+    const symbol = try self.vm.builder().makeStaticSymbol(token);
     return ReadResult{ .atom = symbol };
 }
 

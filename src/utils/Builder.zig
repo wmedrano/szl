@@ -31,16 +31,10 @@ pub inline fn makeList(self: Builder, items: []const Val) Vm.Error!Val {
     return self.makePairsWithCdr(items, Val.initEmptyList());
 }
 
-// TODO: Take the cdr as an argument.
-pub inline fn makeImproperList(self: Builder, items: []const Val) Vm.Error!Val {
-    if (items.len < 2) return Vm.Error.ReadError;
-    var result = items[items.len - 1];
-    var index: usize = items.len - 1;
-    while (index > 0) {
-        index -= 1;
-        result = try self.makePair(items[index], result);
-    }
-    return result;
+pub inline fn makePairs(self: Builder, items: []const Val) Vm.Error!Val {
+    const len = items.len;
+    if (len < 2) return Vm.Error.ReadError;
+    return self.makePairsWithCdr(items[0 .. len - 1], items[len - 1]);
 }
 
 pub inline fn makePairsWithCdr(self: Builder, items: []const Val, cdr: Val) Vm.Error!Val {
@@ -56,22 +50,30 @@ pub inline fn makePairsWithCdr(self: Builder, items: []const Val, cdr: Val) Vm.E
 /// Creates a symbol value, copying the symbol's string data.
 /// The input symbol's lifetime does not need to extend beyond this function call,
 /// as the string data is copied and managed by the VM's allocator.
-pub inline fn makeSymbol(self: Builder, symbol: Symbol) Vm.Error!Val {
-    return Val.initSymbol(try self.makeSymbolInterned(symbol));
+pub inline fn makeSymbol(self: Builder, symbol: []const u8) Vm.Error!Val {
+    return Val.initSymbol(try self.makeSymbolHandle(symbol));
 }
 
-pub inline fn makeSymbolInterned(self: Builder, symbol: Symbol) error{OutOfMemory}!Symbol.Interned {
+pub inline fn makeStaticSymbol(self: Builder, symbol: []const u8) Vm.Error!Val {
+    return Val.initSymbol(try self.makeStaticSymbolHandle(symbol));
+}
+
+pub inline fn makeSymbolHandle(self: Builder, symbol: []const u8) error{OutOfMemory}!Symbol {
     return try self.vm.objects.symbols.intern(self.vm.allocator(), symbol);
 }
 
+pub inline fn makeStaticSymbolHandle(self: Builder, symbol: []const u8) error{OutOfMemory}!Symbol {
+    return try self.vm.objects.symbols.internStatic(self.vm.allocator(), symbol);
+}
+
 pub const Definition = struct {
-    symbol: Symbol.Interned,
+    symbol: Symbol,
     value: Val,
 };
 
 pub inline fn makeEnvironment(
     self: Builder,
-    namespace: []const Symbol.Interned,
+    namespace: []const Symbol,
     definitions: []const Definition,
 ) Vm.Error!Handle(Module) {
     // Create
@@ -79,7 +81,7 @@ pub inline fn makeEnvironment(
     const module = self.vm.objects.modules.get(h) orelse return Vm.Error.Unreachable;
 
     // Initialize
-    module.namespace = try self.vm.allocator().dupe(Symbol.Interned, namespace);
+    module.namespace = try self.vm.allocator().dupe(Symbol, namespace);
     for (definitions, 0..definitions.len) |def, idx| {
         const slot: u32 = @intCast(idx);
         try module.slots.append(self.vm.allocator(), def.value);

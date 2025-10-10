@@ -14,7 +14,7 @@ const Vm = @import("Vm.zig");
 
 pub const Instruction = union(enum) {
     push_const: Val,
-    get_global: struct { module: Handle(Module), symbol: Symbol.Interned },
+    get_global: struct { module: Handle(Module), symbol: Symbol },
     get_proc,
     get_arg: u32,
     get_local: u32,
@@ -30,7 +30,7 @@ pub const Instruction = union(enum) {
 
     const Global = struct {
         module: Handle(Module),
-        symbol: Symbol.Interned,
+        symbol: Symbol,
     };
 
     const Closure = struct {
@@ -43,14 +43,14 @@ pub const Instruction = union(enum) {
         switch (self) {
             .push_const => |val| {
                 const items = [_]Val{
-                    try builder.makeSymbol(Symbol.init("push-const")),
+                    try builder.makeStaticSymbol("push-const"),
                     val,
                 };
                 return builder.makeList(&items);
             },
             .get_global => |g| {
                 const items = [_]Val{
-                    try builder.makeSymbol(Symbol.init("get-global")),
+                    try builder.makeStaticSymbol("get-global"),
                     Val{ .data = .{ .module = g.module } },
                     Val.initSymbol(g.symbol),
                 };
@@ -58,34 +58,34 @@ pub const Instruction = union(enum) {
             },
             .get_proc => {
                 const items = [_]Val{
-                    try builder.makeSymbol(Symbol.init("get-proc")),
+                    try builder.makeStaticSymbol("get-proc"),
                 };
                 return builder.makeList(&items);
             },
             .get_arg => |idx| {
                 const items = [_]Val{
-                    try builder.makeSymbol(Symbol.init("get-arg")),
+                    try builder.makeStaticSymbol("get-arg"),
                     Val.initInt(@intCast(idx)),
                 };
                 return builder.makeList(&items);
             },
             .get_local => |idx| {
                 const items = [_]Val{
-                    try builder.makeSymbol(Symbol.init("get-local")),
+                    try builder.makeStaticSymbol("get-local"),
                     Val.initInt(@intCast(idx)),
                 };
                 return builder.makeList(&items);
             },
             .get_capture => |idx| {
                 const items = [_]Val{
-                    try builder.makeSymbol(Symbol.init("get-capture")),
+                    try builder.makeStaticSymbol("get-capture"),
                     Val.initInt(@intCast(idx)),
                 };
                 return builder.makeList(&items);
             },
             .set_global => |g| {
                 const items = [_]Val{
-                    try builder.makeSymbol(Symbol.init("set-global")),
+                    try builder.makeStaticSymbol("set-global"),
                     Val{ .data = .{ .module = g.module } },
                     Val.initSymbol(g.symbol),
                 };
@@ -93,42 +93,42 @@ pub const Instruction = union(enum) {
             },
             .set_local => |idx| {
                 const items = [_]Val{
-                    try builder.makeSymbol(Symbol.init("set-local")),
+                    try builder.makeStaticSymbol("set-local"),
                     Val.initInt(@intCast(idx)),
                 };
                 return builder.makeList(&items);
             },
             .jump => |n| {
                 const items = [_]Val{
-                    try builder.makeSymbol(Symbol.init("jump")),
+                    try builder.makeStaticSymbol("jump"),
                     Val.initInt(n),
                 };
                 return builder.makeList(&items);
             },
             .jump_if_not => |n| {
                 const items = [_]Val{
-                    try builder.makeSymbol(Symbol.init("jump-if-not")),
+                    try builder.makeStaticSymbol("jump-if-not"),
                     Val.initInt(n),
                 };
                 return builder.makeList(&items);
             },
             .squash => |n| {
                 const items = [_]Val{
-                    try builder.makeSymbol(Symbol.init("squash")),
+                    try builder.makeStaticSymbol("squash"),
                     Val.initInt(@intCast(n)),
                 };
                 return builder.makeList(&items);
             },
             .eval => |n| {
                 const items = [_]Val{
-                    try builder.makeSymbol(Symbol.init("eval")),
+                    try builder.makeStaticSymbol("eval"),
                     Val.initInt(@intCast(n)),
                 };
                 return builder.makeList(&items);
             },
             .make_closure => |c| {
                 const items = [_]Val{
-                    try builder.makeSymbol(Symbol.init("make-closure")),
+                    try builder.makeStaticSymbol("make-closure"),
                     Val.initProc(c.proc),
                     Val.initInt(@intCast(c.capture_count)),
                 };
@@ -136,7 +136,7 @@ pub const Instruction = union(enum) {
             },
             .ret => {
                 const items = [_]Val{
-                    try builder.makeSymbol(Symbol.init("ret")),
+                    try builder.makeStaticSymbol("ret"),
                 };
                 return builder.makeList(&items);
             },
@@ -192,7 +192,7 @@ pub fn executeUntilEnd(vm: *Vm) Vm.Error!Val {
     return vm.context.top() orelse Val.initEmptyList();
 }
 
-fn moduleGet(vm: *Vm, module: Handle(Module), symbol: Symbol.Interned) !void {
+fn moduleGet(vm: *Vm, module: Handle(Module), symbol: Symbol) !void {
     const m = vm.inspector().handleToModule(module) catch return Vm.Error.UndefinedBehavior;
     const val = m.getBySymbol(symbol) orelse {
         return Vm.Error.UndefinedBehavior;

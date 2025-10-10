@@ -6,7 +6,7 @@ const Symbol = @import("Symbol.zig");
 const Proc = @This();
 
 instructions: []const Instruction,
-name: Symbol.Interned,
+name: Symbol,
 arg_count: u32,
 locals_count: u32,
 captures_count: u32,

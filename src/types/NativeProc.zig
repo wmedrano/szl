@@ -126,11 +126,11 @@ fn szlRaiseNextImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
     const err = vm.context.top() orelse return Vm.Error.UndefinedBehavior;
     _ = try vm.context.unwindBeforeExceptionHandler();
     const global_mod_handle = inspector.findModule(&.{
-        try builder.makeSymbolInterned(Symbol.init("scheme")),
-        try builder.makeSymbolInterned(Symbol.init("base")),
+        try builder.makeStaticSymbolHandle("scheme"),
+        try builder.makeStaticSymbolHandle("base"),
     }) orelse return Vm.Error.UndefinedBehavior;
     const global_mod = try inspector.handleToModule(global_mod_handle);
-    const raise_proc = global_mod.getBySymbol(try builder.makeSymbolInterned(Symbol.init("raise"))) orelse
+    const raise_proc = global_mod.getBySymbol(try builder.makeStaticSymbolHandle("raise")) orelse
         return Vm.Error.UndefinedBehavior;
     try vm.context.pushSlice(vm.allocator(), &.{ err, raise_proc });
     try (Instruction{ .eval = 1 }).execute(vm);
@@ -148,7 +148,7 @@ fn importImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
     const module_specifier = try inspector.listToSliceAlloc(vm.allocator(), vm.context.top() orelse
         return Vm.Error.UndefinedBehavior);
     defer vm.allocator().free(module_specifier);
-    const module_symbols = try vm.allocator().alloc(Symbol.Interned, module_specifier.len);
+    const module_symbols = try vm.allocator().alloc(Symbol, module_specifier.len);
     defer vm.allocator().free(module_symbols);
     for (module_specifier, module_symbols) |val, *sym| {
         sym.* = val.asSymbol() orelse return Vm.Error.NotImplemented;

@@ -26,7 +26,7 @@ pub const Data = union(enum) {
     boolean: bool,
     int: i64,
     pair: Handle(Pair),
-    symbol: Symbol.Interned,
+    symbol: Symbol,
     module: Handle(Module),
     proc: Handle(Proc),
     closure: Closure,
@@ -47,7 +47,7 @@ pub fn initBool(x: bool) Val {
     return Val{ .data = .{ .boolean = x } };
 }
 
-pub fn initSymbol(sym: Symbol.Interned) Val {
+pub fn initSymbol(sym: Symbol) Val {
     return Val{ .data = .{ .symbol = sym } };
 }
 
@@ -92,7 +92,7 @@ pub fn isProc(self: Val) bool {
     };
 }
 
-pub fn asSymbol(self: Val) ?Symbol.Interned {
+pub fn asSymbol(self: Val) ?Symbol {
     switch (self.data) {
         .symbol => |s| return s,
         else => return null,

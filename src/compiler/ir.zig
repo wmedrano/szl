@@ -13,9 +13,9 @@ pub const Error = error{
 
 pub const Ir = union(enum) {
     push_const: Val,
-    get: Symbol.Interned,
+    get: Symbol,
     define: struct {
-        symbol: Symbol.Interned,
+        symbol: Symbol,
         expr: *Ir,
     },
     if_expr: IfExpr,
@@ -41,7 +41,7 @@ pub const Ir = union(enum) {
     };
 
     pub const LetBinding = struct {
-        name: Symbol.Interned,
+        name: Symbol,
         expr: Ir,
     };
 
@@ -51,13 +51,13 @@ pub const Ir = union(enum) {
     };
 
     pub const Lambda = struct {
-        name: ?Symbol.Interned,
-        args: []Symbol.Interned,
+        name: ?Symbol,
+        args: []Symbol,
         body: []Ir,
     };
 
     pub const Variable = struct {
-        name: ?Symbol.Interned,
+        name: ?Symbol,
         location: Location,
 
         pub const Location = union(enum) {
@@ -101,11 +101,11 @@ const Builder = struct {
 
     fn buildList(self: *Builder, list: []const Val) Error!Ir {
         if (list.len == 0) return Error.InvalidExpression;
-        const define = try self.vm.builder().makeSymbolInterned(Symbol.init("define"));
-        const if_sym = try self.vm.builder().makeSymbolInterned(Symbol.init("if"));
-        const lambda = try self.vm.builder().makeSymbolInterned(Symbol.init("lambda"));
-        const let = try self.vm.builder().makeSymbolInterned(Symbol.init("let"));
-        const quote = try self.vm.builder().makeSymbolInterned(Symbol.init("quote"));
+        const define = try self.vm.builder().makeStaticSymbolHandle("define");
+        const if_sym = try self.vm.builder().makeStaticSymbolHandle("if");
+        const lambda = try self.vm.builder().makeStaticSymbolHandle("lambda");
+        const let = try self.vm.builder().makeStaticSymbolHandle("let");
+        const quote = try self.vm.builder().makeStaticSymbolHandle("quote");
         if (list[0].asSymbol()) |sym| {
             if (sym.eq(define)) {
                 switch (list.len) {
@@ -161,7 +161,7 @@ const Builder = struct {
         return Error.InvalidExpression;
     }
 
-    fn buildDefineVal(self: *Builder, symbol: Symbol.Interned, expr: Val) Error!Ir {
+    fn buildDefineVal(self: *Builder, symbol: Symbol, expr: Val) Error!Ir {
         const expr_ir = try self.arena.allocator().create(Ir);
         expr_ir.* = try self.build(expr);
         return Ir{
@@ -225,7 +225,7 @@ const Builder = struct {
         };
     }
 
-    fn buildLambda(self: *Builder, name: ?Symbol.Interned, parameters: Val, body: []const Val) Error!Ir {
+    fn buildLambda(self: *Builder, name: ?Symbol, parameters: Val, body: []const Val) Error!Ir {
         var lambda_builder = Builder{
             .arena = self.arena,
             .vm = self.vm,
@@ -248,9 +248,9 @@ const Builder = struct {
         return list;
     }
 
-    fn valToSymbolsSlice(self: Builder, val: Val) Error![]Symbol.Interned {
+    fn valToSymbolsSlice(self: Builder, val: Val) Error![]Symbol {
         const vals = try self.valToSlice(val);
-        const syms = try self.arena.allocator().alloc(Symbol.Interned, vals.len);
+        const syms = try self.arena.allocator().alloc(Symbol, vals.len);
         for (vals, syms) |v, *sym| {
             const s = v.asSymbol() orelse return Error.InvalidExpression;
             sym.* = s;

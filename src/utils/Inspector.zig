@@ -117,19 +117,27 @@ pub inline fn handleToModule(self: Inspector, h: Handle(Module)) Vm.Error!*Modul
     return self.vm.objects.modules.get(h) orelse return Vm.Error.UndefinedBehavior;
 }
 
-pub fn findModule(self: Inspector, path: []const Symbol.Interned) ?Handle(Module) {
+pub fn findModule(self: Inspector, path: []const Symbol) ?Handle(Module) {
     var moduleIter = self.vm.objects.modules.iterator();
     while (moduleIter.next()) |module| {
-        if (std.mem.eql(Symbol.Interned, module.value.namespace, path))
+        if (pathEq(module.value.namespace, path))
             return module.handle;
     }
     return null;
 }
 
+fn pathEq(a: []const Symbol, b: []const Symbol) bool {
+    if (a.len != b.len) return false;
+    for (a, b) |x, y| {
+        if (!x.eq(y)) return false;
+    }
+    return true;
+}
+
 pub fn getReplEnv(self: Inspector) Vm.Error!Handle(Module) {
     const b = self.vm.builder();
     return self.findModule(&.{
-        try b.makeSymbolInterned(Symbol.init("user")),
-        try b.makeSymbolInterned(Symbol.init("repl")),
+        try b.makeStaticSymbolHandle("user"),
+        try b.makeStaticSymbolHandle("repl"),
     }) orelse return Vm.Error.Unreachable;
 }

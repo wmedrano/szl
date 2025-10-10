@@ -23,10 +23,10 @@ pub fn format(self: PrettyPrinter, writer: *std.Io.Writer) std.Io.Writer.Error!v
         .int => |n| try writer.print("{}", .{n}),
         .pair => |h| try self.formatPair(writer, h),
         .symbol => |h| {
-            const s = self.vm.objects.symbols.asSymbol(h) orelse {
+            const s = self.vm.objects.symbols.asString(h) orelse {
                 return writer.print("#<symbol-{}>", .{h.id});
             };
-            try writer.writeAll(s.string);
+            try writer.writeAll(s);
         },
         .module => |h| try self.formatModule(writer, h),
         .proc => |h| try self.formatProc(writer, h, null),
@@ -75,10 +75,10 @@ fn formatProc(
         return try writer.writeAll("#<procedure:invalid>");
     };
     const infix = if (captures_h) |_| "*:" else "";
-    const sym = self.vm.objects.symbols.asSymbol(proc.name) orelse {
+    const sym = self.vm.objects.symbols.asString(proc.name) orelse {
         return try writer.print("#<procedure:{s}{}>", .{ infix, proc_h.id });
     };
-    try writer.print("#<procedure:{s}{s}>", .{ infix, sym.string });
+    try writer.print("#<procedure:{s}{s}>", .{ infix, sym });
 }
 
 fn formatModule(self: PrettyPrinter, writer: *std.Io.Writer, h: Handle(Module)) std.Io.Writer.Error!void {
@@ -155,7 +155,7 @@ test "format improper list places dot before last element" {
     try testing.expectFmt(
         "(1 2 . 3)",
         "{f}",
-        .{vm.pretty(try b.makeImproperList(&items))},
+        .{vm.pretty(try b.makePairs(&items))},
     );
 }
 
@@ -182,7 +182,7 @@ test "format symbol produces symbol string" {
     try testing.expectFmt(
         "foo",
         "{f}",
-        .{vm.pretty(try b.makeSymbol(Symbol.init("foo")))},
+        .{vm.pretty(try b.makeStaticSymbol("foo"))},
     );
 }
 
@@ -191,8 +191,8 @@ test "symbol with same string is eq" {
     defer vm.deinit();
 
     const b = vm.builder();
-    const sym1 = try b.makeSymbol(Symbol.init("foo"));
-    const sym2 = try b.makeSymbol(Symbol.init("foo"));
+    const sym1 = try b.makeStaticSymbol("foo");
+    const sym2 = try b.makeStaticSymbol("foo");
 
     try testing.expect(sym1.eq(sym2));
 }
@@ -202,8 +202,8 @@ test "symbol with different identifiers are different" {
     defer vm.deinit();
 
     const b = vm.builder();
-    const sym1 = try b.makeSymbol(Symbol.init("foo"));
-    const sym2 = try b.makeSymbol(Symbol.init("foobar"));
+    const sym1 = try b.makeStaticSymbol("foo");
+    const sym2 = try b.makeStaticSymbol("foobar");
 
     try testing.expect(!sym1.eq(sym2));
 }
@@ -214,8 +214,8 @@ test "format environment produces namespace in parens" {
 
     const b = vm.builder();
     const env = try b.makeEnvironment(&.{
-        (try b.makeSymbol(Symbol.init("scheme"))).data.symbol,
-        (try b.makeSymbol(Symbol.init("base"))).data.symbol,
+        (try b.makeStaticSymbolHandle("scheme")),
+        (try b.makeStaticSymbolHandle("base")),
     }, &.{});
     try testing.expectFmt(
         "#<environment:module:(scheme base)>",
