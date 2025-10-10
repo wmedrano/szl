@@ -27,6 +27,12 @@ pub const Token = struct {
     column: u32,
 };
 
+pub const CompletionStatus = enum {
+    complete,
+    missing_close_paren,
+    malformed,
+};
+
 source: []const u8,
 start: u32 = 0,
 current: u32 = 0,
@@ -219,6 +225,32 @@ fn makeTokenAt(self: *Tokenizer, token_type: TokenType, start_column: u32) Token
     };
 }
 
+/// Checks if the source contains a complete expression with balanced parentheses.
+/// This properly handles comments and strings, as it uses the tokenizer.
+pub fn isComplete(source: []const u8) CompletionStatus {
+    var tokenizer = Tokenizer.init(source);
+    var depth: i32 = 0;
+
+    while (tokenizer.nextToken()) |token| {
+        switch (token.type) {
+            .left_paren => depth += 1,
+            .right_paren => {
+                depth -= 1;
+                if (depth < 0) {
+                    return .malformed;
+                }
+            },
+            else => {},
+        }
+    }
+
+    if (depth > 0) {
+        return .missing_close_paren;
+    }
+
+    return .complete;
+}
+
 test "tokenize empty string" {
     var tokenizer = Tokenizer.init("");
     const token = tokenizer.nextToken();
@@ -362,4 +394,56 @@ test "tokenize with comments" {
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(null, tokenizer.nextToken());
+}
+
+test "isComplete: empty string is complete" {
+    try testing.expectEqual(CompletionStatus.complete, isComplete(""));
+}
+
+test "isComplete: complete expression" {
+    try testing.expectEqual(CompletionStatus.complete, isComplete("(+ 1 2)"));
+}
+
+test "isComplete: nested complete expression" {
+    try testing.expectEqual(CompletionStatus.complete, isComplete("(+ (- 3 1) 2)"));
+}
+
+test "isComplete: multiple complete expressions" {
+    try testing.expectEqual(CompletionStatus.complete, isComplete("(+ 1 2) (- 3 1)"));
+}
+
+test "isComplete: complete with comment" {
+    try testing.expectEqual(CompletionStatus.complete, isComplete("; comment\n(+ 1 2)"));
+}
+
+test "isComplete: complete with string containing parens" {
+    try testing.expectEqual(CompletionStatus.complete, isComplete("(print \"(hello)\")"));
+}
+
+test "isComplete: missing close paren" {
+    try testing.expectEqual(CompletionStatus.missing_close_paren, isComplete("(+ 1 2"));
+}
+
+test "isComplete: nested missing close paren" {
+    try testing.expectEqual(CompletionStatus.missing_close_paren, isComplete("(+ (- 3 1) 2"));
+}
+
+test "isComplete: multiple missing close parens" {
+    try testing.expectEqual(CompletionStatus.missing_close_paren, isComplete("((+ 1 2"));
+}
+
+test "isComplete: malformed with extra close paren" {
+    try testing.expectEqual(CompletionStatus.malformed, isComplete("())"));
+}
+
+test "isComplete: malformed with only close paren" {
+    try testing.expectEqual(CompletionStatus.malformed, isComplete(")"));
+}
+
+test "isComplete: malformed in middle of expression" {
+    try testing.expectEqual(CompletionStatus.malformed, isComplete("(+ 1 2)) (- 3 1)"));
+}
+
+test "isComplete: just symbols is complete" {
+    try testing.expectEqual(CompletionStatus.complete, isComplete("define x 42"));
 }
