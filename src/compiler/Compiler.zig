@@ -32,7 +32,7 @@ pub const Error = error{
 
 pub const Scope = struct {
     module: Handle(Module),
-    proc: ?Symbol.Interned = null,
+    proc: ?Symbol.Interned,
     args: []const Symbol.Interned = &.{},
     locals: std.ArrayList(Local) = .{},
     captures: Captures = .{},
@@ -106,7 +106,7 @@ pub fn init(arena: *std.heap.ArenaAllocator, vm: *Vm, module: Handle(Module)) Co
     return Compiler{
         .vm = vm,
         .arena = arena,
-        .scope = Scope{ .module = module },
+        .scope = Scope{ .module = module, .proc = null },
     };
 }
 
@@ -127,11 +127,7 @@ fn addIr(self: *Compiler, ir: Ir, return_value: bool) Error!void {
         .define => |d| try self.addDefine(d.symbol, d.expr.*),
         .if_expr => |expr| try self.addIf(expr.test_expr.*, expr.true_expr.*, expr.false_expr.*, return_value),
         .let_expr => |expr| try self.addLet(expr.bindings, expr.body, return_value),
-        .eval => |e| {
-            try self.addIr(e.proc.*, false);
-            for (e.args) |arg| try self.addIr(arg, false);
-            try self.addInstruction(.{ .eval = @intCast(e.args.len) });
-        },
+        .eval => |e| try self.addEval(e),
         .lambda => |l| try self.addLambda(l),
     }
     if (return_value) try self.addInstruction(.{ .ret = {} });
@@ -157,6 +153,12 @@ fn addGet(self: *Compiler, sym: Symbol.Interned) Error!void {
     try self.addInstruction(instruction);
 }
 
+fn addEval(self: *Compiler, e: anytype) Error!void {
+    try self.addIr(e.proc.*, false);
+    for (e.args) |arg| try self.addIr(arg, false);
+    try self.addInstruction(.{ .eval = @intCast(e.args.len) });
+}
+
 fn addInstruction(self: *Compiler, instruction: Instruction) !void {
     try self.instructions.append(self.arena.allocator(), instruction);
 }
@@ -167,6 +169,7 @@ fn addLambda(self: *Compiler, lambda: Ir.Lambda) Error!void {
         .arena = self.arena,
         .scope = Scope{
             .module = self.scope.module,
+            .proc = null,
             .args = lambda.args,
             .captures = try self.scope.toCaptureCandidates(self.arena.allocator()),
         },

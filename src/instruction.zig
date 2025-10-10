@@ -89,7 +89,7 @@ fn moduleGet(vm: *Vm, module: Handle(Module), symbol: Symbol.Interned) !void {
     try vm.context.push(vm.allocator(), val);
 }
 
-const EvalOptoins = struct {
+const EvalOptions = struct {
     arg_count: u32,
     exception_handler: ?Val = null,
 };
