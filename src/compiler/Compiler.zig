@@ -113,7 +113,7 @@ pub fn init(arena: *std.heap.ArenaAllocator, vm: *Vm, module: Handle(Module)) Co
 
 pub fn compile(self: *Compiler, expr: Val) Error!Val {
     // Val -> Ir
-    const ir = try Ir.init(self.arena, self.vm, expr);
+    const ir = try Ir.init(self.arena, self.vm, self.scope.module, expr);
     try self.addIr(ir, true);
     // Ir -> Val(Proc)
     const proc = try self.makeProc(null);
@@ -126,8 +126,8 @@ fn addIr(self: *Compiler, ir: Ir, return_value: bool) Error!void {
         .push_const => |v| try self.addInstruction(.{ .push_const = v }),
         .get => |sym| try self.addGet(sym),
         .define => |d| try self.addDefine(d.symbol, d.expr.*),
-        .if_expr => |expr| try self.addIf(expr.test_expr.*, expr.true_expr.*, expr.false_expr.*, return_value),
-        .let_expr => |expr| try self.addLet(expr.bindings, expr.body, return_value),
+        .if_expr => |expr| return self.addIf(expr.test_expr.*, expr.true_expr.*, expr.false_expr.*, return_value),
+        .let_expr => |expr| return self.addLet(expr.bindings, expr.body, return_value),
         .eval => |e| try self.addEval(e),
         .lambda => |l| try self.addLambda(l),
     }
@@ -135,13 +135,17 @@ fn addIr(self: *Compiler, ir: Ir, return_value: bool) Error!void {
 }
 
 fn addIrs(self: *Compiler, irs: []const Ir, return_value: bool) Error!void {
-    if (irs.len == 0)
-        return self.addIr(Ir{ .push_const = Val.initEmptyList() }, true);
-    for (irs) |ir| try self.addIr(ir, false);
-    if (return_value)
-        try self.addInstruction(.{ .ret = {} })
-    else if (irs.len > 1)
-        try self.addInstruction(.{ .squash = @intCast(irs.len) });
+    switch (irs.len) {
+        0 => return self.addIr(Ir{ .push_const = Val.initEmptyList() }, return_value),
+        1 => return self.addIr(irs[0], return_value),
+        else => {
+            for (irs[0 .. irs.len - 1]) |ir| try self.addIr(ir, false);
+            try self.addIr(irs[irs.len - 1], return_value);
+            if (!return_value) {
+                try self.addInstruction(.{ .squash = @intCast(irs.len) });
+            }
+        },
+    }
 }
 
 fn addGet(self: *Compiler, sym: Symbol) Error!void {

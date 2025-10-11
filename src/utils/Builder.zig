@@ -7,6 +7,7 @@ const Handle = @import("../types/object_pool.zig").Handle;
 const Pair = @import("../types/Pair.zig");
 const String = @import("../types/String.zig");
 const Symbol = @import("../types/Symbol.zig");
+const SyntaxRules = @import("../types/SyntaxRules.zig");
 const Val = @import("../types/Val.zig");
 const Vector = @import("../types/Vector.zig");
 const Vm = @import("../Vm.zig");
@@ -120,4 +121,13 @@ pub inline fn makeContinuationHandle(self: Builder, context: Context) Vm.Error!H
 pub inline fn makeContinuation(self: Builder, context: Context) Vm.Error!Val {
     const h = try self.makeContinuationHandle(context);
     return Val{ .data = .{ .continuation = h } };
+}
+
+pub inline fn makeSyntaxRulesHandle(self: Builder, syntax_rules: SyntaxRules) error{OutOfMemory}!Handle(SyntaxRules) {
+    return try self.vm.objects.syntax_rules.put(self.vm.allocator(), syntax_rules);
+}
+
+pub inline fn makeSyntaxRules(self: Builder, syntax_rules: SyntaxRules) !Val {
+    const h = try self.makeSyntaxRulesHandle(syntax_rules);
+    return Val{ .data = .{ .syntax_rules = h } };
 }

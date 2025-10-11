@@ -8,6 +8,7 @@ const Pair = @import("../types/Pair.zig");
 const Proc = @import("../types/Proc.zig");
 const String = @import("../types/String.zig");
 const Symbol = @import("../types/Symbol.zig");
+const SyntaxRules = @import("../types/SyntaxRules.zig");
 const Val = @import("../types/Val.zig");
 const Vector = @import("../types/Vector.zig");
 const Vm = @import("../Vm.zig");
@@ -41,6 +42,7 @@ pub fn format(self: PrettyPrinter, writer: *std.Io.Writer) std.Io.Writer.Error!v
         .native_proc => |p| try writer.print("#<procedure:native:{s}>", .{p.name}),
         .vector => |h| try self.formatVector(writer, h),
         .continuation => try writer.writeAll("#<procedure:continuation>"),
+        .syntax_rules => |h| try self.formatSyntaxRules(writer, h),
     }
 }
 
@@ -116,6 +118,13 @@ fn formatVector(self: PrettyPrinter, writer: *std.Io.Writer, h: Handle(Vector)) 
     }
     try writer.writeAll("#(");
     try writer.writeAll(")");
+}
+
+fn formatSyntaxRules(self: PrettyPrinter, writer: *std.Io.Writer, h: Handle(SyntaxRules)) std.Io.Writer.Error!void {
+    _ = self.vm.objects.syntax_rules.get(h) orelse {
+        return try writer.print("#<syntax-rules:invalid-{}>", .{h.id});
+    };
+    return writer.writeAll("#<syntax-rules>");
 }
 
 test "format empty list is empty parens" {

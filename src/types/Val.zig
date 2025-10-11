@@ -11,6 +11,7 @@ const Pair = @import("Pair.zig");
 const Proc = @import("Proc.zig");
 const String = @import("String.zig");
 const Symbol = @import("Symbol.zig");
+const SyntaxRules = @import("SyntaxRules.zig");
 const Vector = @import("Vector.zig");
 
 const Val = @This();
@@ -35,6 +36,7 @@ pub const Data = union(enum) {
     native_proc: *const NativeProc,
     vector: Handle(Vector),
     continuation: Handle(Continuation),
+    syntax_rules: Handle(SyntaxRules),
 };
 
 pub fn initEmptyList() Val {

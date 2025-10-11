@@ -53,7 +53,7 @@ test "proc-instructions reveals bytecode" {
     defer vm.deinit();
 
     try vm.expectEval(
-        "((get-arg 0) (push-const 1) (get-global #<environment:module:(user repl)> <=) (eval 2) (jump-if-not 2) (get-arg 0) (jump 14) (get-arg 0) (push-const 1) (get-global #<environment:module:(user repl)> -) (eval 2) (get-global #<environment:module:(user repl)> fib) (eval 1) (get-arg 0) (push-const 2) (get-global #<environment:module:(user repl)> -) (eval 2) (get-global #<environment:module:(user repl)> fib) (eval 1) (get-global #<environment:module:(user repl)> +) (eval 2) (ret))",
+        "((get-arg 0) (push-const 1) (get-global #<environment:module:(user repl)> <=) (eval 2) (jump-if-not 2) (get-arg 0) (ret) (get-arg 0) (push-const 1) (get-global #<environment:module:(user repl)> -) (eval 2) (get-global #<environment:module:(user repl)> fib) (eval 1) (get-arg 0) (push-const 2) (get-global #<environment:module:(user repl)> -) (eval 2) (get-global #<environment:module:(user repl)> fib) (eval 1) (get-global #<environment:module:(user repl)> +) (eval 2) (ret))",
         \\ (define (fib n) (if (<= n 1)
         \\                   n
         \\                   (+ (fib (- n 1))

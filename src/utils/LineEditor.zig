@@ -152,6 +152,8 @@ fn restoreTerminal(self: *LineEditor) !void {
         try std.posix.tcsetattr(stdin.handle, .FLUSH, termios);
         self.original_termios = null;
     }
+    const stdout = std.fs.File.stdout();
+    try stdout.writeAll("\r");
 }
 
 fn refreshLine(self: *LineEditor, prompt: []const u8) !void {

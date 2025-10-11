@@ -17,6 +17,7 @@ const Pair = @import("types/Pair.zig");
 const Proc = @import("types/Proc.zig");
 const String = @import("types/String.zig");
 const Symbol = @import("types/Symbol.zig");
+const SyntaxRules = @import("types/SyntaxRules.zig");
 const Val = @import("types/Val.zig");
 const Vector = @import("types/Vector.zig");
 const Builder = @import("utils/Builder.zig");
@@ -33,6 +34,7 @@ pub const Objects = struct {
     procs: ObjectPool(Proc) = .{},
     vectors: ObjectPool(Vector) = .{},
     continuations: ObjectPool(Continuation) = .{},
+    syntax_rules: ObjectPool(SyntaxRules) = .{},
 
     pub fn init(alloc: std.mem.Allocator) Objects {
         return Objects{
@@ -114,6 +116,9 @@ pub fn deinit(self: *Vm) void {
 
     self.objects.continuations.applyAll(standard_deinit);
     self.objects.continuations.deinit(self.allocator());
+
+    self.objects.syntax_rules.applyAll(standard_deinit);
+    self.objects.syntax_rules.deinit(self.allocator());
 
     self.objects.symbols.deinit(self.allocator());
 }
