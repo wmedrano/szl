@@ -1,13 +1,77 @@
 const std = @import("std");
 const testing = std.testing;
 
-const Instruction = @import("instruction.zig").Instruction;
-const NativeProc = @import("types/NativeProc.zig");
-const Symbol = @import("types/Symbol.zig");
-const Val = @import("types/Val.zig");
-const Vm = @import("Vm.zig");
+const Instruction = @import("../instruction.zig").Instruction;
+const Module = @import("../types/Module.zig");
+const NativeProc = @import("../types/NativeProc.zig");
+const Handle = @import("../types/object_pool.zig").Handle;
+const Symbol = @import("../types/Symbol.zig");
+const Val = @import("../types/Val.zig");
+const Builder = @import("../utils/Builder.zig");
+const Vm = @import("../Vm.zig");
 
-pub const add = NativeProc.withRawArgs(struct {
+pub fn init(vm: *Vm) Vm.Error!Handle(Module) {
+    const b = vm.builder();
+
+    const global_handle = try b.makeEnvironment(&.{
+        (try b.makeStaticSymbolHandle("scheme")),
+        (try b.makeStaticSymbolHandle("base")),
+    }, &[_]Builder.Definition{
+        .{
+            .symbol = (try b.makeStaticSymbolHandle("+")),
+            .value = Val.initNativeProc(&add),
+        },
+        .{
+            .symbol = (try b.makeStaticSymbolHandle("-")),
+            .value = Val.initNativeProc(&sub),
+        },
+        .{
+            .symbol = (try b.makeStaticSymbolHandle("<=")),
+            .value = Val.initNativeProc(&lte),
+        },
+        .{
+            .symbol = (try b.makeStaticSymbolHandle("apply")),
+            .value = Val.initNativeProc(&apply),
+        },
+        .{
+            .symbol = (try b.makeStaticSymbolHandle("call/cc")),
+            .value = Val.initNativeProc(&call_cc),
+        },
+        .{
+            .symbol = (try b.makeStaticSymbolHandle("call-with-current-continuation")),
+            .value = Val.initNativeProc(&call_cc),
+        },
+        .{
+            .symbol = (try b.makeStaticSymbolHandle("with-exception-handler")),
+            .value = Val.initNativeProc(&with_exception_handler),
+        },
+        .{
+            .symbol = (try b.makeStaticSymbolHandle("raise-continuable")),
+            .value = Val.initNativeProc(&raise_continuable),
+        },
+        .{
+            .symbol = (try b.makeStaticSymbolHandle("%szl-raise-next")),
+            .value = Val.initNativeProc(&szl_raise_next),
+        },
+        .{
+            .symbol = (try b.makeStaticSymbolHandle("import")),
+            .value = Val.initNativeProc(&import),
+        },
+        .{
+            .symbol = (try b.makeStaticSymbolHandle("string-length")),
+            .value = Val.initNativeProc(&string_length),
+        },
+    });
+    _ = try vm.evalStr(
+        \\ (define (raise err)
+        \\   (raise-continuable err)
+        \\   (%szl-raise-next err))
+    , global_handle);
+
+    return global_handle;
+}
+
+const add = NativeProc.withRawArgs(struct {
     pub const name = "+";
     pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
         const inspector = vm.inspector();
@@ -18,7 +82,7 @@ pub const add = NativeProc.withRawArgs(struct {
     }
 });
 
-pub const sub = NativeProc.withRawArgs(struct {
+const sub = NativeProc.withRawArgs(struct {
     pub const name = "-";
     pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
         const inspector = vm.inspector();
@@ -39,7 +103,7 @@ pub const sub = NativeProc.withRawArgs(struct {
     }
 });
 
-pub const lte = NativeProc.withRawArgs(struct {
+const lte = NativeProc.withRawArgs(struct {
     pub const name = "<=";
     pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
         const inspector = vm.inspector();
@@ -67,7 +131,7 @@ pub const lte = NativeProc.withRawArgs(struct {
     }
 });
 
-pub const call_cc = NativeProc{
+const call_cc = NativeProc{
     .name = "call/cc",
     .unsafe_impl = &callCcImpl,
 };
@@ -80,7 +144,7 @@ fn callCcImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
     try (Instruction{ .eval = 1 }).execute(vm);
 }
 
-pub const with_exception_handler = NativeProc{
+const with_exception_handler = NativeProc{
     .name = "with-exception-handler",
     .unsafe_impl = &withExceptionHandlerImpl,
 };
@@ -94,7 +158,7 @@ fn withExceptionHandlerImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
     try (Instruction{ .eval = 0 }).execute(vm);
 }
 
-pub const raise_continuable = NativeProc{
+const raise_continuable = NativeProc{
     .name = "raise-continuable",
     .unsafe_impl = &raiseContinuableImpl,
 };
@@ -106,7 +170,7 @@ fn raiseContinuableImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
     try (Instruction{ .eval = 1 }).execute(vm);
 }
 
-pub const szl_raise_next = NativeProc{
+const szl_raise_next = NativeProc{
     .name = "%szl-raise-next",
     .unsafe_impl = &szlRaiseNextImpl,
 };
@@ -128,7 +192,7 @@ fn szlRaiseNextImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
     try (Instruction{ .eval = 1 }).execute(vm);
 }
 
-pub const apply = NativeProc{
+const apply = NativeProc{
     .name = "apply",
     .unsafe_impl = &applyImpl,
 };
@@ -150,7 +214,7 @@ fn applyImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
     try (Instruction{ .eval = proc_args_count }).execute(vm);
 }
 
-pub const import = NativeProc{
+const import = NativeProc{
     .name = "import",
     .unsafe_impl = &importImpl,
 };
@@ -176,28 +240,7 @@ fn importImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
     );
 }
 
-pub const proc_instructions = NativeProc.withRawArgs(struct {
-    pub const name = "proc-instructions";
-    pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
-        if (args.len != 1) return .{ .err = error.NotImplemented };
-        const proc_val = args[0];
-        const proc_handle = switch (proc_val.data) {
-            .proc => |h| h,
-            .closure => |c| c.proc,
-            else => return .{ .err = error.NotImplemented },
-        };
-        const proc = vm.objects.procs.get(proc_handle) orelse return .{ .err = error.UndefinedBehavior };
-        const instructions = vm.allocator().alloc(Val, proc.instructions.len) catch |e| return .{ .err = e };
-        defer vm.allocator().free(instructions);
-        for (instructions, proc.instructions) |*dst, src| {
-            dst.* = src.toVal(vm) catch |e| return .{ .err = e };
-        }
-        const list = vm.builder().makeList(instructions) catch |e| return .{ .err = e };
-        return .{ .val = list };
-    }
-});
-
-pub const string_length = NativeProc.withRawArgs(struct {
+const string_length = NativeProc.withRawArgs(struct {
     pub const name = "string-length";
     pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
         if (args.len != 1) return .{ .err = error.NotImplemented };
@@ -350,22 +393,6 @@ test "call/cc can stop exception from propagating" {
         \\   (with-exception-handler
         \\     (lambda (err) (exit 'recovered))
         \\     bad-thunk)))
-        ,
-    );
-}
-
-test "proc-instructions reveals bytecode" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    try vm.expectEval(
-        "((get-arg 0) (push-const 1) (get-global #<environment:module:(user repl)> <=) (eval 2) (jump-if-not 2) (get-arg 0) (jump 14) (get-arg 0) (push-const 1) (get-global #<environment:module:(user repl)> -) (eval 2) (get-global #<environment:module:(user repl)> fib) (eval 1) (get-arg 0) (push-const 2) (get-global #<environment:module:(user repl)> -) (eval 2) (get-global #<environment:module:(user repl)> fib) (eval 1) (get-global #<environment:module:(user repl)> +) (eval 2) (ret))",
-        \\ (define (fib n) (if (<= n 1)
-        \\                   n
-        \\                   (+ (fib (- n 1))
-        \\                      (fib (- n 2)))))
-        \\ (import '(sizzle unstable compiler))
-        \\ (proc-instructions fib)
         ,
     );
 }

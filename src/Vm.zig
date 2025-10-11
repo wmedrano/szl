@@ -1,12 +1,13 @@
 const std = @import("std");
 const testing = std.testing;
 
-const builtins = @import("builtins.zig");
 const Compiler = @import("compiler/Compiler.zig");
 const Reader = @import("compiler/Reader.zig");
 const Context = @import("Context.zig");
 const instruction = @import("instruction.zig");
 const Instruction = @import("instruction.zig").Instruction;
+const builtins = @import("schemelib/base.zig");
+const sizzle_unstable_compiler = @import("schemelib/sizzle_unstable_compiler.zig");
 const Continuation = @import("types/Continuation.zig");
 const Module = @import("types/Module.zig");
 const NativeProc = @import("types/NativeProc.zig");
@@ -74,73 +75,9 @@ fn initLibraries(vm: *Vm) Error!void {
     const b = vm.builder();
 
     // (scheme base)
-    const global_handle = try b.makeEnvironment(&.{
-        (try b.makeStaticSymbolHandle("scheme")),
-        (try b.makeStaticSymbolHandle("base")),
-    }, &[_]Builder.Definition{
-        .{
-            .symbol = (try b.makeStaticSymbolHandle("+")),
-            .value = Val.initNativeProc(&builtins.add),
-        },
-        .{
-            .symbol = (try b.makeStaticSymbolHandle("-")),
-            .value = Val.initNativeProc(&builtins.sub),
-        },
-        .{
-            .symbol = (try b.makeStaticSymbolHandle("<=")),
-            .value = Val.initNativeProc(&builtins.lte),
-        },
-        .{
-            .symbol = (try b.makeStaticSymbolHandle("apply")),
-            .value = Val.initNativeProc(&builtins.apply),
-        },
-        .{
-            .symbol = (try b.makeStaticSymbolHandle("call/cc")),
-            .value = Val.initNativeProc(&builtins.call_cc),
-        },
-        .{
-            .symbol = (try b.makeStaticSymbolHandle("call-with-current-continuation")),
-            .value = Val.initNativeProc(&builtins.call_cc),
-        },
-        .{
-            .symbol = (try b.makeStaticSymbolHandle("with-exception-handler")),
-            .value = Val.initNativeProc(&builtins.with_exception_handler),
-        },
-        .{
-            .symbol = (try b.makeStaticSymbolHandle("raise-continuable")),
-            .value = Val.initNativeProc(&builtins.raise_continuable),
-        },
-        .{
-            .symbol = (try b.makeStaticSymbolHandle("%szl-raise-next")),
-            .value = Val.initNativeProc(&builtins.szl_raise_next),
-        },
-        .{
-            .symbol = (try b.makeStaticSymbolHandle("import")),
-            .value = Val.initNativeProc(&builtins.import),
-        },
-        .{
-            .symbol = (try b.makeStaticSymbolHandle("string-length")),
-            .value = Val.initNativeProc(&builtins.string_length),
-        },
-    });
-    _ = try vm.evalStr(
-        \\ (define (raise err)
-        \\   (raise-continuable err)
-        \\   (%szl-raise-next err))
-    , global_handle);
-
+    const global_handle = try builtins.init(vm);
     // (sizzle unstable compiler)
-    const sizzle_unstable_compiler_handle = try b.makeEnvironment(&.{
-        (try b.makeStaticSymbolHandle("sizzle")),
-        (try b.makeStaticSymbolHandle("unstable")),
-        (try b.makeStaticSymbolHandle("compiler")),
-    }, &[_]Builder.Definition{
-        .{
-            .symbol = (try b.makeStaticSymbolHandle("proc-instructions")),
-            .value = Val.initNativeProc(&builtins.proc_instructions),
-        },
-    });
-    _ = try vm.evalStr("", sizzle_unstable_compiler_handle);
+    _ = try sizzle_unstable_compiler.init(vm);
 
     // (user repl)
     const repl_handle = try b.makeEnvironment(&.{
