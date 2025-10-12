@@ -59,6 +59,10 @@ pub inline fn handleToString(self: Inspector, h: Handle(String)) Vm.Error!*Strin
     return self.vm.objects.strings.get(h) orelse return Vm.Error.UndefinedBehavior;
 }
 
+pub inline fn handleToPair(self: Inspector, h: Handle(Pair)) Vm.Error!*Pair {
+    return self.vm.objects.pairs.get(h) orelse return Vm.Error.UndefinedBehavior;
+}
+
 const AsListError = error{
     OutOfMemory,
     UndefinedBehavior,

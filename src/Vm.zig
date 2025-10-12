@@ -4,6 +4,7 @@ const testing = std.testing;
 const Compiler = @import("compiler/Compiler.zig");
 const Reader = @import("compiler/Reader.zig");
 const Context = @import("Context.zig");
+const Gc = @import("Gc.zig");
 const instruction = @import("instruction.zig");
 const Instruction = @import("instruction.zig").Instruction;
 const builtins = @import("schemelib/base.zig");
@@ -72,6 +73,7 @@ pub fn init(options: Options) Error!Vm {
     };
     errdefer vm.deinit();
     try vm.initLibraries();
+    _ = try vm.runGc();
     return vm;
 }
 
@@ -212,4 +214,29 @@ test evalStr {
         Val.initInt(42),
         try vm.evalStr("((lambda (x) (+ x 30 2)) 10)", null),
     );
+}
+
+pub fn runGc(self: *Vm) !usize {
+    var arena = std.heap.ArenaAllocator.init(self.allocator());
+    var gc = Gc{ .arena = &arena };
+    defer arena.deinit();
+
+    // Mark all reachable values within the environment.
+    try gc.markContext(self, self.context);
+
+    // Mark all modules (they are always roots)
+    var module_iter = self.objects.modules.iterator();
+    while (module_iter.next()) |entry| try gc.markModule(self, entry.handle);
+
+    return gc.sweep(self);
+}
+
+test "runGc is ok" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectEqual(Val.initInt(42), try vm.evalStr("((lambda (x) (+ x 30 2)) 10)", null));
+    try testing.expectEqual(34, try vm.runGc());
+    try testing.expectEqual(0, try vm.runGc());
+    try testing.expectEqual(Val.initInt(42), try vm.evalStr("((lambda (x) (+ x 30 2)) 10)", null));
 }
