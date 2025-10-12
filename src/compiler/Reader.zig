@@ -1,6 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 
+const Character = @import("../types/Character.zig");
 const Symbol = @import("../types/Symbol.zig");
 const Val = @import("../types/Val.zig");
 const Vm = @import("../Vm.zig");
@@ -82,6 +83,7 @@ pub fn readNextImpl(self: *Reader) Vm.Error!ReadResult {
         .string => return try self.parseString(next_token.lexeme),
         .symbol => return try self.parseSymbol(next_token.lexeme),
         .boolean => return try self.parseBoolean(next_token.lexeme),
+        .character => return try self.parseCharacter(next_token.lexeme),
         .quote => {
             const next = try self.readNextImpl();
             switch (next) {
@@ -197,6 +199,51 @@ fn parseString(self: Reader, token: []const u8) Vm.Error!ReadResult {
     return ReadResult{ .atom = string_val };
 }
 
+fn parseCharacter(_: Reader, token: []const u8) Vm.Error!ReadResult {
+    // Token format: #\<character>
+    // Examples: #\a, #\space, #\newline, #\x3BB
+    if (token.len < 3 or token[0] != '#' or token[1] != '\\') {
+        return Vm.Error.ReadError;
+    }
+
+    const char_part = token[2..];
+
+    // Handle named characters
+    const char_value: u21 = if (std.mem.eql(u8, char_part, "alarm"))
+        0x0007
+    else if (std.mem.eql(u8, char_part, "backspace"))
+        0x0008
+    else if (std.mem.eql(u8, char_part, "delete"))
+        0x007F
+    else if (std.mem.eql(u8, char_part, "escape"))
+        0x001B
+    else if (std.mem.eql(u8, char_part, "newline"))
+        0x000A
+    else if (std.mem.eql(u8, char_part, "null"))
+        0x0000
+    else if (std.mem.eql(u8, char_part, "return"))
+        0x000D
+    else if (std.mem.eql(u8, char_part, "space"))
+        ' '
+    else if (std.mem.eql(u8, char_part, "tab"))
+        0x0009
+    else if (char_part.len > 1 and char_part[0] == 'x') blk: {
+        // Hex escape: #\x3BB
+        const hex_str = char_part[1..];
+        if (hex_str.len == 0) return Vm.Error.ReadError;
+        break :blk std.fmt.parseInt(u21, hex_str, 16) catch return Vm.Error.ReadError;
+    } else if (char_part.len == 1)
+        // Single character
+        char_part[0]
+    else {
+        // Unknown named character or invalid format
+        return Vm.Error.ReadError;
+    };
+
+    const val = Val.initChar(char_value);
+    return ReadResult{ .atom = val };
+}
+
 fn expectReadNext(self: *Reader, expect: ?[]const u8, vm: *const Vm) !void {
     const end_of_read = "end_of_read";
     const expect_normalized = expect orelse end_of_read;
@@ -271,5 +318,18 @@ test "read boolean" {
     try reader.expectReadNext("#f", &vm);
     try reader.expectReadNext("#t", &vm);
     try reader.expectReadNext("#f", &vm);
+    try reader.expectReadNext(null, &vm);
+}
+
+test "read character" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var reader = Reader.init(&vm, "#\\a #\\Z #\\space #\\newline #\\x41");
+    try reader.expectReadNext("#\\a", &vm);
+    try reader.expectReadNext("#\\Z", &vm);
+    try reader.expectReadNext("#\\space", &vm);
+    try reader.expectReadNext("#\\newline", &vm);
+    try reader.expectReadNext("#\\A", &vm); // #\x41 is 'A'
     try reader.expectReadNext(null, &vm);
 }

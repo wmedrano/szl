@@ -13,6 +13,7 @@ pub const TokenType = enum {
     string,
     symbol,
     boolean,
+    character,
     // Special
     quote,
     quasiquote,
@@ -69,7 +70,7 @@ pub fn nextToken(self: *Tokenizer) ?Token {
         else
             self.makeTokenAt(.unquote, start_column),
         '"' => self.scanString(start_column),
-        '#' => self.scanBoolean(start_column),
+        '#' => self.scanHashPrefix(start_column),
         '-', '+' => if (self.isAtEnd() or isDelimiter(self.peek()))
             self.makeTokenAt(.symbol, start_column)
         else if (std.ascii.isDigit(self.peek()))
@@ -162,12 +163,60 @@ fn scanNumber(self: *Tokenizer, start_column: u32) Token {
     return self.makeTokenAt(.number, start_column);
 }
 
+fn scanHashPrefix(self: *Tokenizer, start_column: u32) Token {
+    // Could be boolean (#t, #f, #true, #false) or character (#\a, #\newline, #\x3BB)
+    if (self.isAtEnd()) {
+        return self.makeTokenAt(.symbol, start_column); // Just '#'
+    }
+
+    if (self.peek() == '\\') {
+        // Character literal
+        _ = self.advance(); // consume '\'
+        return self.scanCharacter(start_column);
+    } else {
+        // Boolean
+        return self.scanBoolean(start_column);
+    }
+}
+
 fn scanBoolean(self: *Tokenizer, start_column: u32) Token {
     // #t, #f, #true, or #false
     while (!self.isAtEnd() and !isDelimiter(self.peek())) {
         _ = self.advance();
     }
     return self.makeTokenAt(.boolean, start_column);
+}
+
+fn scanCharacter(self: *Tokenizer, start_column: u32) Token {
+    // After #\ we can have:
+    // - A single character: #\a
+    // - A named character: #\newline, #\space, etc.
+    // - A hex escape: #\x3BB
+
+    if (self.isAtEnd()) {
+        return self.makeTokenAt(.character, start_column);
+    }
+
+    // Check for hex escape
+    if (self.peek() == 'x') {
+        _ = self.advance(); // consume 'x'
+        // Read hex digits
+        while (!self.isAtEnd() and std.ascii.isHex(self.peek())) {
+            _ = self.advance();
+        }
+        return self.makeTokenAt(.character, start_column);
+    }
+
+    // First, consume at least one character
+    _ = self.advance();
+
+    // Check if this is a named character (more chars follow that aren't delimiters)
+    // If the next char is a delimiter, we have a single character literal
+    while (!self.isAtEnd() and !isDelimiter(self.peek())) {
+        _ = self.advance();
+    }
+
+    return self.makeTokenAt(.character, start_column);
 }
 
 fn scanSymbol(self: *Tokenizer, start_column: u32) Token {
@@ -329,6 +378,35 @@ test "tokenize booleans" {
     );
     try testing.expectEqualDeep(
         Token{ .type = TokenType.boolean, .lexeme = "#badboolean", .line = 1, .column = 20 },
+        tokenizer.nextToken(),
+    );
+    try testing.expectEqualDeep(null, tokenizer.nextToken());
+}
+
+test "tokenize characters" {
+    var tokenizer = Tokenizer.init("#\\a #\\Z #\\( #\\space #\\newline #\\x3BB");
+    try testing.expectEqualDeep(
+        Token{ .type = TokenType.character, .lexeme = "#\\a", .line = 1, .column = 1 },
+        tokenizer.nextToken(),
+    );
+    try testing.expectEqualDeep(
+        Token{ .type = TokenType.character, .lexeme = "#\\Z", .line = 1, .column = 5 },
+        tokenizer.nextToken(),
+    );
+    try testing.expectEqualDeep(
+        Token{ .type = TokenType.character, .lexeme = "#\\(", .line = 1, .column = 9 },
+        tokenizer.nextToken(),
+    );
+    try testing.expectEqualDeep(
+        Token{ .type = TokenType.character, .lexeme = "#\\space", .line = 1, .column = 13 },
+        tokenizer.nextToken(),
+    );
+    try testing.expectEqualDeep(
+        Token{ .type = TokenType.character, .lexeme = "#\\newline", .line = 1, .column = 21 },
+        tokenizer.nextToken(),
+    );
+    try testing.expectEqualDeep(
+        Token{ .type = TokenType.character, .lexeme = "#\\x3BB", .line = 1, .column = 31 },
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(null, tokenizer.nextToken());

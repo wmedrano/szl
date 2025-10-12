@@ -25,6 +25,7 @@ pub fn format(self: PrettyPrinter, writer: *std.Io.Writer) std.Io.Writer.Error!v
         .boolean => |b| if (b) try writer.writeAll("#t") else try writer.writeAll("#f"),
         .int => |n| try writer.print("{}", .{n}),
         .float => |f| try writer.print("{d}", .{f}),
+        .char => |c| try self.formatChar(writer, c.data),
         .pair => |h| try self.formatPair(writer, h),
         .string => |h| {
             const string = self.vm.objects.strings.get(h) orelse {
@@ -45,6 +46,35 @@ pub fn format(self: PrettyPrinter, writer: *std.Io.Writer) std.Io.Writer.Error!v
         .vector => |h| try self.formatVector(writer, h),
         .continuation => try writer.writeAll("#<procedure:continuation>"),
         .syntax_rules => |h| try self.formatSyntaxRules(writer, h),
+    }
+}
+
+fn formatChar(_: PrettyPrinter, writer: *std.Io.Writer, c: u21) std.Io.Writer.Error!void {
+    // Display named characters with their names
+    if (c == 0x0007) {
+        try writer.writeAll("#\\alarm");
+    } else if (c == 0x0008) {
+        try writer.writeAll("#\\backspace");
+    } else if (c == 0x007F) {
+        try writer.writeAll("#\\delete");
+    } else if (c == 0x001B) {
+        try writer.writeAll("#\\escape");
+    } else if (c == '\n') {
+        try writer.writeAll("#\\newline");
+    } else if (c == 0x0000) {
+        try writer.writeAll("#\\null");
+    } else if (c == '\r') {
+        try writer.writeAll("#\\return");
+    } else if (c == ' ') {
+        try writer.writeAll("#\\space");
+    } else if (c == '\t') {
+        try writer.writeAll("#\\tab");
+    } else if (c >= 32 and c <= 126) {
+        // Printable ASCII (excluding space which we already handled)
+        try writer.print("#\\{u}", .{c});
+    } else {
+        // Display as hex for non-printable characters
+        try writer.print("#\\x{X}", .{c});
     }
 }
 
@@ -252,4 +282,17 @@ test "format environment produces namespace in parens" {
         "{f}",
         .{vm.pretty(Val.initModule(env))},
     );
+}
+
+test "format character produces character literal" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectFmt("#\\a", "{f}", .{vm.pretty(Val.initChar('a'))});
+    try testing.expectFmt("#\\Z", "{f}", .{vm.pretty(Val.initChar('Z'))});
+    try testing.expectFmt("#\\space", "{f}", .{vm.pretty(Val.initChar(' '))});
+    try testing.expectFmt("#\\newline", "{f}", .{vm.pretty(Val.initChar('\n'))});
+    try testing.expectFmt("#\\tab", "{f}", .{vm.pretty(Val.initChar('\t'))});
+    try testing.expectFmt("#\\return", "{f}", .{vm.pretty(Val.initChar('\r'))});
+    try testing.expectFmt("#\\x3BB", "{f}", .{vm.pretty(Val.initChar(0x3BB))}); // Greek lambda
 }

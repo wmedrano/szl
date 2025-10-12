@@ -3,6 +3,7 @@ const testing = std.testing;
 
 const PrettyPrinter = @import("../utils/PrettyPrinter.zig");
 const Vm = @import("../Vm.zig");
+const Character = @import("Character.zig");
 const Closure = @import("Closure.zig");
 const Continuation = @import("Continuation.zig");
 const Handle = @import("object_pool.zig").Handle;
@@ -24,6 +25,7 @@ pub const Data = union(enum) {
     boolean: bool,
     int: i64,
     float: f64,
+    char: Character,
     pair: Handle(Pair),
     string: Handle(String),
     symbol: Symbol,
@@ -50,6 +52,10 @@ pub fn initBool(x: bool) Val {
 
 pub fn initFloat(x: f64) Val {
     return Val{ .data = .{ .float = x } };
+}
+
+pub fn initChar(c: u21) Val {
+    return Val{ .data = .{ .char = Character.init(c) } };
 }
 
 pub fn initSymbol(sym: Symbol) Val {
@@ -111,6 +117,11 @@ pub fn asInt(self: Val) ?i64 {
 
 pub fn asFloat(self: Val) ?f64 {
     if (self.data == .float) return self.data.float;
+    return null;
+}
+
+pub fn asChar(self: Val) ?u21 {
+    if (self.data == .char) return self.data.char.data;
     return null;
 }
 

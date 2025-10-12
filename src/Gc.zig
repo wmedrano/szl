@@ -31,7 +31,7 @@ const GcObject = union(enum) {
 
     fn init(val: Val) ?GcObject {
         return switch (val.data) {
-            .empty_list, .boolean, .int, .float, .symbol, .native_proc => null,
+            .empty_list, .boolean, .int, .float, .char, .symbol, .native_proc => null,
             // Modules are on the heap, but we don't clean them up.
             .module => null,
             .proc => |p| .{ .proc = p },

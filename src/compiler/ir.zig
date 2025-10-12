@@ -85,6 +85,7 @@ const Builder = struct {
             .boolean,
             .int,
             .float,
+            .char,
             .string,
             .module,
             .proc,
@@ -463,7 +464,7 @@ const Builder = struct {
     fn expandMacros(self: *Builder, expr: Val) Error!?Val {
         // Base cases: atoms don't need expansion
         switch (expr.data) {
-            .boolean, .int, .float, .string, .symbol, .empty_list, .module, .proc, .closure, .native_proc, .continuation, .vector => {
+            .boolean, .int, .float, .char, .string, .symbol, .empty_list, .module, .proc, .closure, .native_proc, .continuation, .vector => {
                 return expr;
             },
             .syntax_rules => return expr,

@@ -205,7 +205,7 @@ fn eval(vm: *Vm, arg_count: u32) Vm.Error!void {
     const start = vm.context.stackLen() - arg_count;
     switch (proc_val.data) {
         // TODO: Raise an exception.
-        .empty_list, .boolean, .int, .float, .module, .pair, .string, .symbol, .vector, .syntax_rules => return Vm.Error.NotImplemented,
+        .empty_list, .boolean, .int, .float, .char, .module, .pair, .string, .symbol, .vector, .syntax_rules => return Vm.Error.NotImplemented,
         .proc => |h| try evalProc(vm, h, arg_count, start),
         .closure => |h| return try evalClosure(vm, h, arg_count, start),
         .native_proc => |p| return evalNativeProc(vm, p, arg_count),
