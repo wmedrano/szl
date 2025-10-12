@@ -8,6 +8,7 @@ const instruction = @import("instruction.zig");
 const Instruction = @import("instruction.zig").Instruction;
 const builtins = @import("schemelib/base.zig");
 const sizzle_unstable_compiler = @import("schemelib/sizzle_unstable_compiler.zig");
+const Closure = @import("types/Closure.zig");
 const Continuation = @import("types/Continuation.zig");
 const Module = @import("types/Module.zig");
 const NativeProc = @import("types/NativeProc.zig");
@@ -32,6 +33,7 @@ pub const Objects = struct {
     strings: ObjectPool(String) = .{},
     modules: ObjectPool(Module) = .{},
     procs: ObjectPool(Proc) = .{},
+    closures: ObjectPool(Closure) = .{},
     vectors: ObjectPool(Vector) = .{},
     continuations: ObjectPool(Continuation) = .{},
     syntax_rules: ObjectPool(SyntaxRules) = .{},
@@ -110,6 +112,9 @@ pub fn deinit(self: *Vm) void {
 
     self.objects.procs.applyAll(standard_deinit);
     self.objects.procs.deinit(self.allocator());
+
+    self.objects.closures.applyAll(standard_deinit);
+    self.objects.closures.deinit(self.allocator());
 
     self.objects.vectors.applyAll(standard_deinit);
     self.objects.vectors.deinit(self.allocator());

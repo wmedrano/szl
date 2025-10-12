@@ -2,6 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 
 const Context = @import("Context.zig");
+const Closure = @import("types/Closure.zig");
 const Continuation = @import("types/Continuation.zig");
 const Module = @import("types/Module.zig");
 const NativeProc = @import("types/NativeProc.zig");
@@ -25,17 +26,12 @@ pub const Instruction = union(enum) {
     jump_if_not: i32,
     squash: u32,
     eval: u32,
-    make_closure: Closure,
+    make_closure: Handle(Proc),
     ret,
 
     const Global = struct {
         module: Handle(Module),
         symbol: Symbol,
-    };
-
-    const Closure = struct {
-        proc: Handle(Proc),
-        capture_count: u32,
     };
 
     pub fn toVal(self: Instruction, vm: *Vm) Vm.Error!Val {
@@ -126,11 +122,10 @@ pub const Instruction = union(enum) {
                 };
                 return builder.makeList(&items);
             },
-            .make_closure => |c| {
+            .make_closure => |h| {
                 const items = [_]Val{
                     try builder.makeStaticSymbol("make-closure"),
-                    Val.initProc(c.proc),
-                    Val.initInt(@intCast(c.capture_count)),
+                    Val.initProc(h),
                 };
                 return builder.makeList(&items);
             },
@@ -179,7 +174,7 @@ pub const Instruction = union(enum) {
             },
             .squash => |n| try vm.context.stackSquash(n),
             .eval => |n| try eval(vm, n),
-            .make_closure => |c| try makeClosure(vm, c.proc, c.capture_count),
+            .make_closure => |proc| try makeClosure(vm, proc),
             .ret => try vm.context.popStackFrame(.place_on_top),
         }
     }
@@ -211,14 +206,14 @@ fn eval(vm: *Vm, arg_count: u32) Vm.Error!void {
     switch (proc_val.data) {
         // TODO: Raise an exception.
         .empty_list, .boolean, .int, .module, .pair, .string, .symbol, .vector, .syntax_rules => return Vm.Error.NotImplemented,
-        .proc => |h| try evalProc(vm, h, null, arg_count, start),
-        .closure => |h| return try evalProc(vm, h.proc, h.captures, arg_count, start),
+        .proc => |h| try evalProc(vm, h, arg_count, start),
+        .closure => |h| return try evalClosure(vm, h, arg_count, start),
         .native_proc => |p| return evalNativeProc(vm, p, arg_count),
         .continuation => |c| return evalContinuation(vm, c, arg_count),
     }
 }
 
-fn evalProc(vm: *Vm, h: Handle(Proc), maybe_captures: ?Handle(Vector), arg_count: u32, start: usize) !void {
+fn evalProc(vm: *Vm, h: Handle(Proc), arg_count: u32, start: usize) !void {
     const proc = try vm.inspector().handleToProc(h);
     // 1. Check arguments.
     if (arg_count != proc.arg_count) {
@@ -226,21 +221,34 @@ fn evalProc(vm: *Vm, h: Handle(Proc), maybe_captures: ?Handle(Vector), arg_count
     }
     // 2. Initialize locals.
     try vm.context.pushMany(vm.allocator(), Val.initEmptyList(), proc.locals_count);
-    // 3. Initialize captures.
-    const actual_captures: u32 = if (maybe_captures) |captures_h| blk: {
-        const captures_vec = try vm.inspector().handleToVector(captures_h);
-        const captures = captures_vec.asSlice();
-        try vm.context.pushSlice(vm.allocator(), captures);
-        break :blk @intCast(captures.len);
-    } else 0;
-    if (actual_captures != proc.captures_count) return Vm.Error.UndefinedBehavior;
-    // 4. Set the context.
+    if (proc.captures_count != 0) return Vm.Error.UndefinedBehavior;
+    // 3. Set the context.
     try vm.context.pushStackFrame(vm.allocator(), .{
         .stack_start = @intCast(start),
         .arg_count = arg_count,
         .locals_count = proc.locals_count,
-        .proc = if (maybe_captures) |c| Val.initClosure(h, c) else Val.initProc(h),
+        .proc = Val.initProc(h),
         .instructions = proc.instructions,
+    });
+}
+
+fn evalClosure(vm: *Vm, h: Handle(Closure), arg_count: u32, start: usize) !void {
+    const closure = try vm.inspector().handleToClosure(h);
+    // 1. Check arguments.
+    if (arg_count != closure.arg_count) {
+        return Vm.Error.NotImplemented;
+    }
+    // 2. Initialize locals.
+    try vm.context.pushMany(vm.allocator(), Val.initEmptyList(), closure.locals_count);
+    // 3. Initialize captures.
+    try vm.context.pushSlice(vm.allocator(), closure.captures);
+    // 4. Set the context.
+    try vm.context.pushStackFrame(vm.allocator(), .{
+        .stack_start = @intCast(start),
+        .arg_count = arg_count,
+        .locals_count = closure.locals_count,
+        .proc = Val.initClosure(h),
+        .instructions = closure.instructions,
     });
 }
 
@@ -258,11 +266,12 @@ fn evalContinuation(vm: *Vm, handle: Handle(Continuation), arg_count: u32) !void
     try vm.context.push(vm.allocator(), arg);
 }
 
-fn makeClosure(vm: *Vm, proc: Handle(Proc), count: u32) !void {
+fn makeClosure(vm: *Vm, proc_h: Handle(Proc)) !void {
     // TODO: Capture the variables mutable. Operations like `set!` should affect
     // all captured references.
-    const capture_vals = vm.context.stackTopN(count);
-    const captures_h = try vm.builder().makeVectorHandle(capture_vals);
-    vm.context.popMany(count);
-    try vm.context.push(vm.allocator(), Val.initClosure(proc, captures_h));
+    const inspector = vm.inspector();
+    const proc = try inspector.handleToProc(proc_h);
+    const capture_vals = vm.context.stackTopN(proc.captures_count);
+    const closure = try vm.builder().makeClosure(proc.*, capture_vals);
+    try vm.context.push(vm.allocator(), Val.initClosure(closure));
 }

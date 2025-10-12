@@ -1,10 +1,13 @@
 const std = @import("std");
 
 const Context = @import("../Context.zig");
+const Instruction = @import("../instruction.zig").Instruction;
+const Closure = @import("../types/Closure.zig");
 const Continuation = @import("../types/Continuation.zig");
 const Module = @import("../types/Module.zig");
 const Handle = @import("../types/object_pool.zig").Handle;
 const Pair = @import("../types/Pair.zig");
+const Proc = @import("../types/Proc.zig");
 const String = @import("../types/String.zig");
 const Symbol = @import("../types/Symbol.zig");
 const SyntaxRules = @import("../types/SyntaxRules.zig");
@@ -130,4 +133,24 @@ pub inline fn makeSyntaxRulesHandle(self: Builder, syntax_rules: SyntaxRules) er
 pub inline fn makeSyntaxRules(self: Builder, syntax_rules: SyntaxRules) !Val {
     const h = try self.makeSyntaxRulesHandle(syntax_rules);
     return Val{ .data = .{ .syntax_rules = h } };
+}
+
+pub inline fn makeClosure(self: Builder, base_proc: Proc, caps: []const Val) error{OutOfMemory}!Handle(Closure) {
+    const allocator = self.vm.allocator();
+    const instructions = try allocator.dupe(Instruction, base_proc.instructions);
+    errdefer allocator.free(instructions);
+    const captures = try allocator.dupe(Val, caps);
+    errdefer allocator.free(captures);
+    const closure = Closure{
+        .instructions = instructions,
+        .captures = captures,
+        .name = base_proc.name,
+        .arg_count = base_proc.arg_count,
+        .locals_count = base_proc.locals_count,
+    };
+    return try self.makeClosureHandle(closure);
+}
+
+pub inline fn makeClosureHandle(self: Builder, closure: Closure) error{OutOfMemory}!Handle(Closure) {
+    return try self.vm.objects.closures.put(self.vm.allocator(), closure);
 }

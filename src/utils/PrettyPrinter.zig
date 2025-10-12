@@ -1,6 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 
+const Closure = @import("../types/Closure.zig");
 const Continuation = @import("../types/Continuation.zig");
 const Module = @import("../types/Module.zig");
 const Handle = @import("../types/object_pool.zig").Handle;
@@ -37,8 +38,8 @@ pub fn format(self: PrettyPrinter, writer: *std.Io.Writer) std.Io.Writer.Error!v
             try writer.writeAll(s);
         },
         .module => |h| try self.formatModule(writer, h),
-        .proc => |h| try self.formatProc(writer, h, null),
-        .closure => |h| try self.formatProc(writer, h.proc, h.captures),
+        .proc => |h| try self.formatProc(writer, h),
+        .closure => |h| try self.formatClosure(writer, h),
         .native_proc => |p| try writer.print("#<procedure:native:{s}>", .{p.name}),
         .vector => |h| try self.formatVector(writer, h),
         .continuation => try writer.writeAll("#<procedure:continuation>"),
@@ -78,16 +79,28 @@ fn formatProc(
     self: PrettyPrinter,
     writer: *std.Io.Writer,
     proc_h: Handle(Proc),
-    captures_h: ?Handle(Vector),
 ) std.Io.Writer.Error!void {
     const proc = self.vm.objects.procs.get(proc_h) orelse {
         return try writer.writeAll("#<procedure:invalid>");
     };
-    const infix = if (captures_h) |_| "*:" else "";
     const sym = self.vm.objects.symbols.asString(proc.name) orelse {
-        return try writer.print("#<procedure:{s}{}>", .{ infix, proc_h.id });
+        return try writer.print("#<procedure:{}>", .{proc_h.id});
     };
-    try writer.print("#<procedure:{s}{s}>", .{ infix, sym });
+    try writer.print("#<procedure:{s}>", .{sym});
+}
+
+fn formatClosure(
+    self: PrettyPrinter,
+    writer: *std.Io.Writer,
+    closure_h: Handle(Closure),
+) std.Io.Writer.Error!void {
+    const proc = self.vm.objects.closures.get(closure_h) orelse {
+        return try writer.writeAll("#<procedure:closure:invalid>");
+    };
+    const sym = self.vm.objects.symbols.asString(proc.name) orelse {
+        return try writer.print("#<procedure:closure:{}>", .{closure_h.id});
+    };
+    try writer.print("#<procedure:closure:{s}>", .{sym});
 }
 
 fn formatModule(self: PrettyPrinter, writer: *std.Io.Writer, h: Handle(Module)) std.Io.Writer.Error!void {

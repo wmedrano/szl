@@ -31,16 +31,20 @@ const proc_instructions = NativeProc.withRawArgs(struct {
     pub const name = "proc-instructions";
     pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
         if (args.len != 1) return .{ .err = error.NotImplemented };
-        const proc_val = args[0];
-        const proc_handle = switch (proc_val.data) {
-            .proc => |h| h,
-            .closure => |c| c.proc,
+        const raw_instructions = switch (args[0].data) {
+            .proc => |h| blk: {
+                const proc = vm.objects.procs.get(h) orelse return .{ .err = error.UndefinedBehavior };
+                break :blk proc.instructions;
+            },
+            .closure => |h| blk: {
+                const closure = vm.objects.closures.get(h) orelse return .{ .err = error.UndefinedBehavior };
+                break :blk closure.instructions;
+            },
             else => return .{ .err = error.NotImplemented },
         };
-        const proc = vm.objects.procs.get(proc_handle) orelse return .{ .err = error.UndefinedBehavior };
-        const instructions = vm.allocator().alloc(Val, proc.instructions.len) catch |e| return .{ .err = e };
+        const instructions = vm.allocator().alloc(Val, raw_instructions.len) catch |e| return .{ .err = e };
         defer vm.allocator().free(instructions);
-        for (instructions, proc.instructions) |*dst, src| {
+        for (instructions, raw_instructions) |*dst, src| {
             dst.* = src.toVal(vm) catch |e| return .{ .err = e };
         }
         const list = vm.builder().makeList(instructions) catch |e| return .{ .err = e };

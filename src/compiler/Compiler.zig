@@ -186,7 +186,7 @@ fn addLambda(self: *Compiler, lambda: Ir.Lambda) Error!void {
         return self.addInstruction(.{ .push_const = Val.initProc(proc.handle) });
     }
     for (proc.captures) |capture| try self.addGet(capture);
-    try self.addInstruction(.{ .make_closure = .{ .proc = proc.handle, .capture_count = proc.proc.captures_count } });
+    try self.addInstruction(.{ .make_closure = proc.handle });
 }
 
 fn jumpDistance(src: usize, dst: usize) i32 {
