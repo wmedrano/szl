@@ -78,6 +78,21 @@ pub fn readNextImpl(self: *Reader) Vm.Error!ReadResult {
         },
         .right_paren => return ReadResult{ .end_expr = {} },
         .dot => return ReadResult{ .dot = {} },
+        .vector_start => {
+            var elements = std.ArrayList(Val){};
+            defer elements.deinit(self.vm.allocator());
+            while (true) {
+                switch (try self.readNextImpl()) {
+                    .atom => |v| try elements.append(self.vm.allocator(), v),
+                    .end_expr => {
+                        const vec = try builder.makeVector(elements.items);
+                        return ReadResult{ .atom = vec };
+                    },
+                    .end => return Vm.Error.ReadError,
+                    .dot => return Vm.Error.ReadError, // Vectors don't support dot notation
+                }
+            }
+        },
         .number => return try self.parseNumber(next_token.lexeme),
         .string => return try self.parseString(next_token.lexeme),
         .symbol => return try self.parseSymbol(next_token.lexeme),
@@ -330,5 +345,60 @@ test "read character" {
     try reader.expectReadNext("#\\space", &vm);
     try reader.expectReadNext("#\\newline", &vm);
     try reader.expectReadNext("#\\A", &vm); // #\x41 is 'A'
+    try reader.expectReadNext(null, &vm);
+}
+
+test "read empty vector" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var reader = Reader.init(&vm, "#()");
+    try reader.expectReadNext("#()", &vm);
+    try reader.expectReadNext(null, &vm);
+}
+
+test "read vector with numbers" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var reader = Reader.init(&vm, "#(1 2 3)");
+    try reader.expectReadNext("#(1 2 3)", &vm);
+    try reader.expectReadNext(null, &vm);
+}
+
+test "read vector with mixed types" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var reader = Reader.init(&vm, "#(1 \"hello\" foo #t)");
+    try reader.expectReadNext("#(1 \"hello\" foo #t)", &vm);
+    try reader.expectReadNext(null, &vm);
+}
+
+test "read nested vectors" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var reader = Reader.init(&vm, "#(1 #(2 3) 4)");
+    try reader.expectReadNext("#(1 #(2 3) 4)", &vm);
+    try reader.expectReadNext(null, &vm);
+}
+
+test "read vector with list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var reader = Reader.init(&vm, "#((1 2) 3)");
+    try reader.expectReadNext("#((1 2) 3)", &vm);
+    try reader.expectReadNext(null, &vm);
+}
+
+test "read multiple vectors" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var reader = Reader.init(&vm, "#(1 2) #(3 4)");
+    try reader.expectReadNext("#(1 2)", &vm);
+    try reader.expectReadNext("#(3 4)", &vm);
     try reader.expectReadNext(null, &vm);
 }

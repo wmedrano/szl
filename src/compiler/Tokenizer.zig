@@ -14,6 +14,7 @@ pub const TokenType = enum {
     symbol,
     boolean,
     character,
+    vector_start,
     // Special
     quote,
     quasiquote,
@@ -164,12 +165,16 @@ fn scanNumber(self: *Tokenizer, start_column: u32) Token {
 }
 
 fn scanHashPrefix(self: *Tokenizer, start_column: u32) Token {
-    // Could be boolean (#t, #f, #true, #false) or character (#\a, #\newline, #\x3BB)
+    // Could be boolean (#t, #f, #true, #false), character (#\a, #\newline, #\x3BB), or vector (#()
     if (self.isAtEnd()) {
         return self.makeTokenAt(.symbol, start_column); // Just '#'
     }
 
-    if (self.peek() == '\\') {
+    if (self.peek() == '(') {
+        // Vector literal
+        _ = self.advance(); // consume '('
+        return self.makeTokenAt(.vector_start, start_column);
+    } else if (self.peek() == '\\') {
         // Character literal
         _ = self.advance(); // consume '\'
         return self.scanCharacter(start_column);
@@ -282,7 +287,7 @@ pub fn isComplete(source: []const u8) CompletionStatus {
 
     while (tokenizer.nextToken()) |token| {
         switch (token.type) {
-            .left_paren => depth += 1,
+            .left_paren, .vector_start => depth += 1,
             .right_paren => {
                 depth -= 1;
                 if (depth < 0) {
@@ -524,4 +529,57 @@ test "isComplete: malformed in middle of expression" {
 
 test "isComplete: just symbols is complete" {
     try testing.expectEqual(CompletionStatus.complete, isComplete("define x 42"));
+}
+
+test "tokenize vectors" {
+    var tokenizer = Tokenizer.init("#() #(1 2 3)");
+    try testing.expectEqualDeep(
+        Token{ .type = TokenType.vector_start, .lexeme = "#(", .line = 1, .column = 1 },
+        tokenizer.nextToken(),
+    );
+    try testing.expectEqualDeep(
+        Token{ .type = TokenType.right_paren, .lexeme = ")", .line = 1, .column = 3 },
+        tokenizer.nextToken(),
+    );
+    try testing.expectEqualDeep(
+        Token{ .type = TokenType.vector_start, .lexeme = "#(", .line = 1, .column = 5 },
+        tokenizer.nextToken(),
+    );
+    try testing.expectEqualDeep(
+        Token{ .type = TokenType.number, .lexeme = "1", .line = 1, .column = 7 },
+        tokenizer.nextToken(),
+    );
+    try testing.expectEqualDeep(
+        Token{ .type = TokenType.number, .lexeme = "2", .line = 1, .column = 9 },
+        tokenizer.nextToken(),
+    );
+    try testing.expectEqualDeep(
+        Token{ .type = TokenType.number, .lexeme = "3", .line = 1, .column = 11 },
+        tokenizer.nextToken(),
+    );
+    try testing.expectEqualDeep(
+        Token{ .type = TokenType.right_paren, .lexeme = ")", .line = 1, .column = 12 },
+        tokenizer.nextToken(),
+    );
+    try testing.expectEqualDeep(null, tokenizer.nextToken());
+}
+
+test "isComplete: empty vector is complete" {
+    try testing.expectEqual(CompletionStatus.complete, isComplete("#()"));
+}
+
+test "isComplete: complete vector" {
+    try testing.expectEqual(CompletionStatus.complete, isComplete("#(1 2 3)"));
+}
+
+test "isComplete: nested vector is complete" {
+    try testing.expectEqual(CompletionStatus.complete, isComplete("#(1 #(2 3) 4)"));
+}
+
+test "isComplete: missing close paren in vector" {
+    try testing.expectEqual(CompletionStatus.missing_close_paren, isComplete("#(1 2 3"));
+}
+
+test "isComplete: vector with list is complete" {
+    try testing.expectEqual(CompletionStatus.complete, isComplete("#((1 2) 3)"));
 }

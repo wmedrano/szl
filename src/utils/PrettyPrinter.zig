@@ -154,13 +154,11 @@ fn formatVector(self: PrettyPrinter, writer: *std.Io.Writer, h: Handle(Vector)) 
     const vec = self.vm.objects.vectors.get(h) orelse {
         return try writer.writeAll("#<vector:invalid>");
     };
-    for (vec.data.items, 0..vec.data.items.len) |val, idx| {
-        if (idx == 0)
-            try writer.print("{f}", .{self.vm.pretty(val)})
-        else
-            try writer.print(" {f}", .{self.vm.pretty(val)});
-    }
     try writer.writeAll("#(");
+    for (vec.data.items, 0..vec.data.items.len) |val, idx| {
+        if (idx > 0) try writer.writeAll(" ");
+        try writer.print("{f}", .{self.vm.pretty(val)});
+    }
     try writer.writeAll(")");
 }
 

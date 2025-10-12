@@ -87,6 +87,7 @@ const Builder = struct {
             .float,
             .char,
             .string,
+            .vector,
             .module,
             .proc,
             .closure,
@@ -98,7 +99,6 @@ const Builder = struct {
                 return self.buildList(list);
             },
             .symbol => |sym| return Ir{ .get = sym },
-            .vector => return Error.NotImplemented,
             .syntax_rules => return Error.NotImplemented,
         }
     }
