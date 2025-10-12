@@ -1,6 +1,8 @@
 const std = @import("std");
 
 const Instruction = @import("../instruction.zig").Instruction;
+const Handle = @import("object_pool.zig").Handle;
+const Proc = @import("Proc.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 

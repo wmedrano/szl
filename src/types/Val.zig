@@ -23,6 +23,7 @@ pub const Data = union(enum) {
     empty_list,
     boolean: bool,
     int: i64,
+    float: f64,
     pair: Handle(Pair),
     string: Handle(String),
     symbol: Symbol,
@@ -45,6 +46,10 @@ pub fn initInt(x: i64) Val {
 
 pub fn initBool(x: bool) Val {
     return Val{ .data = .{ .boolean = x } };
+}
+
+pub fn initFloat(x: f64) Val {
+    return Val{ .data = .{ .float = x } };
 }
 
 pub fn initSymbol(sym: Symbol) Val {
@@ -97,6 +102,36 @@ pub fn asBool(self: Val) ?bool {
         .boolean => |x| return x,
         else => return null,
     }
+}
+
+pub fn asInt(self: Val) ?i64 {
+    if (self.data == .int) return self.data.int;
+    return null;
+}
+
+pub fn asFloat(self: Val) ?f64 {
+    if (self.data == .float) return self.data.float;
+    return null;
+}
+
+pub const Number = union(enum) {
+    int: i64,
+    float: f64,
+
+    pub fn asFloat(self: Number) f64 {
+        switch (self) {
+            .int => |x| return @floatFromInt(x),
+            .float => |x| return x,
+        }
+    }
+};
+
+pub fn asNumber(self: Val) ?Number {
+    return switch (self.data) {
+        .int => |x| Number{ .int = x },
+        .float => |x| Number{ .float = x },
+        else => null,
+    };
 }
 
 pub fn eq(self: Val, other: Val) bool {

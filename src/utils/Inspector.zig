@@ -20,13 +20,6 @@ pub fn init(vm: *Vm) Inspector {
     return Inspector{ .vm = vm };
 }
 
-pub inline fn asInt(_: Inspector, val: Val) error{WrongType}!i64 {
-    return switch (val.data) {
-        .int => |n| n,
-        else => error.WrongType,
-    };
-}
-
 pub inline fn asModule(_: Inspector, val: Val) Vm.Error!*Module {
     return switch (val.data) {
         .module => |env| env,

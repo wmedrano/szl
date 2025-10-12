@@ -145,6 +145,8 @@ pub fn init(vm: *Vm) Vm.Error!Handle(Module) {
         .{ .symbol = (try b.makeStaticSymbolHandle("<")), .value = Val.initNativeProc(&number_fns.lt) },
         .{ .symbol = (try b.makeStaticSymbolHandle("<=")), .value = Val.initNativeProc(&number_fns.lte) },
         .{ .symbol = (try b.makeStaticSymbolHandle(">")), .value = Val.initNativeProc(&number_fns.gt) },
+        .{ .symbol = (try b.makeStaticSymbolHandle(">=")), .value = Val.initNativeProc(&number_fns.gte) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("=")), .value = Val.initNativeProc(&number_fns.eq) },
         .{ .symbol = (try b.makeStaticSymbolHandle("number?")), .value = Val.initNativeProc(&number_fns.number_p) },
         .{ .symbol = (try b.makeStaticSymbolHandle("integer?")), .value = Val.initNativeProc(&number_fns.integer_p) },
         .{ .symbol = (try b.makeStaticSymbolHandle("not")), .value = Val.initNativeProc(&boolean_fns.not) },

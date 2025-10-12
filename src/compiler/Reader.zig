@@ -118,6 +118,21 @@ fn parseNumber(_: Reader, token: []const u8) Vm.Error!ReadResult {
 
     if (start_idx >= token.len) return Vm.Error.ReadError;
 
+    // Check if this is a float (contains a decimal point)
+    var has_decimal = false;
+    for (token[start_idx..]) |c| {
+        if (c == '.') {
+            has_decimal = true;
+            break;
+        }
+    }
+
+    if (has_decimal) {
+        // Parse as float
+        const f = std.fmt.parseFloat(f64, token) catch return Vm.Error.ReadError;
+        const val = Val.initFloat(f);
+        return ReadResult{ .atom = val };
+    } // Parse as integer
     var n: i64 = 0;
     for (token[start_idx..]) |digit| {
         if (digit < '0' or digit > '9') return Vm.Error.ReadError;
