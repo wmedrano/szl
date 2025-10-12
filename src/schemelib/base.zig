@@ -17,15 +17,12 @@ const exception_fns = @import("exception_fns.zig");
 const number_fns = @import("number_fns.zig");
 const pair_fns = @import("pair_fns.zig");
 const string_fns = @import("string_fns.zig");
+const system_interface_fns = @import("system_interface_fns.zig");
 
 pub const import = NativeProc{
     .name = "%szl-import",
     .unsafe_impl = &importImpl,
-    .docstring =
-    \\(import import-set ...)
-    \\
-    \\An import declaration provides a way to import identifiers from a library. Each import-set names a set of bindings to import from a library, and possibly specifies local names for the imported bindings.
-    ,
+    .docstring = "Internal mechanism used to import.",
 };
 
 // TODO: This should support the full `import` syntax specified by r7rs.
@@ -47,6 +44,8 @@ fn importImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
         vm.allocator(),
         (try inspector.handleToModule(src_module)).*,
     );
+    _ = vm.context.pop();
+    try vm.context.push(vm.allocator(), Val.initEmptyList());
 }
 
 pub fn init(vm: *Vm) Vm.Error!Handle(Module) {
@@ -58,6 +57,7 @@ pub fn init(vm: *Vm) Vm.Error!Handle(Module) {
     }, &[_]Builder.Definition{
         // 6.1 Equivalence
         .{ .symbol = (try b.makeStaticSymbolHandle("eq?")), .value = Val.initNativeProc(&equivalence_fns.eq_p) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("eqv")), .value = Val.initNativeProc(&equivalence_fns.eqv_p) },
         .{ .symbol = (try b.makeStaticSymbolHandle("equal?")), .value = Val.initNativeProc(&equivalence_fns.equal_p) },
         // 6.2 Numbers
         .{ .symbol = (try b.makeStaticSymbolHandle("+")), .value = Val.initNativeProc(&number_fns.add) },
@@ -128,6 +128,7 @@ pub fn init(vm: *Vm) Vm.Error!Handle(Module) {
         .{ .symbol = (try b.makeStaticSymbolHandle("%szl-raise-next")), .value = Val.initNativeProc(&exception_fns.szl_raise_next) },
         // 6.13 Input and Output
         // 6.14 System interface
+        .{ .symbol = (try b.makeStaticSymbolHandle("exit")), .value = Val.initNativeProc(&system_interface_fns.exit) },
         // 5.6 Libraries
         .{ .symbol = (try b.makeStaticSymbolHandle("%szl-import")), .value = Val.initNativeProc(&import) },
     });

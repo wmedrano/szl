@@ -91,15 +91,16 @@ pub fn currentExceptionHandler(self: Context) ?Val {
 pub fn unwindBeforeExceptionHandler(self: *Context) Vm.Error!?Val {
     while (true) {
         if (self.stack_frame.exceptionHandler()) |h| {
-            try self.popStackFrame(.discard);
+            _ = self.popStackFrame(.discard);
             return h;
         }
         if (self.stack_frames.items.len == 0) return null;
-        try self.popStackFrame(.discard);
+        _ = self.popStackFrame(.discard);
     }
 }
 
-pub fn popStackFrame(self: *Context, comptime dest: TopDestination) Vm.Error!void {
+pub fn popStackFrame(self: *Context, comptime dest: TopDestination) bool {
+    if (self.stack_frames.items.len == 0) return false;
     switch (dest) {
         .place_on_top => {
             const top_val = self.stack.items[self.stack.items.len - 1];
@@ -112,6 +113,7 @@ pub fn popStackFrame(self: *Context, comptime dest: TopDestination) Vm.Error!voi
             self.stack_frame = self.stack_frames.pop() orelse StackFrame{};
         },
     }
+    return true;
 }
 
 pub fn argCount(self: Context) u32 {

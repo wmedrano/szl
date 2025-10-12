@@ -62,7 +62,7 @@ test "proc-instructions reveals bytecode" {
         \\                   n
         \\                   (+ (fib (- n 1))
         \\                      (fib (- n 2)))))
-        \\ (import '(sizzle unstable compiler))
+        \\ (import (sizzle unstable compiler))
         \\ (proc-instructions fib)
         ,
     );

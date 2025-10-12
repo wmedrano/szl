@@ -175,7 +175,7 @@ pub const Instruction = union(enum) {
             .squash => |n| try vm.context.stackSquash(n),
             .eval => |n| try eval(vm, n),
             .make_closure => |proc| try makeClosure(vm, proc),
-            .ret => try vm.context.popStackFrame(.place_on_top),
+            .ret => _ = vm.context.popStackFrame(.place_on_top),
         }
     }
 };

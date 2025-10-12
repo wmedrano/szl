@@ -23,6 +23,24 @@ pub const eq_p = NativeProc.withRawArgs(struct {
     }
 });
 
+pub const eqv_p = NativeProc.withRawArgs(struct {
+    pub const name = "eqv?";
+    pub const docstring =
+        \\(eq? obj1 obj2)
+        \\
+        \\Returns #t if obj1 and obj2 are the same object (pointer equality).
+        \\(eq? 'a 'a)     =>  #t
+        \\(eq? 42 42)     =>  #t
+        \\(eq? '() '())   =>  #t
+    ;
+    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
+        return switch (args.len) {
+            2 => NativeProc.Result{ .val = Val.initBool(args[0].eq(args[1])) },
+            else => NativeProc.Result{ .err = Vm.Error.UncaughtException },
+        };
+    }
+});
+
 pub const equal_p = NativeProc.withRawArgs(struct {
     pub const name = "equal?";
     pub const docstring =
