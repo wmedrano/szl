@@ -112,19 +112,18 @@ fn runRepl(allocator: std.mem.Allocator) !void {
         var reader = vm.read(input_buffer.items);
         defer input_buffer.clearRetainingCapacity();
         const stdout = std.fs.File.stdout();
-        while (try reader.readNext()) |expr| {
-            expr_count += 1;
+        var buf: [512]u8 = undefined;
+        while (reader.readNext() catch |err| {
+            const msg = try std.fmt.bufPrint(&buf, COLOR_RED ++ "Error: {}\n" ++ COLOR_RESET, .{err});
+            try stdout.writeAll(msg);
+            continue;
+        }) |expr| {
             const result = vm.evalExpr(expr, null) catch |err| {
-                var buf: [512]u8 = undefined;
-                const msg = try std.fmt.bufPrint(
-                    &buf,
-                    COLOR_RED ++ "Error: {}" ++ COLOR_RESET ++ "\n",
-                    .{err},
-                );
+                const msg = try std.fmt.bufPrint(&buf, COLOR_RED ++ "Error: {}\n" ++ COLOR_RESET, .{err});
                 try stdout.writeAll(msg);
                 continue;
             };
-            var buf: [512]u8 = undefined;
+            expr_count += 1;
             const msg = try std.fmt.bufPrint(
                 &buf,
                 COLOR_CYAN ++ "${}" ++ COLOR_RESET ++ " => " ++ COLOR_GREEN ++ "{f}" ++ COLOR_RESET ++ "\n",
