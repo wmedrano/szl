@@ -11,7 +11,8 @@ const String = @import("../types/String.zig");
 const Symbol = @import("../types/Symbol.zig");
 const SyntaxRules = @import("../types/SyntaxRules.zig");
 const Val = @import("../types/Val.zig");
-const Vector = @import("../types/Vector.zig");
+const vector = @import("../types/vector.zig");
+const Vector = vector.Vector;
 const Vm = @import("../Vm.zig");
 
 const PrettyPrinter = @This();
@@ -155,7 +156,7 @@ fn formatVector(self: PrettyPrinter, writer: *std.Io.Writer, h: Handle(Vector)) 
         return try writer.writeAll("#<vector:invalid>");
     };
     try writer.writeAll("#(");
-    for (vec.data.items, 0..vec.data.items.len) |val, idx| {
+    for (vec.items, 0..vec.items.len) |val, idx| {
         if (idx > 0) try writer.writeAll(" ");
         try writer.print("{f}", .{self.vm.pretty(val)});
     }

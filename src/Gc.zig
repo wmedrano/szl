@@ -11,7 +11,8 @@ const Proc = @import("types/Proc.zig");
 const String = @import("types/String.zig");
 const SyntaxRules = @import("types/SyntaxRules.zig");
 const Val = @import("types/Val.zig");
-const Vector = @import("types/Vector.zig");
+const vector = @import("types/vector.zig");
+const Vector = vector.Vector;
 const Inspector = @import("utils/Inspector.zig");
 const Vm = @import("Vm.zig");
 
@@ -68,8 +69,8 @@ pub fn markOne(self: *Gc, vm: *Vm, val: Val) Vm.Error!void {
             }
         },
         .vector => |h| {
-            const vector = try vm.inspector().handleToVector(h);
-            for (vector.data.items) |item| {
+            const vec = try vm.inspector().handleToVector(h);
+            for (vec.items) |item| {
                 try self.markOne(vm, item);
             }
         },

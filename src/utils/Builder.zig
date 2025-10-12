@@ -12,7 +12,8 @@ const String = @import("../types/String.zig");
 const Symbol = @import("../types/Symbol.zig");
 const SyntaxRules = @import("../types/SyntaxRules.zig");
 const Val = @import("../types/Val.zig");
-const Vector = @import("../types/Vector.zig");
+const vector = @import("../types/vector.zig");
+const Vector = vector.Vector;
 const Vm = @import("../Vm.zig");
 
 const Builder = @This();
@@ -111,7 +112,7 @@ pub inline fn makeVector(self: Builder, vals: []const Val) Vm.Error!Val {
 pub inline fn makeVectorHandle(self: Builder, vals: []const Val) Vm.Error!Handle(Vector) {
     const copy = try self.vm.allocator().dupe(Val, vals);
     errdefer self.vm.allocator().free(copy);
-    const vec = Vector{ .data = std.ArrayList(Val).fromOwnedSlice(copy) };
+    const vec = Vector.fromOwnedSlice(copy);
     return try self.vm.objects.vectors.put(self.vm.allocator(), vec);
 }
 

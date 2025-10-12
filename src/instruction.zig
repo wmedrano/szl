@@ -10,7 +10,8 @@ const Handle = @import("types/object_pool.zig").Handle;
 const Proc = @import("types/Proc.zig");
 const Symbol = @import("types/Symbol.zig");
 const Val = @import("types/Val.zig");
-const Vector = @import("types/Vector.zig");
+const vector = @import("types/vector.zig");
+const Vector = vector.Vector;
 const Vm = @import("Vm.zig");
 
 pub const Instruction = union(enum) {

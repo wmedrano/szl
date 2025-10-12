@@ -9,7 +9,8 @@ const Proc = @import("../types/Proc.zig");
 const String = @import("../types/String.zig");
 const Symbol = @import("../types/Symbol.zig");
 const Val = @import("../types/Val.zig");
-const Vector = @import("../types/Vector.zig");
+const vector = @import("../types/vector.zig");
+const Vector = vector.Vector;
 const Vm = @import("../Vm.zig");
 
 const Inspector = @This();
@@ -214,8 +215,8 @@ pub fn isEqual(self: Inspector, a: Val, b: Val) Vm.Error!bool {
                 .vector => |b_handle| {
                     const a_vec = try self.handleToVector(a_handle);
                     const b_vec = try self.handleToVector(b_handle);
-                    const a_slice = a_vec.asSlice();
-                    const b_slice = b_vec.asSlice();
+                    const a_slice = a_vec.items;
+                    const b_slice = b_vec.items;
                     if (a_slice.len != b_slice.len) return false;
                     for (a_slice, b_slice) |a_item, b_item| {
                         if (!try self.isEqual(a_item, b_item)) return false;

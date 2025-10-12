@@ -13,7 +13,8 @@ const Proc = @import("Proc.zig");
 const String = @import("String.zig");
 const Symbol = @import("Symbol.zig");
 const SyntaxRules = @import("SyntaxRules.zig");
-const Vector = @import("Vector.zig");
+const vector = @import("vector.zig");
+const Vector = vector.Vector;
 
 const Val = @This();
 
