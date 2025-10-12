@@ -59,7 +59,7 @@
      (begin result1 result2 ...))
     ((case key
        ((atoms ...) result1 result2 ...))
-     (if (memv key ’(atoms ...))
+     (if (memv key '(atoms ...))
          (begin result1 result2 ...)))
     ((case key
        ((atoms ...) => result))

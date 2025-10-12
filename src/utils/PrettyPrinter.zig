@@ -25,7 +25,7 @@ pub fn format(self: PrettyPrinter, writer: *std.Io.Writer) std.Io.Writer.Error!v
         .boolean => |b| if (b) try writer.writeAll("#t") else try writer.writeAll("#f"),
         .int => |n| try writer.print("{}", .{n}),
         .float => |f| try writer.print("{d}", .{f}),
-        .char => |c| try self.formatChar(writer, c.data),
+        .char => |c| try self.formatChar(writer, c),
         .pair => |h| try self.formatPair(writer, h),
         .string => |h| {
             const string = self.vm.objects.strings.get(h) orelse {

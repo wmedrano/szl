@@ -1,0 +1,618 @@
+const std = @import("std");
+const testing = std.testing;
+
+const NativeProc = @import("../types/NativeProc.zig");
+const Val = @import("../types/Val.zig");
+const Vm = @import("../Vm.zig");
+
+/// Returns true if a == b
+fn isEqual(a: u21, b: u21) bool {
+    return a == b;
+}
+
+/// Returns true if a < b
+fn isLessThan(a: u21, b: u21) bool {
+    return a < b;
+}
+
+/// Returns true if a <= b
+fn isLessThanOrEqual(a: u21, b: u21) bool {
+    return a <= b;
+}
+
+/// Returns true if a > b
+fn isGreaterThan(a: u21, b: u21) bool {
+    return a > b;
+}
+
+/// Returns true if a >= b
+fn isGreaterThanOrEqual(a: u21, b: u21) bool {
+    return a >= b;
+}
+
+/// Returns true if a == b (case-insensitive)
+fn isEqualCaseInsensitive(a: u21, b: u21) bool {
+    const a_lower = if (a < 128) std.ascii.toLower(@intCast(a)) else a;
+    const b_lower = if (b < 128) std.ascii.toLower(@intCast(b)) else b;
+    return a_lower == b_lower;
+}
+
+/// Returns true if a < b (case-insensitive)
+fn isLessThanCaseInsensitive(a: u21, b: u21) bool {
+    const a_lower = if (a < 128) std.ascii.toLower(@intCast(a)) else a;
+    const b_lower = if (b < 128) std.ascii.toLower(@intCast(b)) else b;
+    return a_lower < b_lower;
+}
+
+/// Returns true if a <= b (case-insensitive)
+fn isLessThanOrEqualCaseInsensitive(a: u21, b: u21) bool {
+    const a_lower = if (a < 128) std.ascii.toLower(@intCast(a)) else a;
+    const b_lower = if (b < 128) std.ascii.toLower(@intCast(b)) else b;
+    return a_lower <= b_lower;
+}
+
+/// Returns true if a > b (case-insensitive)
+fn isGreaterThanCaseInsensitive(a: u21, b: u21) bool {
+    const a_lower = if (a < 128) std.ascii.toLower(@intCast(a)) else a;
+    const b_lower = if (b < 128) std.ascii.toLower(@intCast(b)) else b;
+    return a_lower > b_lower;
+}
+
+/// Returns true if a >= b (case-insensitive)
+fn isGreaterThanOrEqualCaseInsensitive(a: u21, b: u21) bool {
+    const a_lower = if (a < 128) std.ascii.toLower(@intCast(a)) else a;
+    const b_lower = if (b < 128) std.ascii.toLower(@intCast(b)) else b;
+    return a_lower >= b_lower;
+}
+
+/// Generic comparison helper that checks if all arguments are ordered according to compareFn
+fn checkOrdered(args: []const Val, comptime compare_fn: fn (u21, u21) bool) NativeProc.Result {
+    const is_ordered = switch (args.len) {
+        0 => true,
+        1 => blk: {
+            // Validate single argument is a character
+            _ = args[0].asChar() orelse return .{ .err = error.NotImplemented };
+            break :blk true;
+        },
+        else => blk: {
+            var prev = args[0].asChar() orelse return .{ .err = error.NotImplemented };
+            for (args[1..]) |v| {
+                const curr = v.asChar() orelse return .{ .err = error.NotImplemented };
+                if (!compare_fn(prev, curr)) break :blk false;
+                prev = curr;
+            }
+            break :blk true;
+        },
+    };
+    return .{ .val = Val.initBool(is_ordered) };
+}
+
+pub const eq = NativeProc.withRawArgs(struct {
+    pub const name = "char=?";
+    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
+        return checkOrdered(args, isEqual);
+    }
+});
+
+pub const lt = NativeProc.withRawArgs(struct {
+    pub const name = "char<?";
+    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
+        return checkOrdered(args, isLessThan);
+    }
+});
+
+pub const lte = NativeProc.withRawArgs(struct {
+    pub const name = "char<=?";
+    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
+        return checkOrdered(args, isLessThanOrEqual);
+    }
+});
+
+pub const gt = NativeProc.withRawArgs(struct {
+    pub const name = "char>?";
+    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
+        return checkOrdered(args, isGreaterThan);
+    }
+});
+
+pub const gte = NativeProc.withRawArgs(struct {
+    pub const name = "char>=?";
+    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
+        return checkOrdered(args, isGreaterThanOrEqual);
+    }
+});
+
+pub const ci_eq = NativeProc.withRawArgs(struct {
+    pub const name = "char-ci=?";
+    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
+        return checkOrdered(args, isEqualCaseInsensitive);
+    }
+});
+
+pub const ci_lt = NativeProc.withRawArgs(struct {
+    pub const name = "char-ci<?";
+    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
+        return checkOrdered(args, isLessThanCaseInsensitive);
+    }
+});
+
+pub const ci_lte = NativeProc.withRawArgs(struct {
+    pub const name = "char-ci<=?";
+    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
+        return checkOrdered(args, isLessThanOrEqualCaseInsensitive);
+    }
+});
+
+pub const ci_gt = NativeProc.withRawArgs(struct {
+    pub const name = "char-ci>?";
+    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
+        return checkOrdered(args, isGreaterThanCaseInsensitive);
+    }
+});
+
+pub const ci_gte = NativeProc.withRawArgs(struct {
+    pub const name = "char-ci>=?";
+    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
+        return checkOrdered(args, isGreaterThanOrEqualCaseInsensitive);
+    }
+});
+
+pub const char_p = NativeProc.withRawArgs(struct {
+    pub const name = "char?";
+    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
+        return switch (args.len) {
+            1 => NativeProc.Result{ .val = Val.initBool(args[0].asChar() != null) },
+            else => NativeProc.Result{ .err = Vm.Error.UncaughtException },
+        };
+    }
+});
+
+pub const char_alphabetic_p = NativeProc.withRawArgs(struct {
+    pub const name = "char-alphabetic?";
+    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
+        if (args.len != 1) return .{ .err = error.NotImplemented };
+        const c = args[0].asChar() orelse return .{ .err = error.NotImplemented };
+        const is_alpha = if (c < 128)
+            std.ascii.isAlphabetic(@intCast(c))
+        else
+            // For Unicode, consider letters as non-control characters in letter ranges
+            // This is a simplified implementation
+            (c >= 0xC0 and c <= 0x2AF) or (c >= 0x370 and c <= 0x52F);
+        return .{ .val = Val.initBool(is_alpha) };
+    }
+});
+
+pub const char_numeric_p = NativeProc.withRawArgs(struct {
+    pub const name = "char-numeric?";
+    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
+        if (args.len != 1) return .{ .err = error.NotImplemented };
+        const c = args[0].asChar() orelse return .{ .err = error.NotImplemented };
+        const is_numeric = if (c < 128)
+            std.ascii.isDigit(@intCast(c))
+        else
+            false; // Simplified: only ASCII digits for now
+        return .{ .val = Val.initBool(is_numeric) };
+    }
+});
+
+pub const char_whitespace_p = NativeProc.withRawArgs(struct {
+    pub const name = "char-whitespace?";
+    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
+        if (args.len != 1) return .{ .err = error.NotImplemented };
+        const c = args[0].asChar() orelse return .{ .err = error.NotImplemented };
+        const is_whitespace = if (c < 128)
+            std.ascii.isWhitespace(@intCast(c))
+        else
+            // Unicode whitespace characters
+            c == 0x00A0 or // NO-BREAK SPACE
+                c == 0x1680 or // OGHAM SPACE MARK
+                (c >= 0x2000 and c <= 0x200A) or // Various spaces
+                c == 0x202F or // NARROW NO-BREAK SPACE
+                c == 0x205F or // MEDIUM MATHEMATICAL SPACE
+                c == 0x3000; // IDEOGRAPHIC SPACE
+        return .{ .val = Val.initBool(is_whitespace) };
+    }
+});
+
+pub const char_upper_case_p = NativeProc.withRawArgs(struct {
+    pub const name = "char-upper-case?";
+    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
+        if (args.len != 1) return .{ .err = error.NotImplemented };
+        const c = args[0].asChar() orelse return .{ .err = error.NotImplemented };
+        const is_upper = if (c < 128)
+            std.ascii.isUpper(@intCast(c))
+        else
+            false; // Simplified: only ASCII for case
+        return .{ .val = Val.initBool(is_upper) };
+    }
+});
+
+pub const char_lower_case_p = NativeProc.withRawArgs(struct {
+    pub const name = "char-lower-case?";
+    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
+        if (args.len != 1) return .{ .err = error.NotImplemented };
+        const c = args[0].asChar() orelse return .{ .err = error.NotImplemented };
+        const is_lower = if (c < 128)
+            std.ascii.isLower(@intCast(c))
+        else
+            false; // Simplified: only ASCII for case
+        return .{ .val = Val.initBool(is_lower) };
+    }
+});
+
+pub const digit_value = NativeProc.withRawArgs(struct {
+    pub const name = "digit-value";
+    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
+        if (args.len != 1) return .{ .err = error.NotImplemented };
+        const c = args[0].asChar() orelse return .{ .err = error.NotImplemented };
+        if (c >= '0' and c <= '9') {
+            const value: i64 = @intCast(c - '0');
+            return .{ .val = Val.initInt(value) };
+        }
+        return .{ .val = Val.initBool(false) }; // R7RS returns #f for non-digits
+    }
+});
+
+pub const char_to_integer = NativeProc.withRawArgs(struct {
+    pub const name = "char->integer";
+    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
+        if (args.len != 1) return .{ .err = error.NotImplemented };
+        const c = args[0].asChar() orelse return .{ .err = error.NotImplemented };
+        const code: i64 = @intCast(c);
+        return .{ .val = Val.initInt(code) };
+    }
+});
+
+pub const integer_to_char = NativeProc.withRawArgs(struct {
+    pub const name = "integer->char";
+    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
+        if (args.len != 1) return .{ .err = error.NotImplemented };
+        const n = args[0].asInt() orelse return .{ .err = error.NotImplemented };
+        // Validate Unicode range
+        if (n < 0 or n > 0x10FFFF) return .{ .err = error.NotImplemented };
+        const c: u21 = @intCast(n);
+        return .{ .val = Val.initChar(c) };
+    }
+});
+
+pub const char_upcase = NativeProc.withRawArgs(struct {
+    pub const name = "char-upcase";
+    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
+        if (args.len != 1) return .{ .err = error.NotImplemented };
+        const c = args[0].asChar() orelse return .{ .err = error.NotImplemented };
+        const upper = if (c < 128)
+            std.ascii.toUpper(@intCast(c))
+        else
+            c; // No case conversion for non-ASCII
+        return .{ .val = Val.initChar(upper) };
+    }
+});
+
+pub const char_downcase = NativeProc.withRawArgs(struct {
+    pub const name = "char-downcase";
+    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
+        if (args.len != 1) return .{ .err = error.NotImplemented };
+        const c = args[0].asChar() orelse return .{ .err = error.NotImplemented };
+        const lower = if (c < 128)
+            std.ascii.toLower(@intCast(c))
+        else
+            c; // No case conversion for non-ASCII
+        return .{ .val = Val.initChar(lower) };
+    }
+});
+
+pub const char_foldcase = NativeProc.withRawArgs(struct {
+    pub const name = "char-foldcase";
+    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
+        if (args.len != 1) return .{ .err = error.NotImplemented };
+        const c = args[0].asChar() orelse return .{ .err = error.NotImplemented };
+        // For ASCII, foldcase is the same as downcase
+        const folded = if (c < 128)
+            std.ascii.toLower(@intCast(c))
+        else
+            c; // No case folding for non-ASCII in this simple implementation
+        return .{ .val = Val.initChar(folded) };
+    }
+});
+
+test "char? with character returns true" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#t", "(char? #\\a)");
+    try vm.expectEval("#t", "(char? #\\Z)");
+    try vm.expectEval("#t", "(char? #\\space)");
+}
+
+test "char? with non-character returns false" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#f", "(char? 42)");
+    try vm.expectEval("#f", "(char? #t)");
+    try vm.expectEval("#f", "(char? \"a\")");
+}
+
+test "char? with wrong argument count returns error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(char?)", null));
+    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(char? #\\a #\\b)", null));
+}
+
+test "char=? on equal characters returns true" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#t", "(char=? #\\a #\\a)");
+    try vm.expectEval("#t", "(char=? #\\Z #\\Z #\\Z)");
+}
+
+test "char=? on non-equal characters returns false" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#f", "(char=? #\\a #\\b)");
+    try vm.expectEval("#f", "(char=? #\\A #\\a)");
+    try vm.expectEval("#f", "(char=? #\\a #\\a #\\b)");
+}
+
+test "char=? with less than 2 args returns true" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#t", "(char=?)");
+    try vm.expectEval("#t", "(char=? #\\a)");
+}
+
+test "char<? on ordered characters returns true" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#t", "(char<? #\\a #\\b #\\c)");
+    try vm.expectEval("#t", "(char<? #\\A #\\Z)");
+}
+
+test "char<? on non-ordered characters returns false" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#f", "(char<? #\\c #\\b #\\a)");
+    try vm.expectEval("#f", "(char<? #\\a #\\a)");
+}
+
+test "char<=? on ordered characters returns true" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#t", "(char<=? #\\a #\\b #\\c)");
+    try vm.expectEval("#t", "(char<=? #\\a #\\a #\\b)");
+}
+
+test "char>? on descending characters returns true" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#t", "(char>? #\\c #\\b #\\a)");
+    try vm.expectEval("#t", "(char>? #\\Z #\\A)");
+}
+
+test "char>? on non-descending characters returns false" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#f", "(char>? #\\a #\\b)");
+    try vm.expectEval("#f", "(char>? #\\a #\\a)");
+}
+
+test "char>=? on descending characters returns true" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#t", "(char>=? #\\c #\\b #\\a)");
+    try vm.expectEval("#t", "(char>=? #\\b #\\b #\\a)");
+}
+
+test "char-ci=? case-insensitive equal returns true" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#t", "(char-ci=? #\\a #\\A)");
+    try vm.expectEval("#t", "(char-ci=? #\\Z #\\z)");
+    try vm.expectEval("#t", "(char-ci=? #\\a #\\A #\\a)");
+}
+
+test "char-ci=? case-insensitive non-equal returns false" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#f", "(char-ci=? #\\a #\\B)");
+    try vm.expectEval("#f", "(char-ci=? #\\A #\\b #\\c)");
+}
+
+test "char-ci<? case-insensitive comparison" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#t", "(char-ci<? #\\a #\\B)");
+    try vm.expectEval("#t", "(char-ci<? #\\A #\\b #\\C)");
+    try vm.expectEval("#f", "(char-ci<? #\\b #\\A)");
+}
+
+test "char-alphabetic? returns true for letters" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#t", "(char-alphabetic? #\\a)");
+    try vm.expectEval("#t", "(char-alphabetic? #\\Z)");
+}
+
+test "char-alphabetic? returns false for non-letters" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#f", "(char-alphabetic? #\\0)");
+    try vm.expectEval("#f", "(char-alphabetic? #\\space)");
+    try vm.expectEval("#f", "(char-alphabetic? #\\!)");
+}
+
+test "char-numeric? returns true for digits" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#t", "(char-numeric? #\\0)");
+    try vm.expectEval("#t", "(char-numeric? #\\5)");
+    try vm.expectEval("#t", "(char-numeric? #\\9)");
+}
+
+test "char-numeric? returns false for non-digits" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#f", "(char-numeric? #\\a)");
+    try vm.expectEval("#f", "(char-numeric? #\\space)");
+}
+
+test "char-whitespace? returns true for whitespace" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#t", "(char-whitespace? #\\space)");
+    try vm.expectEval("#t", "(char-whitespace? #\\tab)");
+    try vm.expectEval("#t", "(char-whitespace? #\\newline)");
+}
+
+test "char-whitespace? returns false for non-whitespace" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#f", "(char-whitespace? #\\a)");
+    try vm.expectEval("#f", "(char-whitespace? #\\0)");
+}
+
+test "char-upper-case? returns true for uppercase" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#t", "(char-upper-case? #\\A)");
+    try vm.expectEval("#t", "(char-upper-case? #\\Z)");
+}
+
+test "char-upper-case? returns false for non-uppercase" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#f", "(char-upper-case? #\\a)");
+    try vm.expectEval("#f", "(char-upper-case? #\\0)");
+}
+
+test "char-lower-case? returns true for lowercase" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#t", "(char-lower-case? #\\a)");
+    try vm.expectEval("#t", "(char-lower-case? #\\z)");
+}
+
+test "char-lower-case? returns false for non-lowercase" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#f", "(char-lower-case? #\\A)");
+    try vm.expectEval("#f", "(char-lower-case? #\\0)");
+}
+
+test "digit-value returns correct value for digits" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("0", "(digit-value #\\0)");
+    try vm.expectEval("5", "(digit-value #\\5)");
+    try vm.expectEval("9", "(digit-value #\\9)");
+}
+
+test "digit-value returns false for non-digits" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#f", "(digit-value #\\a)");
+    try vm.expectEval("#f", "(digit-value #\\space)");
+}
+
+test "char->integer returns Unicode code point" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("97", "(char->integer #\\a)");
+    try vm.expectEval("65", "(char->integer #\\A)");
+    try vm.expectEval("32", "(char->integer #\\space)");
+}
+
+test "integer->char creates character from code point" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#\\a", "(integer->char 97)");
+    try vm.expectEval("#\\A", "(integer->char 65)");
+    try vm.expectEval("#\\space", "(integer->char 32)");
+}
+
+test "integer->char rejects invalid code points" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try testing.expectError(Vm.Error.NotImplemented, vm.evalStr("(integer->char -1)", null));
+    try testing.expectError(Vm.Error.NotImplemented, vm.evalStr("(integer->char 1114112)", null));
+}
+
+test "char->integer and integer->char are inverses" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#\\a", "(integer->char (char->integer #\\a))");
+    try vm.expectEval("97", "(char->integer (integer->char 97))");
+}
+
+test "char-upcase converts lowercase to uppercase" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#\\A", "(char-upcase #\\a)");
+    try vm.expectEval("#\\Z", "(char-upcase #\\z)");
+    try vm.expectEval("#\\A", "(char-upcase #\\A)");
+}
+
+test "char-upcase preserves non-letters" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#\\0", "(char-upcase #\\0)");
+    try vm.expectEval("#\\space", "(char-upcase #\\space)");
+}
+
+test "char-downcase converts uppercase to lowercase" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#\\a", "(char-downcase #\\A)");
+    try vm.expectEval("#\\z", "(char-downcase #\\Z)");
+    try vm.expectEval("#\\a", "(char-downcase #\\a)");
+}
+
+test "char-downcase preserves non-letters" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#\\0", "(char-downcase #\\0)");
+    try vm.expectEval("#\\space", "(char-downcase #\\space)");
+}
+
+test "char-foldcase performs case folding" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#\\a", "(char-foldcase #\\A)");
+    try vm.expectEval("#\\a", "(char-foldcase #\\a)");
+    try vm.expectEval("#\\z", "(char-foldcase #\\Z)");
+}

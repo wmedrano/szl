@@ -1,7 +1,6 @@
 const std = @import("std");
 const testing = std.testing;
 
-const Character = @import("../types/Character.zig");
 const Symbol = @import("../types/Symbol.zig");
 const Val = @import("../types/Val.zig");
 const Vm = @import("../Vm.zig");

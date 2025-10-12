@@ -1,0 +1,88 @@
+const std = @import("std");
+const testing = std.testing;
+const Instruction = @import("../instruction.zig").Instruction;
+const NativeProc = @import("../types/NativeProc.zig");
+const Val = @import("../types/Val.zig");
+const Vm = @import("../Vm.zig");
+
+pub const with_exception_handler = NativeProc{
+    .name = "with-exception-handler",
+    .unsafe_impl = &withExceptionHandlerImpl,
+};
+
+fn withExceptionHandlerImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
+    if (arg_count != 2) return Vm.Error.NotImplemented;
+    const thunk = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
+    const handler = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
+    try vm.context.setExceptionHandler(handler);
+    try vm.context.push(vm.allocator(), thunk);
+    try (Instruction{ .eval = 0 }).execute(vm);
+}
+
+pub const raise_continuable = NativeProc{
+    .name = "raise-continuable",
+    .unsafe_impl = &raiseContinuableImpl,
+};
+
+fn raiseContinuableImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
+    if (arg_count != 1) return Vm.Error.NotImplemented;
+    const handler = vm.context.currentExceptionHandler() orelse return Vm.Error.UncaughtException;
+    try vm.context.push(vm.allocator(), handler);
+    try (Instruction{ .eval = 1 }).execute(vm);
+}
+
+pub const szl_raise_next = NativeProc{
+    .name = "%szl-raise-next",
+    .unsafe_impl = &szlRaiseNextImpl,
+};
+
+fn szlRaiseNextImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
+    const inspector = vm.inspector();
+    const builder = vm.builder();
+    if (arg_count != 1) return Vm.Error.NotImplemented;
+    const err = vm.context.top() orelse return Vm.Error.UndefinedBehavior;
+    _ = try vm.context.unwindBeforeExceptionHandler();
+    const global_mod_handle = inspector.findModule(&.{
+        try builder.makeStaticSymbolHandle("scheme"),
+        try builder.makeStaticSymbolHandle("base"),
+    }) orelse return Vm.Error.UndefinedBehavior;
+    const global_mod = try inspector.handleToModule(global_mod_handle);
+    const raise_proc = global_mod.getBySymbol(try builder.makeStaticSymbolHandle("raise")) orelse
+        return Vm.Error.UndefinedBehavior;
+    try vm.context.pushSlice(vm.allocator(), &.{ err, raise_proc });
+    try (Instruction{ .eval = 1 }).execute(vm);
+}
+
+test "raise-continuable calls exception handler and continues" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval(
+        "105",
+        \\ (define (proc1 n) (raise-continuable n))
+        \\ (define (proc2 n) (proc1 n))
+        \\ (with-exception-handler
+        \\   (lambda (x) (+ x 100))
+        \\   (lambda () (proc2 5)))
+        ,
+    );
+}
+
+test "raise calls all exceptions" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const source =
+        \\ (define one 0)
+        \\ (define two 0)
+        \\ (define (set-one! err) (define one 1))
+        \\ (define (set-two! err) (define two 2))
+        \\ (with-exception-handler set-one!
+        \\   (lambda ()
+        \\     (with-exception-handler set-two!
+        \\       (lambda () (raise 'exception)))))
+    ;
+    try testing.expectError(error.UncaughtException, vm.evalStr(source, null));
+    try vm.expectEval("1", "one");
+    try vm.expectEval("2", "two");
+}
