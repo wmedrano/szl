@@ -11,9 +11,8 @@ const Proc = @import("types/Proc.zig");
 const String = @import("types/String.zig");
 const SyntaxRules = @import("types/SyntaxRules.zig");
 const Val = @import("types/Val.zig");
-const vector = @import("types/vector.zig");
-const Vector = vector.Vector;
-const ByteVector = vector.ByteVector;
+const Vector = Val.Vector;
+const ByteVector = Val.ByteVector;
 const Inspector = @import("utils/Inspector.zig");
 const Vm = @import("Vm.zig");
 

@@ -13,9 +13,9 @@ const Proc = @import("Proc.zig");
 const String = @import("String.zig");
 const Symbol = @import("Symbol.zig");
 const SyntaxRules = @import("SyntaxRules.zig");
-const vector = @import("vector.zig");
-const Vector = vector.Vector;
-const ByteVector = vector.ByteVector;
+
+pub const Vector = std.ArrayList(Val);
+pub const ByteVector = std.ArrayList(u8);
 
 const Val = @This();
 

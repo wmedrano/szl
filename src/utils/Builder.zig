@@ -12,9 +12,8 @@ const String = @import("../types/String.zig");
 const Symbol = @import("../types/Symbol.zig");
 const SyntaxRules = @import("../types/SyntaxRules.zig");
 const Val = @import("../types/Val.zig");
-const vector = @import("../types/vector.zig");
-const Vector = vector.Vector;
-const ByteVector = vector.ByteVector;
+const Vector = Val.Vector;
+const ByteVector = Val.ByteVector;
 const Vm = @import("../Vm.zig");
 
 const Builder = @This();
