@@ -13,11 +13,11 @@ stack_frames: std.ArrayList(StackFrame),
 pub const StackFrame = struct {
     stack_start: u32 = 0,
     arg_count: u32 = 0,
-    locals_count: u32 = 0,
     instruction_idx: u32 = 0,
     proc: Val = Val.initEmptyList(),
     exception_handler: Val = Val.initEmptyList(),
     instructions: []const Instruction = &.{},
+    captures: []const Val = &.{},
 
     pub inline fn exceptionHandler(self: StackFrame) ?Val {
         return if (self.exception_handler.isNull()) null else self.exception_handler;
@@ -128,8 +128,7 @@ pub fn getProc(self: Context) Val {
 }
 
 pub fn getCapture(self: Context, idx: u32) Vm.Error!Val {
-    const abs_idx = self.stack_frame.stack_start + self.stack_frame.arg_count + self.stack_frame.locals_count + idx;
-    return self.stack.items[@intCast(abs_idx)];
+    return self.stack_frame.captures[@intCast(idx)];
 }
 
 pub fn getArg(self: Context, idx: u32) Vm.Error!Val {

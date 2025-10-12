@@ -226,7 +226,6 @@ fn evalProc(vm: *Vm, h: Handle(Proc), arg_count: u32, start: usize) !void {
     try vm.context.pushStackFrame(vm.allocator(), .{
         .stack_start = @intCast(start),
         .arg_count = arg_count,
-        .locals_count = proc.locals_count,
         .proc = Val.initProc(h),
         .instructions = proc.instructions,
     });
@@ -240,15 +239,13 @@ fn evalClosure(vm: *Vm, h: Handle(Closure), arg_count: u32, start: usize) !void 
     }
     // 2. Initialize locals.
     try vm.context.pushMany(vm.allocator(), Val.initEmptyList(), closure.locals_count);
-    // 3. Initialize captures.
-    try vm.context.pushSlice(vm.allocator(), closure.captures);
-    // 4. Set the context.
+    // 3. Set the context.
     try vm.context.pushStackFrame(vm.allocator(), .{
         .stack_start = @intCast(start),
         .arg_count = arg_count,
-        .locals_count = closure.locals_count,
         .proc = Val.initClosure(h),
         .instructions = closure.instructions,
+        .captures = closure.captures,
     });
 }
 
