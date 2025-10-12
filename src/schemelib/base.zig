@@ -19,7 +19,7 @@ const pair_fns = @import("pair_fns.zig");
 const string_fns = @import("string_fns.zig");
 
 pub const import = NativeProc{
-    .name = "import",
+    .name = "%szl-import",
     .unsafe_impl = &importImpl,
     .docstring =
     \\(import import-set ...)
@@ -129,7 +129,7 @@ pub fn init(vm: *Vm) Vm.Error!Handle(Module) {
         // 6.13 Input and Output
         // 6.14 System interface
         // 5.6 Libraries
-        .{ .symbol = (try b.makeStaticSymbolHandle("import")), .value = Val.initNativeProc(&import) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("%szl-import")), .value = Val.initNativeProc(&import) },
     });
     _ = try vm.evalStr(@embedFile("base.scm"), env_handle);
 

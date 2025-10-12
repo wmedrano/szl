@@ -2,6 +2,14 @@
   (raise-continuable err)
   (%szl-raise-next err))
 
+(define-syntax import
+  (syntax-rules ()
+    ((_ lib) (%szl-import (quote lib)))
+    ((_ lib1 lib2 ...)
+     (begin
+       (%szl-import (quote lib1))
+       (import lib2 ...)))))
+
 ;; TODO: Support multiple arguments. This is a stub that supports only 1
 ;; argument for call-with-values.
 (define (call-with-values producer consumer)
