@@ -89,6 +89,13 @@ fn checkOrdered(args: []const Val, comptime compare_fn: fn (u21, u21) bool) Nati
 
 pub const eq = NativeProc.withRawArgs(struct {
     pub const name = "char=?";
+    pub const docstring =
+        \\(char=? char1 char2 ...)
+        \\
+        \\Returns #t if all characters are equal.
+        \\(char=? #\a #\a)  =>  #t
+        \\(char=? #\a #\b)  =>  #f
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         return checkOrdered(args, isEqual);
     }
@@ -96,6 +103,12 @@ pub const eq = NativeProc.withRawArgs(struct {
 
 pub const lt = NativeProc.withRawArgs(struct {
     pub const name = "char<?";
+    pub const docstring =
+        \\(char<? char1 char2 ...)
+        \\
+        \\Returns #t if characters are monotonically increasing.
+        \\(char<? #\a #\b #\c)  =>  #t
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         return checkOrdered(args, isLessThan);
     }
@@ -103,6 +116,12 @@ pub const lt = NativeProc.withRawArgs(struct {
 
 pub const lte = NativeProc.withRawArgs(struct {
     pub const name = "char<=?";
+    pub const docstring =
+        \\(char<=? char1 char2 ...)
+        \\
+        \\Returns #t if characters are monotonically non-decreasing.
+        \\(char<=? #\a #\a #\b)  =>  #t
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         return checkOrdered(args, isLessThanOrEqual);
     }
@@ -110,6 +129,12 @@ pub const lte = NativeProc.withRawArgs(struct {
 
 pub const gt = NativeProc.withRawArgs(struct {
     pub const name = "char>?";
+    pub const docstring =
+        \\(char>? char1 char2 ...)
+        \\
+        \\Returns #t if characters are monotonically decreasing.
+        \\(char>? #\c #\b #\a)  =>  #t
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         return checkOrdered(args, isGreaterThan);
     }
@@ -117,6 +142,12 @@ pub const gt = NativeProc.withRawArgs(struct {
 
 pub const gte = NativeProc.withRawArgs(struct {
     pub const name = "char>=?";
+    pub const docstring =
+        \\(char>=? char1 char2 ...)
+        \\
+        \\Returns #t if characters are monotonically non-increasing.
+        \\(char>=? #\c #\b #\b)  =>  #t
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         return checkOrdered(args, isGreaterThanOrEqual);
     }
@@ -124,6 +155,12 @@ pub const gte = NativeProc.withRawArgs(struct {
 
 pub const ci_eq = NativeProc.withRawArgs(struct {
     pub const name = "char-ci=?";
+    pub const docstring =
+        \\(char-ci=? char1 char2 ...)
+        \\
+        \\Returns #t if all characters are equal (case-insensitive).
+        \\(char-ci=? #\a #\A)  =>  #t
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         return checkOrdered(args, isEqualCaseInsensitive);
     }
@@ -131,6 +168,12 @@ pub const ci_eq = NativeProc.withRawArgs(struct {
 
 pub const ci_lt = NativeProc.withRawArgs(struct {
     pub const name = "char-ci<?";
+    pub const docstring =
+        \\(char-ci<? char1 char2 ...)
+        \\
+        \\Returns #t if characters are monotonically increasing (case-insensitive).
+        \\(char-ci<? #\a #\B)  =>  #t
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         return checkOrdered(args, isLessThanCaseInsensitive);
     }
@@ -138,6 +181,12 @@ pub const ci_lt = NativeProc.withRawArgs(struct {
 
 pub const ci_lte = NativeProc.withRawArgs(struct {
     pub const name = "char-ci<=?";
+    pub const docstring =
+        \\(char-ci<=? char1 char2 ...)
+        \\
+        \\Returns #t if characters are monotonically non-decreasing (case-insensitive).
+        \\(char-ci<=? #\a #\A #\B)  =>  #t
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         return checkOrdered(args, isLessThanOrEqualCaseInsensitive);
     }
@@ -145,6 +194,12 @@ pub const ci_lte = NativeProc.withRawArgs(struct {
 
 pub const ci_gt = NativeProc.withRawArgs(struct {
     pub const name = "char-ci>?";
+    pub const docstring =
+        \\(char-ci>? char1 char2 ...)
+        \\
+        \\Returns #t if characters are monotonically decreasing (case-insensitive).
+        \\(char-ci>? #\C #\b #\a)  =>  #t
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         return checkOrdered(args, isGreaterThanCaseInsensitive);
     }
@@ -152,6 +207,12 @@ pub const ci_gt = NativeProc.withRawArgs(struct {
 
 pub const ci_gte = NativeProc.withRawArgs(struct {
     pub const name = "char-ci>=?";
+    pub const docstring =
+        \\(char-ci>=? char1 char2 ...)
+        \\
+        \\Returns #t if characters are monotonically non-increasing (case-insensitive).
+        \\(char-ci>=? #\C #\B #\b)  =>  #t
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         return checkOrdered(args, isGreaterThanOrEqualCaseInsensitive);
     }
@@ -159,6 +220,13 @@ pub const ci_gte = NativeProc.withRawArgs(struct {
 
 pub const char_p = NativeProc.withRawArgs(struct {
     pub const name = "char?";
+    pub const docstring =
+        \\(char? obj)
+        \\
+        \\Returns #t if obj is a character, #f otherwise.
+        \\(char? #\a)  =>  #t
+        \\(char? 97)   =>  #f
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         return switch (args.len) {
             1 => NativeProc.Result{ .val = Val.initBool(args[0].asChar() != null) },
@@ -169,6 +237,13 @@ pub const char_p = NativeProc.withRawArgs(struct {
 
 pub const char_alphabetic_p = NativeProc.withRawArgs(struct {
     pub const name = "char-alphabetic?";
+    pub const docstring =
+        \\(char-alphabetic? char)
+        \\
+        \\Returns #t if char is an alphabetic character.
+        \\(char-alphabetic? #\a)      =>  #t
+        \\(char-alphabetic? #\0)      =>  #f
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         if (args.len != 1) return .{ .err = error.NotImplemented };
         const c = args[0].asChar() orelse return .{ .err = error.NotImplemented };
@@ -184,6 +259,13 @@ pub const char_alphabetic_p = NativeProc.withRawArgs(struct {
 
 pub const char_numeric_p = NativeProc.withRawArgs(struct {
     pub const name = "char-numeric?";
+    pub const docstring =
+        \\(char-numeric? char)
+        \\
+        \\Returns #t if char is a numeric digit character.
+        \\(char-numeric? #\5)    =>  #t
+        \\(char-numeric? #\a)    =>  #f
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         if (args.len != 1) return .{ .err = error.NotImplemented };
         const c = args[0].asChar() orelse return .{ .err = error.NotImplemented };
@@ -197,6 +279,13 @@ pub const char_numeric_p = NativeProc.withRawArgs(struct {
 
 pub const char_whitespace_p = NativeProc.withRawArgs(struct {
     pub const name = "char-whitespace?";
+    pub const docstring =
+        \\(char-whitespace? char)
+        \\
+        \\Returns #t if char is a whitespace character.
+        \\(char-whitespace? #\space)    =>  #t
+        \\(char-whitespace? #\a)        =>  #f
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         if (args.len != 1) return .{ .err = error.NotImplemented };
         const c = args[0].asChar() orelse return .{ .err = error.NotImplemented };
@@ -216,6 +305,13 @@ pub const char_whitespace_p = NativeProc.withRawArgs(struct {
 
 pub const char_upper_case_p = NativeProc.withRawArgs(struct {
     pub const name = "char-upper-case?";
+    pub const docstring =
+        \\(char-upper-case? char)
+        \\
+        \\Returns #t if char is an uppercase letter.
+        \\(char-upper-case? #\A)    =>  #t
+        \\(char-upper-case? #\a)    =>  #f
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         if (args.len != 1) return .{ .err = error.NotImplemented };
         const c = args[0].asChar() orelse return .{ .err = error.NotImplemented };
@@ -229,6 +325,13 @@ pub const char_upper_case_p = NativeProc.withRawArgs(struct {
 
 pub const char_lower_case_p = NativeProc.withRawArgs(struct {
     pub const name = "char-lower-case?";
+    pub const docstring =
+        \\(char-lower-case? char)
+        \\
+        \\Returns #t if char is a lowercase letter.
+        \\(char-lower-case? #\a)    =>  #t
+        \\(char-lower-case? #\A)    =>  #f
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         if (args.len != 1) return .{ .err = error.NotImplemented };
         const c = args[0].asChar() orelse return .{ .err = error.NotImplemented };
@@ -242,6 +345,13 @@ pub const char_lower_case_p = NativeProc.withRawArgs(struct {
 
 pub const digit_value = NativeProc.withRawArgs(struct {
     pub const name = "digit-value";
+    pub const docstring =
+        \\(digit-value char)
+        \\
+        \\Returns the numeric value of a digit character, or #f if not a digit.
+        \\(digit-value #\5)    =>  5
+        \\(digit-value #\a)    =>  #f
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         if (args.len != 1) return .{ .err = error.NotImplemented };
         const c = args[0].asChar() orelse return .{ .err = error.NotImplemented };
@@ -255,6 +365,13 @@ pub const digit_value = NativeProc.withRawArgs(struct {
 
 pub const char_to_integer = NativeProc.withRawArgs(struct {
     pub const name = "char->integer";
+    pub const docstring =
+        \\(char->integer char)
+        \\
+        \\Returns the Unicode code point of char as an integer.
+        \\(char->integer #\a)    =>  97
+        \\(char->integer #\A)    =>  65
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         if (args.len != 1) return .{ .err = error.NotImplemented };
         const c = args[0].asChar() orelse return .{ .err = error.NotImplemented };
@@ -265,6 +382,13 @@ pub const char_to_integer = NativeProc.withRawArgs(struct {
 
 pub const integer_to_char = NativeProc.withRawArgs(struct {
     pub const name = "integer->char";
+    pub const docstring =
+        \\(integer->char n)
+        \\
+        \\Returns the character with Unicode code point n.
+        \\(integer->char 97)    =>  #\a
+        \\(integer->char 65)    =>  #\A
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         if (args.len != 1) return .{ .err = error.NotImplemented };
         const n = args[0].asInt() orelse return .{ .err = error.NotImplemented };
@@ -277,6 +401,13 @@ pub const integer_to_char = NativeProc.withRawArgs(struct {
 
 pub const char_upcase = NativeProc.withRawArgs(struct {
     pub const name = "char-upcase";
+    pub const docstring =
+        \\(char-upcase char)
+        \\
+        \\Returns the uppercase version of char.
+        \\(char-upcase #\a)    =>  #\A
+        \\(char-upcase #\A)    =>  #\A
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         if (args.len != 1) return .{ .err = error.NotImplemented };
         const c = args[0].asChar() orelse return .{ .err = error.NotImplemented };
@@ -290,6 +421,13 @@ pub const char_upcase = NativeProc.withRawArgs(struct {
 
 pub const char_downcase = NativeProc.withRawArgs(struct {
     pub const name = "char-downcase";
+    pub const docstring =
+        \\(char-downcase char)
+        \\
+        \\Returns the lowercase version of char.
+        \\(char-downcase #\A)    =>  #\a
+        \\(char-downcase #\a)    =>  #\a
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         if (args.len != 1) return .{ .err = error.NotImplemented };
         const c = args[0].asChar() orelse return .{ .err = error.NotImplemented };
@@ -303,6 +441,13 @@ pub const char_downcase = NativeProc.withRawArgs(struct {
 
 pub const char_foldcase = NativeProc.withRawArgs(struct {
     pub const name = "char-foldcase";
+    pub const docstring =
+        \\(char-foldcase char)
+        \\
+        \\Returns the case-folded version of char (for case-insensitive comparison).
+        \\(char-foldcase #\A)    =>  #\a
+        \\(char-foldcase #\a)    =>  #\a
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         if (args.len != 1) return .{ .err = error.NotImplemented };
         const c = args[0].asChar() orelse return .{ .err = error.NotImplemented };

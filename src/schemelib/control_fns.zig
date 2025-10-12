@@ -1,5 +1,6 @@
 const std = @import("std");
 const testing = std.testing;
+
 const Instruction = @import("../instruction.zig").Instruction;
 const NativeProc = @import("../types/NativeProc.zig");
 const Val = @import("../types/Val.zig");
@@ -8,6 +9,14 @@ const Vm = @import("../Vm.zig");
 pub const call_cc = NativeProc{
     .name = "call/cc",
     .unsafe_impl = &callCcImpl,
+    .docstring =
+    \\(call-with-current-continuation proc)
+    \\(call/cc proc)
+    \\
+    \\It is an error if proc does not accept one argument.
+    \\
+    \\The procedure call-with-current-continuation (or its equivalent abbreviation call/cc) packages the current continuation as an "escape procedure" and passes it as an argument to proc. The escape procedure is a Scheme procedure that, if it is later called, will abandon whatever continuation is in effect at that later time and will instead use the continuation that was in effect when the escape procedure was created.
+    ,
 };
 
 fn callCcImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
@@ -21,6 +30,13 @@ fn callCcImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
 pub const apply = NativeProc{
     .name = "apply",
     .unsafe_impl = &applyImpl,
+    .docstring =
+    \\(apply proc arg1 … args)
+    \\
+    \\The apply procedure calls proc with the elements of the list (append (list arg1 …) args) as the actual arguments.
+    \\
+    \\(apply + (list 3 4)) => 7
+    ,
 };
 
 fn applyImpl(vm: *Vm, arg_count: u32) Vm.Error!void {

@@ -7,6 +7,14 @@ const Vm = @import("../Vm.zig");
 
 pub const eq_p = NativeProc.withRawArgs(struct {
     pub const name = "eq?";
+    pub const docstring =
+        \\(eq? obj1 obj2)
+        \\
+        \\Returns #t if obj1 and obj2 are the same object (pointer equality).
+        \\(eq? 'a 'a)     =>  #t
+        \\(eq? 42 42)     =>  #t
+        \\(eq? '() '())   =>  #t
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         return switch (args.len) {
             2 => NativeProc.Result{ .val = Val.initBool(args[0].eq(args[1])) },
@@ -17,6 +25,14 @@ pub const eq_p = NativeProc.withRawArgs(struct {
 
 pub const equal_p = NativeProc.withRawArgs(struct {
     pub const name = "equal?";
+    pub const docstring =
+        \\(equal? obj1 obj2)
+        \\
+        \\Returns #t if obj1 and obj2 are structurally equal (deep equality).
+        \\Recursively compares pairs, strings, and vectors.
+        \\(equal? '(1 2 3) '(1 2 3))  =>  #t
+        \\(equal? "hello" "hello")    =>  #t
+    ;
     pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
         return switch (args.len) {
             2 => {

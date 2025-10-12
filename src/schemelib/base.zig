@@ -21,6 +21,11 @@ const string_fns = @import("string_fns.zig");
 pub const import = NativeProc{
     .name = "import",
     .unsafe_impl = &importImpl,
+    .docstring =
+    \\(import import-set ...)
+    \\
+    \\An import declaration provides a way to import identifiers from a library. Each import-set names a set of bindings to import from a library, and possibly specifies local names for the imported bindings.
+    ,
 };
 
 // TODO: This should support the full `import` syntax specified by r7rs.

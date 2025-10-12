@@ -98,6 +98,14 @@ fn checkOrdered(args: []const Val, comptime compare_fn: fn (Number, Number) bool
 
 pub const add = NativeProc.withRawArgs(struct {
     pub const name = "+";
+    pub const docstring =
+        \\(+ z1 ...)
+        \\
+        \\Returns the sum of the arguments.
+        \\(+ 3 4) =>  7
+        \\(+ 3)   =>  3
+        \\(+)     =>  0
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         var int_sum: i64 = 0;
         var float_sum: f64 = 0.0;
@@ -123,6 +131,15 @@ pub const add = NativeProc.withRawArgs(struct {
 
 pub const sub = NativeProc.withRawArgs(struct {
     pub const name = "-";
+    pub const docstring =
+        \\(- z1 z2 ...)
+        \\
+        \\Returns the difference of the arguments, left-associative.
+        \\With one argument, returns the negation.
+        \\(- 3 4)     =>  -1
+        \\(- 3 4 5)   =>  -6
+        \\(- 3)       =>  -3
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         switch (args.len) {
             0 => return .{ .err = error.NotImplemented },
@@ -168,6 +185,13 @@ pub const sub = NativeProc.withRawArgs(struct {
 
 pub const lt = NativeProc.withRawArgs(struct {
     pub const name = "<";
+    pub const docstring =
+        \\(< x1 x2 x3 ...)
+        \\
+        \\Returns #t if the arguments are monotonically increasing.
+        \\(< 1 2 3)  =>  #t
+        \\(< 1 1 2)  =>  #f
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         return checkOrdered(args, isLessThan);
     }
@@ -175,6 +199,13 @@ pub const lt = NativeProc.withRawArgs(struct {
 
 pub const lte = NativeProc.withRawArgs(struct {
     pub const name = "<=";
+    pub const docstring =
+        \\(<= x1 x2 x3 ...)
+        \\
+        \\Returns #t if the arguments are monotonically non-decreasing.
+        \\(<= 1 2 2 3)  =>  #t
+        \\(<= 1 2 1)    =>  #f
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         return checkOrdered(args, isLessThanOrEqual);
     }
@@ -182,6 +213,13 @@ pub const lte = NativeProc.withRawArgs(struct {
 
 pub const gt = NativeProc.withRawArgs(struct {
     pub const name = ">";
+    pub const docstring =
+        \\(> x1 x2 x3 ...)
+        \\
+        \\Returns #t if the arguments are monotonically decreasing.
+        \\(> 3 2 1)  =>  #t
+        \\(> 3 3 1)  =>  #f
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         return checkOrdered(args, isGreaterThan);
     }
@@ -189,6 +227,13 @@ pub const gt = NativeProc.withRawArgs(struct {
 
 pub const gte = NativeProc.withRawArgs(struct {
     pub const name = ">=";
+    pub const docstring =
+        \\(>= x1 x2 x3 ...)
+        \\
+        \\Returns #t if the arguments are monotonically non-increasing.
+        \\(>= 3 2 2 1)  =>  #t
+        \\(>= 3 2 3)    =>  #f
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         return checkOrdered(args, isGreaterThanOrEqual);
     }
@@ -196,13 +241,53 @@ pub const gte = NativeProc.withRawArgs(struct {
 
 pub const eq = NativeProc.withRawArgs(struct {
     pub const name = "=";
+    pub const docstring =
+        \\(= z1 z2 z3 ...)
+        \\
+        \\Returns #t if all arguments are numerically equal.
+        \\(= 1 1 1)    =>  #t
+        \\(= 1 1 2)    =>  #f
+        \\(= 5.0 5)    =>  #t
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
-        return checkOrdered(args, isEqual);
+        const is_equal = switch (args.len) {
+            0 => true,
+            1 => blk: {
+                // Validate single argument is a number
+                _ = args[0].asNumber() orelse return .{ .err = error.NotImplemented };
+                break :blk true;
+            },
+            else => blk: {
+                const first = args[0].asNumber() orelse return .{ .err = error.NotImplemented };
+                const first_val: f64 = switch (first) {
+                    .int => |x| @floatFromInt(x),
+                    .float => |x| x,
+                };
+                for (args[1..]) |v| {
+                    const curr = v.asNumber() orelse return .{ .err = error.NotImplemented };
+                    const curr_val: f64 = switch (curr) {
+                        .int => |x| @floatFromInt(x),
+                        .float => |x| x,
+                    };
+                    if (first_val != curr_val) break :blk false;
+                }
+                break :blk true;
+            },
+        };
+        return .{ .val = Val.initBool(is_equal) };
     }
 });
 
 pub const number_p = NativeProc.withRawArgs(struct {
     pub const name = "number?";
+    pub const docstring =
+        \\(number? obj)
+        \\
+        \\Returns #t if obj is a number, #f otherwise.
+        \\(number? 5)      =>  #t
+        \\(number? 5.0)    =>  #t
+        \\(number? "5")    =>  #f
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         return switch (args.len) {
             1 => NativeProc.Result{ .val = Val.initBool(args[0].asNumber() != null) },
@@ -213,6 +298,14 @@ pub const number_p = NativeProc.withRawArgs(struct {
 
 pub const integer_p = NativeProc.withRawArgs(struct {
     pub const name = "integer?";
+    pub const docstring =
+        \\(integer? obj)
+        \\
+        \\Returns #t if obj is an integer, #f otherwise.
+        \\(integer? 5)     =>  #t
+        \\(integer? 5.0)   =>  #f
+        \\(integer? 5.5)   =>  #f
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         return switch (args.len) {
             1 => NativeProc.Result{ .val = Val.initBool(args[0].data == .int) },

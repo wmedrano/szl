@@ -7,6 +7,14 @@ const Vm = @import("../Vm.zig");
 
 pub const not = NativeProc.withRawArgs(struct {
     pub const name = "not";
+    pub const docstring =
+        \\(not obj)
+        \\
+        \\Returns #t if obj is false, #f otherwise.
+        \\(not #t)    =>  #f
+        \\(not #f)    =>  #t
+        \\(not 'foo)  =>  #f
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         return switch (args.len) {
             1 => NativeProc.Result{ .val = Val.initBool(!args[0].isTruthy()) },
@@ -17,6 +25,14 @@ pub const not = NativeProc.withRawArgs(struct {
 
 pub const boolean_p = NativeProc.withRawArgs(struct {
     pub const name = "boolean?";
+    pub const docstring =
+        \\(boolean? obj)
+        \\
+        \\Returns #t if obj is a boolean, #f otherwise.
+        \\(boolean? #t)    =>  #t
+        \\(boolean? #f)    =>  #t
+        \\(boolean? 0)     =>  #f
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         return switch (args.len) {
             1 => NativeProc.Result{ .val = Val.initBool(args[0].asBool() != null) },

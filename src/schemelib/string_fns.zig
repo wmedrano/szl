@@ -6,6 +6,13 @@ const Vm = @import("../Vm.zig");
 
 pub const string_length = NativeProc.withRawArgs(struct {
     pub const name = "string-length";
+    pub const docstring =
+        \\(string-length string)
+        \\
+        \\Returns the number of characters in string.
+        \\(string-length "")           =>  0
+        \\(string-length "hello")      =>  5
+    ;
     pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
         if (args.len != 1) return .{ .err = error.NotImplemented };
         const inspector = vm.inspector();

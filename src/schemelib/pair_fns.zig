@@ -6,11 +6,15 @@ const Pair = @import("../types/Pair.zig");
 const Val = @import("../types/Val.zig");
 const Vm = @import("../Vm.zig");
 
-/// car: Returns the first element of a pair
-/// (car '(a . b)) => a
-/// (car '(a b c)) => a
 pub const car = NativeProc.withRawArgs(struct {
     pub const name = "car";
+    pub const docstring =
+        \\(car pair)
+        \\
+        \\Returns the first element of a pair.
+        \\(car '(a . b))  =>  a
+        \\(car '(a b c))  =>  a
+    ;
     pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
         if (args.len != 1) return .{ .err = error.NotImplemented };
         const inspector = vm.inspector();
@@ -19,11 +23,15 @@ pub const car = NativeProc.withRawArgs(struct {
     }
 });
 
-/// cdr: Returns the second element of a pair (rest of the list)
-/// (cdr '(a . b)) => b
-/// (cdr '(a b c)) => (b c)
 pub const cdr = NativeProc.withRawArgs(struct {
     pub const name = "cdr";
+    pub const docstring =
+        \\(cdr pair)
+        \\
+        \\Returns the second element of a pair (rest of the list).
+        \\(cdr '(a . b))  =>  b
+        \\(cdr '(a b c))  =>  (b c)
+    ;
     pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
         if (args.len != 1) return .{ .err = error.NotImplemented };
         const inspector = vm.inspector();
@@ -32,11 +40,15 @@ pub const cdr = NativeProc.withRawArgs(struct {
     }
 });
 
-/// cons: Constructs a new pair from two values
-/// (cons 'a 'b) => (a . b)
-/// (cons 'a '(b c)) => (a b c)
 pub const cons = NativeProc.withRawArgs(struct {
     pub const name = "cons";
+    pub const docstring =
+        \\(cons obj1 obj2)
+        \\
+        \\Constructs a new pair from two values.
+        \\(cons 'a 'b)      =>  (a . b)
+        \\(cons 'a '(b c))  =>  (a b c)
+    ;
     pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
         if (args.len != 2) return .{ .err = error.NotImplemented };
         const builder = vm.builder();
@@ -45,11 +57,15 @@ pub const cons = NativeProc.withRawArgs(struct {
     }
 });
 
-/// pair?: Returns #t if object is a pair, #f otherwise
-/// (pair? '(a . b)) => #t
-/// (pair? '()) => #f
 pub const pair_p = NativeProc.withRawArgs(struct {
     pub const name = "pair?";
+    pub const docstring =
+        \\(pair? obj)
+        \\
+        \\Returns #t if object is a pair, #f otherwise.
+        \\(pair? '(a . b))  =>  #t
+        \\(pair? '())       =>  #f
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         if (args.len != 1) return .{ .err = error.NotImplemented };
         const is_pair = switch (args[0].data) {
@@ -60,11 +76,15 @@ pub const pair_p = NativeProc.withRawArgs(struct {
     }
 });
 
-/// null?: Returns #t if object is the empty list, #f otherwise
-/// (null? '()) => #t
-/// (null? '(a b c)) => #f
 pub const null_p = NativeProc.withRawArgs(struct {
     pub const name = "null?";
+    pub const docstring =
+        \\(null? obj)
+        \\
+        \\Returns #t if object is the empty list, #f otherwise.
+        \\(null? '())       =>  #t
+        \\(null? '(a b c))  =>  #f
+    ;
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         if (args.len != 1) return .{ .err = error.NotImplemented };
         const is_null = switch (args[0].data) {
@@ -75,10 +95,14 @@ pub const null_p = NativeProc.withRawArgs(struct {
     }
 });
 
-/// set-car!: Mutates the car field of a pair
-/// (set-car! pair obj) => unspecified
 pub const set_car_b = NativeProc.withRawArgs(struct {
     pub const name = "set-car!";
+    pub const docstring =
+        \\(set-car! pair obj)
+        \\
+        \\Mutates the car field of a pair.
+        \\Returns an unspecified value.
+    ;
     pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
         if (args.len != 2) return .{ .err = error.NotImplemented };
         const inspector = vm.inspector();
@@ -88,10 +112,14 @@ pub const set_car_b = NativeProc.withRawArgs(struct {
     }
 });
 
-/// set-cdr!: Mutates the cdr field of a pair
-/// (set-cdr! pair obj) => unspecified
 pub const set_cdr_b = NativeProc.withRawArgs(struct {
     pub const name = "set-cdr!";
+    pub const docstring =
+        \\(set-cdr! pair obj)
+        \\
+        \\Mutates the cdr field of a pair.
+        \\Returns an unspecified value.
+    ;
     pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
         if (args.len != 2) return .{ .err = error.NotImplemented };
         const inspector = vm.inspector();
@@ -101,12 +129,16 @@ pub const set_cdr_b = NativeProc.withRawArgs(struct {
     }
 });
 
-/// list?: Returns #t if obj is a proper list, #f otherwise
-/// (list? '(a b c)) => #t
-/// (list? '()) => #t
-/// (list? '(a . b)) => #f
 pub const list_p = NativeProc.withRawArgs(struct {
     pub const name = "list?";
+    pub const docstring =
+        \\(list? obj)
+        \\
+        \\Returns #t if obj is a proper list, #f otherwise.
+        \\(list? '(a b c))  =>  #t
+        \\(list? '())       =>  #t
+        \\(list? '(a . b))  =>  #f
+    ;
     pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
         if (args.len != 1) return .{ .err = error.NotImplemented };
         const inspector = vm.inspector();
@@ -125,11 +157,18 @@ pub const list_p = NativeProc.withRawArgs(struct {
     }
 });
 
-/// make-list: Creates a list of k elements
-/// (make-list k) => list of k unspecified values
-/// (make-list k fill) => list of k copies of fill
 pub const make_list = NativeProc.withRawArgs(struct {
     pub const name = "make-list";
+    pub const docstring =
+        \\(make-list k)
+        \\(make-list k fill)
+        \\
+        \\Creates a list of k elements.
+        \\With one argument, returns a list of k unspecified values.
+        \\With two arguments, returns a list of k copies of fill.
+        \\(make-list 3)       =>  list of 3 unspecified values
+        \\(make-list 3 'x)    =>  (x x x)
+    ;
     pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
         if (args.len < 1 or args.len > 2) return .{ .err = error.NotImplemented };
 
@@ -149,11 +188,15 @@ pub const make_list = NativeProc.withRawArgs(struct {
     }
 });
 
-/// list: Returns a list of its arguments
-/// (list 'a 'b 'c) => (a b c)
-/// (list) => ()
 pub const list = NativeProc.withRawArgs(struct {
     pub const name = "list";
+    pub const docstring =
+        \\(list obj ...)
+        \\
+        \\Returns a list of its arguments.
+        \\(list 'a 'b 'c)  =>  (a b c)
+        \\(list)           =>  ()
+    ;
     pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
         const builder = vm.builder();
         const result = builder.makeList(args) catch return .{ .err = error.OutOfMemory };
@@ -161,11 +204,15 @@ pub const list = NativeProc.withRawArgs(struct {
     }
 });
 
-/// length: Returns the length of a list
-/// (length '(a b c)) => 3
-/// (length '()) => 0
 pub const length = NativeProc.withRawArgs(struct {
     pub const name = "length";
+    pub const docstring =
+        \\(length list)
+        \\
+        \\Returns the length of a list.
+        \\(length '(a b c))  =>  3
+        \\(length '())       =>  0
+    ;
     pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
         if (args.len != 1) return .{ .err = error.NotImplemented };
         const inspector = vm.inspector();
@@ -186,12 +233,16 @@ pub const length = NativeProc.withRawArgs(struct {
     }
 });
 
-/// append: Concatenates lists together
-/// (append '(a b) '(c d)) => (a b c d)
-/// (append) => ()
-/// The last argument need not be a list (improper append)
 pub const append = NativeProc.withRawArgs(struct {
     pub const name = "append";
+    pub const docstring =
+        \\(append list ...)
+        \\
+        \\Concatenates lists together.
+        \\The last argument need not be a list (improper append).
+        \\(append '(a b) '(c d))  =>  (a b c d)
+        \\(append)                =>  ()
+    ;
     pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
         if (args.len == 0) return .{ .val = Val.initEmptyList() };
         if (args.len == 1) return .{ .val = args[0] };
@@ -239,11 +290,15 @@ pub const append = NativeProc.withRawArgs(struct {
     }
 });
 
-/// reverse: Returns a newly allocated list with elements in reverse order
-/// (reverse '(a b c)) => (c b a)
-/// (reverse '()) => ()
 pub const reverse = NativeProc.withRawArgs(struct {
     pub const name = "reverse";
+    pub const docstring =
+        \\(reverse list)
+        \\
+        \\Returns a newly allocated list with elements in reverse order.
+        \\(reverse '(a b c))  =>  (c b a)
+        \\(reverse '())       =>  ()
+    ;
     pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
         if (args.len != 1) return .{ .err = error.NotImplemented };
 
@@ -266,11 +321,15 @@ pub const reverse = NativeProc.withRawArgs(struct {
     }
 });
 
-/// list-tail: Returns the sublist obtained by omitting the first k elements
-/// (list-tail '(a b c d) 2) => (c d)
-/// (list-tail list 0) returns list
 pub const list_tail = NativeProc.withRawArgs(struct {
     pub const name = "list-tail";
+    pub const docstring =
+        \\(list-tail list k)
+        \\
+        \\Returns the sublist obtained by omitting the first k elements.
+        \\(list-tail '(a b c d) 2)  =>  (c d)
+        \\(list-tail list 0)        =>  list
+    ;
     pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
         if (args.len != 2) return .{ .err = error.NotImplemented };
 
@@ -295,10 +354,14 @@ pub const list_tail = NativeProc.withRawArgs(struct {
     }
 });
 
-/// list-ref: Returns the kth element of list (0-indexed)
-/// (list-ref '(a b c d) 2) => c
 pub const list_ref = NativeProc.withRawArgs(struct {
     pub const name = "list-ref";
+    pub const docstring =
+        \\(list-ref list k)
+        \\
+        \\Returns the kth element of list (0-indexed).
+        \\(list-ref '(a b c d) 2)  =>  c
+    ;
     pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
         if (args.len != 2) return .{ .err = error.NotImplemented };
 
@@ -323,11 +386,15 @@ pub const list_ref = NativeProc.withRawArgs(struct {
     }
 });
 
-/// list-set!: Mutates the kth element of list to obj
-/// (list-set! '(a b c d) 2 'x) mutates list to (a b x d)
-/// Returns unspecified value
 pub const list_set_b = NativeProc.withRawArgs(struct {
     pub const name = "list-set!";
+    pub const docstring =
+        \\(list-set! list k obj)
+        \\
+        \\Mutates the kth element of list to obj.
+        \\Returns an unspecified value.
+        \\(list-set! '(a b c d) 2 'x)  mutates list to (a b x d)
+    ;
     pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
         if (args.len != 3) return .{ .err = error.NotImplemented };
 

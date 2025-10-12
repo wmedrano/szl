@@ -9,6 +9,7 @@ const Val = @import("Val.zig");
 const NativeProc = @This();
 
 name: []const u8,
+docstring: []const u8,
 unsafe_impl: *const fn (*Vm, arg_count: u32) Vm.Error!void,
 
 pub const Result = union(enum) {
@@ -21,6 +22,7 @@ pub fn withRawArgs(T: type) NativeProc {
         const def = NativeProc{
             .name = T.name,
             .unsafe_impl = &wrapped,
+            .docstring = if (@hasDecl(T, "docstring")) T.docstring else "",
         };
 
         fn wrapped(vm: *Vm, arg_count: u32) Vm.Error!void {
