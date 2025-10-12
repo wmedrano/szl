@@ -7,6 +7,7 @@ const Module = @import("../types/Module.zig");
 const Handle = @import("../types/object_pool.zig").Handle;
 const Pair = @import("../types/Pair.zig");
 const Proc = @import("../types/Proc.zig");
+const Record = @import("../types/Record.zig");
 const String = @import("../types/String.zig");
 const Symbol = @import("../types/Symbol.zig");
 const SyntaxRules = @import("../types/SyntaxRules.zig");
@@ -48,6 +49,8 @@ pub fn format(self: PrettyPrinter, writer: *std.Io.Writer) std.Io.Writer.Error!v
         .bytevector => |h| try self.formatBytevector(writer, h),
         .continuation => try writer.writeAll("#<procedure:continuation>"),
         .syntax_rules => |h| try self.formatSyntaxRules(writer, h),
+        .record => |h| try self.formatRecord(writer, h),
+        .record_descriptor => |h| try self.formatRecordDescriptor(writer, h),
     }
 }
 
@@ -181,6 +184,47 @@ fn formatSyntaxRules(self: PrettyPrinter, writer: *std.Io.Writer, h: Handle(Synt
         return try writer.print("#<syntax-rules:invalid-{}>", .{h.id});
     };
     return writer.writeAll("#<syntax-rules>");
+}
+
+fn formatRecord(self: PrettyPrinter, writer: *std.Io.Writer, h: Handle(Record)) std.Io.Writer.Error!void {
+    const record = self.vm.objects.records.get(h) orelse {
+        return try writer.print("#<record:invalid-{}>", .{h.id});
+    };
+    const descriptor = self.vm.objects.record_descriptors.get(record.descriptor) orelse {
+        return try writer.print("#<record:invalid-descriptor-{}>", .{h.id});
+    };
+
+    // Print record type name
+    try writer.print(
+        "#<record:{f}",
+        .{self.vm.pretty(Val.initSymbol(descriptor.name))},
+    );
+
+    // Print up to 3 field-value pairs
+    const max_fields = @min(3, descriptor.field_names.len);
+    if (max_fields > 0) {
+        for (descriptor.field_names[0..max_fields], record.fields[0..max_fields]) |field_name, field_value| {
+            try writer.print(
+                " {f} => {f}",
+                .{ self.vm.pretty(Val.initSymbol(field_name)), self.vm.pretty(field_value) },
+            );
+        }
+        // Add ellipsis if there are more fields
+        if (descriptor.field_names.len > 3) {
+            try writer.writeAll(" ...");
+        }
+    }
+
+    try writer.writeAll(">");
+}
+
+fn formatRecordDescriptor(self: PrettyPrinter, writer: *std.Io.Writer, h: Handle(Record.Descriptor)) std.Io.Writer.Error!void {
+    const descriptor = self.vm.objects.record_descriptors.get(h) orelse {
+        return try writer.print("#<record-descriptor:invalid-{}>", .{h.id});
+    };
+    try writer.writeAll("#<record-descriptor:");
+    try self.vm.pretty(Val.initSymbol(descriptor.name)).format(writer);
+    try writer.writeAll(">");
 }
 
 test "format empty list is empty parens" {

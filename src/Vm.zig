@@ -17,6 +17,7 @@ const Handle = @import("types/object_pool.zig").Handle;
 const ObjectPool = @import("types/object_pool.zig").ObjectPool;
 const Pair = @import("types/Pair.zig");
 const Proc = @import("types/Proc.zig");
+const Record = @import("types/Record.zig");
 const String = @import("types/String.zig");
 const Symbol = @import("types/Symbol.zig");
 const SyntaxRules = @import("types/SyntaxRules.zig");
@@ -40,6 +41,8 @@ pub const Objects = struct {
     bytevectors: ObjectPool(ByteVector) = .{},
     continuations: ObjectPool(Continuation) = .{},
     syntax_rules: ObjectPool(SyntaxRules) = .{},
+    records: ObjectPool(Record) = .{},
+    record_descriptors: ObjectPool(Record.Descriptor) = .{},
 
     pub fn init(alloc: std.mem.Allocator) Objects {
         return Objects{
@@ -131,6 +134,12 @@ pub fn deinit(self: *Vm) void {
 
     self.objects.syntax_rules.applyAll(standard_deinit);
     self.objects.syntax_rules.deinit(self.allocator());
+
+    self.objects.records.applyAll(standard_deinit);
+    self.objects.records.deinit(self.allocator());
+
+    self.objects.record_descriptors.applyAll(standard_deinit);
+    self.objects.record_descriptors.deinit(self.allocator());
 
     self.objects.symbols.deinit(self.allocator());
 }

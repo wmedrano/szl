@@ -94,6 +94,8 @@ const Builder = struct {
             .closure,
             .native_proc,
             .continuation,
+            .record,
+            .record_descriptor,
             => return Ir{ .push_const = expanded },
             .pair => {
                 const list = try self.valToSlice(expanded);
@@ -465,7 +467,7 @@ const Builder = struct {
     fn expandMacros(self: *Builder, expr: Val) Error!?Val {
         // Base cases: atoms don't need expansion
         switch (expr.data) {
-            .boolean, .int, .float, .char, .string, .symbol, .empty_list, .module, .proc, .closure, .native_proc, .continuation, .vector, .bytevector => {
+            .boolean, .int, .float, .char, .string, .symbol, .empty_list, .module, .proc, .closure, .native_proc, .continuation, .vector, .bytevector, .record, .record_descriptor => {
                 return expr;
             },
             .syntax_rules => return expr,

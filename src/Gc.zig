@@ -8,6 +8,7 @@ const Module = @import("types/Module.zig");
 const Handle = @import("types/object_pool.zig").Handle;
 const Pair = @import("types/Pair.zig");
 const Proc = @import("types/Proc.zig");
+const Record = @import("types/Record.zig");
 const String = @import("types/String.zig");
 const SyntaxRules = @import("types/SyntaxRules.zig");
 const Val = @import("types/Val.zig");
@@ -30,6 +31,8 @@ const GcObject = union(enum) {
     bytevector: Handle(ByteVector),
     continuation: Handle(Continuation),
     syntax_rules: Handle(SyntaxRules),
+    record: Handle(Record),
+    record_descriptor: Handle(Record.Descriptor),
 
     fn init(val: Val) ?GcObject {
         return switch (val.data) {
@@ -44,6 +47,8 @@ const GcObject = union(enum) {
             .bytevector => |bv| .{ .bytevector = bv },
             .continuation => |c| .{ .continuation = c },
             .syntax_rules => |sr| .{ .syntax_rules = sr },
+            .record => |r| .{ .record = r },
+            .record_descriptor => |rd| .{ .record_descriptor = rd },
         };
     }
 };
@@ -82,6 +87,14 @@ pub fn markOne(self: *Gc, vm: *Vm, val: Val) Vm.Error!void {
             try self.markContext(vm, continuation.context);
         },
         .syntax_rules => {},
+        .record => |h| {
+            const record = try vm.inspector().handleToRecord(h);
+            try self.markOne(vm, Val{ .data = .{ .record_descriptor = record.descriptor } });
+            for (record.fields) |field| {
+                try self.markOne(vm, field);
+            }
+        },
+        .record_descriptor => {},
     }
 }
 
@@ -252,6 +265,42 @@ pub fn sweep(self: Gc, vm: *Vm) Vm.Error!usize {
     try vm.objects.syntax_rules.removeAll(
         vm.allocator(),
         RemoveSyntaxRules{ .gc = self, .allocator = vm.allocator(), .count = &removed_count },
+    );
+
+    const RemoveRecord = struct {
+        gc: Gc,
+        allocator: std.mem.Allocator,
+        count: *usize,
+        pub fn remove(this: @This(), h: Handle(Record), obj: *Record) bool {
+            const should_remove = !this.gc.marked.contains(GcObject{ .record = h });
+            if (should_remove) {
+                obj.deinit(this.allocator);
+                this.count.* += 1;
+            }
+            return should_remove;
+        }
+    };
+    try vm.objects.records.removeAll(
+        vm.allocator(),
+        RemoveRecord{ .gc = self, .allocator = vm.allocator(), .count = &removed_count },
+    );
+
+    const RemoveRecordDescriptor = struct {
+        gc: Gc,
+        allocator: std.mem.Allocator,
+        count: *usize,
+        pub fn remove(this: @This(), h: Handle(Record.Descriptor), obj: *Record.Descriptor) bool {
+            const should_remove = !this.gc.marked.contains(GcObject{ .record_descriptor = h });
+            if (should_remove) {
+                obj.deinit(this.allocator);
+                this.count.* += 1;
+            }
+            return should_remove;
+        }
+    };
+    try vm.objects.record_descriptors.removeAll(
+        vm.allocator(),
+        RemoveRecordDescriptor{ .gc = self, .allocator = vm.allocator(), .count = &removed_count },
     );
 
     return removed_count;

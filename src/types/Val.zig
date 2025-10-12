@@ -10,6 +10,7 @@ const Module = @import("Module.zig");
 const NativeProc = @import("NativeProc.zig");
 const Pair = @import("Pair.zig");
 const Proc = @import("Proc.zig");
+const Record = @import("Record.zig");
 const String = @import("String.zig");
 const Symbol = @import("Symbol.zig");
 const SyntaxRules = @import("SyntaxRules.zig");
@@ -38,6 +39,8 @@ pub const Data = union(enum) {
     bytevector: Handle(ByteVector),
     continuation: Handle(Continuation),
     syntax_rules: Handle(SyntaxRules),
+    record: Handle(Record),
+    record_descriptor: Handle(Record.Descriptor),
 };
 
 pub fn initEmptyList() Val {

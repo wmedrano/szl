@@ -6,6 +6,7 @@ const Module = @import("../types/Module.zig");
 const Handle = @import("../types/object_pool.zig").Handle;
 const Pair = @import("../types/Pair.zig");
 const Proc = @import("../types/Proc.zig");
+const Record = @import("../types/Record.zig");
 const String = @import("../types/String.zig");
 const Symbol = @import("../types/Symbol.zig");
 const Val = @import("../types/Val.zig");
@@ -134,6 +135,14 @@ pub inline fn handleToBytevector(self: Inspector, h: Handle(ByteVector)) Vm.Erro
 
 pub inline fn handleToModule(self: Inspector, h: Handle(Module)) Vm.Error!*Module {
     return self.vm.objects.modules.get(h) orelse return Vm.Error.UndefinedBehavior;
+}
+
+pub inline fn handleToRecord(self: Inspector, h: Handle(Record)) Vm.Error!*Record {
+    return self.vm.objects.records.get(h) orelse return Vm.Error.UndefinedBehavior;
+}
+
+pub inline fn handleToRecordDescriptor(self: Inspector, h: Handle(Record.Descriptor)) Vm.Error!*Record.Descriptor {
+    return self.vm.objects.record_descriptors.get(h) orelse return Vm.Error.UndefinedBehavior;
 }
 
 pub fn findModule(self: Inspector, path: []const Symbol) ?Handle(Module) {
