@@ -11,6 +11,7 @@ const Symbol = @import("../types/Symbol.zig");
 const Val = @import("../types/Val.zig");
 const vector = @import("../types/vector.zig");
 const Vector = vector.Vector;
+const ByteVector = vector.ByteVector;
 const Vm = @import("../Vm.zig");
 
 const Inspector = @This();
@@ -126,6 +127,10 @@ pub inline fn handleToContinuation(self: Inspector, h: Handle(Continuation)) Vm.
 
 pub inline fn handleToVector(self: Inspector, h: Handle(Vector)) Vm.Error!*Vector {
     return self.vm.objects.vectors.get(h) orelse return Vm.Error.UndefinedBehavior;
+}
+
+pub inline fn handleToBytevector(self: Inspector, h: Handle(ByteVector)) Vm.Error!*ByteVector {
+    return self.vm.objects.bytevectors.get(h) orelse return Vm.Error.UndefinedBehavior;
 }
 
 pub inline fn handleToModule(self: Inspector, h: Handle(Module)) Vm.Error!*Module {

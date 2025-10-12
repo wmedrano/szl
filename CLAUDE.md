@@ -8,6 +8,15 @@ szl is a Scheme interpreter implemented in Zig. The project compiles Scheme expr
 
 **Requirements:** Zig 0.15
 
+## Zig 0.15 Compatibility Notes
+
+**IMPORTANT:** In Zig 0.15, `ArrayList` behaves like the old `ArrayListUnmanaged`:
+- `ArrayList` does NOT store an allocator internally
+- All `ArrayList` methods require passing an allocator explicitly (e.g., `list.append(allocator, item)`)
+- Methods like `init()` do not take an allocator parameter: `ArrayList(T).init()`
+- Methods like `deinit()` do not take an allocator parameter: `list.deinit(allocator)`
+- If you need the old managed behavior, use `ArrayListAligned` instead
+
 ## Build Commands
 
 ### Build and Run
@@ -20,9 +29,11 @@ zig build run -- [args]     # Build and run with arguments
 
 ### Testing
 ```bash
-zig build test --summary all  # Run all tests
+zig build test --summary all  # Run all tests (VERY FAST: ~2s for full suite)
 zig test src/Vm.zig          # Run tests for specific module
 ```
+
+**Development Loop:** The test suite is extremely fast (~2 seconds for 241 tests). Always run `zig build test --summary all` first when making changes - it's faster than manual REPL testing and catches issues immediately. Only use the REPL for interactive exploration after tests pass.
 
 ### Documentation
 ```bash
@@ -40,7 +51,7 @@ zig build doc  # Generate documentation in zig-out/docs/
 ### Core Components
 
 **VM (src/Vm.zig)**: Central VM that owns all objects and coordinates execution
-- `Objects`: All heap-allocated objects (symbols, pairs, strings, modules, procs, closures, vectors, continuations, syntax_rules)
+- `Objects`: All heap-allocated objects (symbols, pairs, strings, modules, procs, closures, vectors, bytevectors, continuations, syntax_rules)
 - `Context`: Execution context with stack and stack frames
 - `init()`: Initializes VM and sets up standard libraries `(scheme base)` and `(user repl)` environment
 
@@ -51,7 +62,7 @@ zig build doc  # Generate documentation in zig-out/docs/
 
 **Val (src/types/Val.zig)**: Tagged union representing all Scheme values
 - Immediate: `empty_list`, `boolean`, `int`, `float`, `symbol`, `native_proc`
-- Heap-allocated: `pair`, `string`, `module`, `proc`, `closure`, `vector`, `continuation`, `syntax_rules`
+- Heap-allocated: `pair`, `string`, `module`, `proc`, `closure`, `vector`, `bytevector`, `continuation`, `syntax_rules`
 
 ### Compilation Pipeline
 
@@ -98,7 +109,7 @@ zig build doc  # Generate documentation in zig-out/docs/
 ### Utilities
 
 **Builder (src/utils/Builder.zig)**: Constructs Scheme values programmatically
-- `makeList()`, `makeVector()`, `makeString()`, etc.
+- `makeList()`, `makeVector()`, `makeBytevector()`, `makeString()`, etc.
 
 **Inspector (src/utils/Inspector.zig)**: Inspects and extracts data from Scheme values
 - Type checking and conversions
@@ -108,9 +119,12 @@ zig build doc  # Generate documentation in zig-out/docs/
 
 ## Testing Patterns
 
+**IMPORTANT:** Always run `zig build test --summary all` FIRST when making changes. The test suite is extremely fast (~2s) and will catch compilation errors and test failures immediately. Manual REPL testing is slower and should only be used for interactive exploration after tests pass.
+
 - Tests are inline using `test` blocks
 - Use `Vm.expectEval(expected, source)` to test evaluation results
 - The VM persists across evaluations in the REPL - reset with `Context.reset()` for isolated tests
+- When adding new types to Val.Data union, ensure all switch statements are updated (compiler will catch missing cases)
 
 ## Key Design Notes
 

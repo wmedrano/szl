@@ -13,6 +13,7 @@ const SyntaxRules = @import("../types/SyntaxRules.zig");
 const Val = @import("../types/Val.zig");
 const vector = @import("../types/vector.zig");
 const Vector = vector.Vector;
+const ByteVector = vector.ByteVector;
 const Vm = @import("../Vm.zig");
 
 const PrettyPrinter = @This();
@@ -45,6 +46,7 @@ pub fn format(self: PrettyPrinter, writer: *std.Io.Writer) std.Io.Writer.Error!v
         .closure => |h| try self.formatClosure(writer, h),
         .native_proc => |p| try writer.print("#<procedure:native:{s}>", .{p.name}),
         .vector => |h| try self.formatVector(writer, h),
+        .bytevector => |h| try self.formatBytevector(writer, h),
         .continuation => try writer.writeAll("#<procedure:continuation>"),
         .syntax_rules => |h| try self.formatSyntaxRules(writer, h),
     }
@@ -159,6 +161,18 @@ fn formatVector(self: PrettyPrinter, writer: *std.Io.Writer, h: Handle(Vector)) 
     for (vec.items, 0..vec.items.len) |val, idx| {
         if (idx > 0) try writer.writeAll(" ");
         try writer.print("{f}", .{self.vm.pretty(val)});
+    }
+    try writer.writeAll(")");
+}
+
+fn formatBytevector(self: PrettyPrinter, writer: *std.Io.Writer, h: Handle(ByteVector)) std.Io.Writer.Error!void {
+    const bv = self.vm.objects.bytevectors.get(h) orelse {
+        return try writer.writeAll("#<bytevector:invalid>");
+    };
+    try writer.writeAll("#u8(");
+    for (bv.items, 0..bv.items.len) |byte, idx| {
+        if (idx > 0) try writer.writeAll(" ");
+        try writer.print("{}", .{byte});
     }
     try writer.writeAll(")");
 }

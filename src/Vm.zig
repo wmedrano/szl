@@ -23,6 +23,7 @@ const SyntaxRules = @import("types/SyntaxRules.zig");
 const Val = @import("types/Val.zig");
 const vector = @import("types/vector.zig");
 const Vector = vector.Vector;
+const ByteVector = vector.ByteVector;
 const Builder = @import("utils/Builder.zig");
 const Inspector = @import("utils/Inspector.zig");
 const PrettyPrinter = @import("utils/PrettyPrinter.zig");
@@ -37,6 +38,7 @@ pub const Objects = struct {
     procs: ObjectPool(Proc) = .{},
     closures: ObjectPool(Closure) = .{},
     vectors: ObjectPool(Vector) = .{},
+    bytevectors: ObjectPool(ByteVector) = .{},
     continuations: ObjectPool(Continuation) = .{},
     syntax_rules: ObjectPool(SyntaxRules) = .{},
 
@@ -121,6 +123,9 @@ pub fn deinit(self: *Vm) void {
 
     self.objects.vectors.applyAll(standard_deinit);
     self.objects.vectors.deinit(self.allocator());
+
+    self.objects.bytevectors.applyAll(standard_deinit);
+    self.objects.bytevectors.deinit(self.allocator());
 
     self.objects.continuations.applyAll(standard_deinit);
     self.objects.continuations.deinit(self.allocator());

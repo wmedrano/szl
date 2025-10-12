@@ -13,6 +13,7 @@ const SyntaxRules = @import("types/SyntaxRules.zig");
 const Val = @import("types/Val.zig");
 const vector = @import("types/vector.zig");
 const Vector = vector.Vector;
+const ByteVector = vector.ByteVector;
 const Inspector = @import("utils/Inspector.zig");
 const Vm = @import("Vm.zig");
 
@@ -27,6 +28,7 @@ const GcObject = union(enum) {
     string: Handle(String),
     closure: Handle(Closure),
     vector: Handle(Vector),
+    bytevector: Handle(ByteVector),
     continuation: Handle(Continuation),
     syntax_rules: Handle(SyntaxRules),
 
@@ -40,6 +42,7 @@ const GcObject = union(enum) {
             .string => |s| .{ .string = s },
             .closure => |c| .{ .closure = c },
             .vector => |v| .{ .vector = v },
+            .bytevector => |bv| .{ .bytevector = bv },
             .continuation => |c| .{ .continuation = c },
             .syntax_rules => |sr| .{ .syntax_rules = sr },
         };
@@ -74,6 +77,7 @@ pub fn markOne(self: *Gc, vm: *Vm, val: Val) Vm.Error!void {
                 try self.markOne(vm, item);
             }
         },
+        .bytevector => {},
         .continuation => |h| {
             const continuation = try vm.inspector().handleToContinuation(h);
             try self.markContext(vm, continuation.context);
@@ -195,6 +199,24 @@ pub fn sweep(self: Gc, vm: *Vm) Vm.Error!usize {
     try vm.objects.vectors.removeAll(
         vm.allocator(),
         RemoveVector{ .gc = self, .allocator = vm.allocator(), .count = &removed_count },
+    );
+
+    const RemoveBytevector = struct {
+        gc: Gc,
+        allocator: std.mem.Allocator,
+        count: *usize,
+        pub fn remove(this: @This(), h: Handle(ByteVector), obj: *ByteVector) bool {
+            const should_remove = !this.gc.marked.contains(GcObject{ .bytevector = h });
+            if (should_remove) {
+                obj.deinit(this.allocator);
+                this.count.* += 1;
+            }
+            return should_remove;
+        }
+    };
+    try vm.objects.bytevectors.removeAll(
+        vm.allocator(),
+        RemoveBytevector{ .gc = self, .allocator = vm.allocator(), .count = &removed_count },
     );
 
     const RemoveContinuation = struct {

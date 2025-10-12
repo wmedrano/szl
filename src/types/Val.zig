@@ -15,6 +15,7 @@ const Symbol = @import("Symbol.zig");
 const SyntaxRules = @import("SyntaxRules.zig");
 const vector = @import("vector.zig");
 const Vector = vector.Vector;
+const ByteVector = vector.ByteVector;
 
 const Val = @This();
 
@@ -34,6 +35,7 @@ pub const Data = union(enum) {
     closure: Handle(Closure),
     native_proc: *const NativeProc,
     vector: Handle(Vector),
+    bytevector: Handle(ByteVector),
     continuation: Handle(Continuation),
     syntax_rules: Handle(SyntaxRules),
 };

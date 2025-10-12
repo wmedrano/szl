@@ -15,6 +15,7 @@ pub const TokenType = enum {
     boolean,
     character,
     vector_start,
+    bytevector_start,
     // Special
     quote,
     quasiquote,
@@ -165,7 +166,7 @@ fn scanNumber(self: *Tokenizer, start_column: u32) Token {
 }
 
 fn scanHashPrefix(self: *Tokenizer, start_column: u32) Token {
-    // Could be boolean (#t, #f, #true, #false), character (#\a, #\newline, #\x3BB), or vector (#()
+    // Could be boolean (#t, #f, #true, #false), character (#\a, #\newline, #\x3BB), vector (#(), or bytevector (#u8()
     if (self.isAtEnd()) {
         return self.makeTokenAt(.symbol, start_column); // Just '#'
     }
@@ -174,6 +175,20 @@ fn scanHashPrefix(self: *Tokenizer, start_column: u32) Token {
         // Vector literal
         _ = self.advance(); // consume '('
         return self.makeTokenAt(.vector_start, start_column);
+    } else if (self.peek() == 'u') {
+        // Could be bytevector (#u8() or other symbol
+        const next_pos = self.current + 1;
+        if (next_pos < self.source.len and self.source[next_pos] == '8') {
+            const next_next_pos = next_pos + 1;
+            if (next_next_pos < self.source.len and self.source[next_next_pos] == '(') {
+                _ = self.advance(); // consume 'u'
+                _ = self.advance(); // consume '8'
+                _ = self.advance(); // consume '('
+                return self.makeTokenAt(.bytevector_start, start_column);
+            }
+        }
+        // Not a bytevector, treat as boolean or other
+        return self.scanBoolean(start_column);
     } else if (self.peek() == '\\') {
         // Character literal
         _ = self.advance(); // consume '\'
@@ -287,7 +302,7 @@ pub fn isComplete(source: []const u8) CompletionStatus {
 
     while (tokenizer.nextToken()) |token| {
         switch (token.type) {
-            .left_paren, .vector_start => depth += 1,
+            .left_paren, .vector_start, .bytevector_start => depth += 1,
             .right_paren => {
                 depth -= 1;
                 if (depth < 0) {

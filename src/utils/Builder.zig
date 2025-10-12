@@ -14,6 +14,7 @@ const SyntaxRules = @import("../types/SyntaxRules.zig");
 const Val = @import("../types/Val.zig");
 const vector = @import("../types/vector.zig");
 const Vector = vector.Vector;
+const ByteVector = vector.ByteVector;
 const Vm = @import("../Vm.zig");
 
 const Builder = @This();
@@ -114,6 +115,18 @@ pub inline fn makeVectorHandle(self: Builder, vals: []const Val) Vm.Error!Handle
     errdefer self.vm.allocator().free(copy);
     const vec = Vector.fromOwnedSlice(copy);
     return try self.vm.objects.vectors.put(self.vm.allocator(), vec);
+}
+
+pub inline fn makeBytevector(self: Builder, bytes: []const u8) Vm.Error!Val {
+    const h = try self.makeBytevectorHandle(bytes);
+    return Val{ .data = .{ .bytevector = h } };
+}
+
+pub inline fn makeBytevectorHandle(self: Builder, bytes: []const u8) Vm.Error!Handle(ByteVector) {
+    const copy = try self.vm.allocator().dupe(u8, bytes);
+    errdefer self.vm.allocator().free(copy);
+    const bv = ByteVector.fromOwnedSlice(copy);
+    return try self.vm.objects.bytevectors.put(self.vm.allocator(), bv);
 }
 
 pub inline fn makeContinuationHandle(self: Builder, context: Context) Vm.Error!Handle(Continuation) {

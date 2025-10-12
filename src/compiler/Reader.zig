@@ -78,6 +78,26 @@ pub fn readNextImpl(self: *Reader) Vm.Error!ReadResult {
         },
         .right_paren => return ReadResult{ .end_expr = {} },
         .dot => return ReadResult{ .dot = {} },
+        .bytevector_start => {
+            var bytes = std.ArrayList(u8){};
+            defer bytes.deinit(self.vm.allocator());
+            while (true) {
+                switch (try self.readNextImpl()) {
+                    .atom => |v| {
+                        // Parse value as u8 (0-255)
+                        const int_val = v.asInt() orelse return Vm.Error.ReadError;
+                        if (int_val < 0 or int_val > 255) return Vm.Error.ReadError;
+                        try bytes.append(self.vm.allocator(), @intCast(int_val));
+                    },
+                    .end_expr => {
+                        const bv = try builder.makeBytevector(bytes.items);
+                        return ReadResult{ .atom = bv };
+                    },
+                    .end => return Vm.Error.ReadError,
+                    .dot => return Vm.Error.ReadError, // Bytevectors don't support dot notation
+                }
+            }
+        },
         .vector_start => {
             var elements = std.ArrayList(Val){};
             defer elements.deinit(self.vm.allocator());
