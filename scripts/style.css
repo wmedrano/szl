@@ -1,0 +1,212 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
+
+/* Jekyll-like styling for szl documentation */
+
+:root {
+  --primary-color: #0366d6;
+  --text-color: #24292e;
+  --bg-color: #ffffff;
+  --code-bg: #f6f8fa;
+  --border-color: #e1e4e8;
+  --link-color: #0366d6;
+  --link-hover: #0056b3;
+  --header-bg: #f6f8fa;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica', 'Arial', sans-serif;
+  color: var(--text-color);
+  background-color: #f5f5f5;
+  margin: 0;
+  padding: 2rem 1.5rem;
+  max-width: 900px;
+  margin-left: auto;
+  margin-right: auto;
+  border: 1px solid var(--border-color);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border-radius: 6px;
+  background-color: var(--bg-color);
+}
+
+/* Header styling */
+header#title-block-header {
+  background-color: var(--header-bg);
+  border-bottom: 3px solid var(--primary-color);
+  margin: -2rem -1.5rem 2rem;
+  padding: 2rem 1.5rem;
+}
+
+header#title-block-header h1.title {
+  font-size: 2rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-color);
+}
+
+/* Headings */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 600;
+  line-height: 1.25;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  color: var(--text-color);
+}
+
+h1 {
+  font-size: 2rem;
+  border-bottom: 2px solid var(--border-color);
+  padding-bottom: 0.3em;
+}
+
+h2 {
+  font-size: 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.3em;
+}
+
+h3 {
+  font-size: 1.25rem;
+}
+
+h4 {
+  font-size: 1rem;
+}
+
+/* Links */
+a {
+  color: var(--link-color);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--link-hover);
+  text-decoration: underline;
+}
+
+/* Paragraphs */
+p {
+  margin-top: 0;
+  margin-bottom: 1rem;
+}
+
+/* Code styling */
+code {
+  font-family: 'IBM Plex Mono', 'SFMono-Regular', 'Consolas', 'Liberation Mono', 'Menlo', monospace;
+  font-size: 0.9em;
+  background-color: var(--code-bg);
+  padding: 0.2em 0.4em;
+  border-radius: 3px;
+  border: 1px solid var(--border-color);
+}
+
+pre {
+  font-family: 'IBM Plex Mono', 'SFMono-Regular', 'Consolas', 'Liberation Mono', 'Menlo', monospace;
+  font-size: 0.875rem;
+  background-color: var(--code-bg);
+  padding: 1rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  overflow-x: auto;
+  line-height: 1.3;
+  margin-bottom: 1rem;
+}
+
+pre code {
+  background-color: transparent;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+}
+
+div.sourceCode {
+  margin: 1.5em 0;
+}
+
+pre.sourceCode {
+  margin: 0;
+}
+
+/* Syntax highlighting adjustments for Jekyll theme */
+code span.co { color: #6a737d; } /* Comment - GitHub gray */
+code span.kw { color: #d73a49; } /* Keyword - GitHub red */
+code span.st { color: #032f62; } /* String - GitHub blue */
+code span.fu { color: #6f42c1; } /* Function - GitHub purple */
+code span.bu { color: #005cc5; } /* BuiltIn - GitHub blue */
+code span.cf { color: #d73a49; } /* ControlFlow - GitHub red */
+code span.op { color: #24292e; } /* Operator - darker */
+code span.dv, code span.bn, code span.fl { color: #005cc5; } /* Numbers - GitHub blue */
+code span.ch, code span.sc { color: #032f62; } /* Char/SpecialChar - GitHub blue */
+
+/* Lists */
+ul, ol {
+  padding-left: 2rem;
+  margin-bottom: 1rem;
+}
+
+li {
+  margin-bottom: 0.25rem;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  body {
+    padding: 1rem;
+  }
+
+  header#title-block-header {
+    margin: -1rem -1rem 1.5rem;
+    padding: 1.5rem 1rem;
+  }
+
+  header#title-block-header h1.title {
+    font-size: 1.5rem;
+  }
+
+  h1 {
+    font-size: 1.75rem;
+  }
+
+  h2 {
+    font-size: 1.375rem;
+  }
+
+  pre {
+    padding: 0.75rem;
+  }
+}
+
+/* Dark mode support (commented out until we can toggle it dynamically) */
+/*
+@media (prefers-color-scheme: dark) {
+  :root {
+    --primary-color: #58a6ff;
+    --text-color: #c9d1d9;
+    --bg-color: #0d1117;
+    --code-bg: #161b22;
+    --border-color: #30363d;
+    --link-color: #58a6ff;
+    --link-hover: #79c0ff;
+    --header-bg: #161b22;
+  }
+
+  code span.co { color: #8b949e; }
+  code span.kw { color: #ff7b72; }
+  code span.st { color: #a5d6ff; }
+  code span.fu { color: #d2a8ff; }
+  code span.bu { color: #79c0ff; }
+  code span.cf { color: #ff7b72; }
+  code span.op { color: #c9d1d9; }
+  code span.dv, code span.bn, code span.fl { color: #79c0ff; }
+  code span.ch, code span.sc { color: #a5d6ff; }
+}
+*/
+
