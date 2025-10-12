@@ -195,3 +195,53 @@ pub fn iteratePairs(self: Inspector, val: Val) PairIterator {
         .current = val,
     };
 }
+
+/// Checks if two values are equal according to Scheme's equal? predicate.
+/// This performs deep equality checking for pairs, vectors, and strings.
+/// For other types, it uses structural equality (same as eq?).
+pub fn isEqual(self: Inspector, a: Val, b: Val) Vm.Error!bool {
+    // Fast path: if they're structurally equal, they're equal
+    if (a.eq(b)) return true;
+
+    // Check type-specific deep equality
+    switch (a.data) {
+        .pair => |a_handle| {
+            switch (b.data) {
+                .pair => |b_handle| {
+                    const a_pair = try self.handleToPair(a_handle);
+                    const b_pair = try self.handleToPair(b_handle);
+                    return try self.isEqual(a_pair.car, b_pair.car) and
+                        try self.isEqual(a_pair.cdr, b_pair.cdr);
+                },
+                else => return false,
+            }
+        },
+        .vector => |a_handle| {
+            switch (b.data) {
+                .vector => |b_handle| {
+                    const a_vec = try self.handleToVector(a_handle);
+                    const b_vec = try self.handleToVector(b_handle);
+                    const a_slice = a_vec.asSlice();
+                    const b_slice = b_vec.asSlice();
+                    if (a_slice.len != b_slice.len) return false;
+                    for (a_slice, b_slice) |a_item, b_item| {
+                        if (!try self.isEqual(a_item, b_item)) return false;
+                    }
+                    return true;
+                },
+                else => return false,
+            }
+        },
+        .string => |a_handle| {
+            switch (b.data) {
+                .string => |b_handle| {
+                    const a_str = try self.handleToString(a_handle);
+                    const b_str = try self.handleToString(b_handle);
+                    return std.mem.eql(u8, a_str.asSlice(), b_str.asSlice());
+                },
+                else => return false,
+            }
+        },
+        else => return false,
+    }
+}

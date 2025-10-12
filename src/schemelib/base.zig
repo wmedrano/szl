@@ -9,203 +9,11 @@ const Symbol = @import("../types/Symbol.zig");
 const Val = @import("../types/Val.zig");
 const Builder = @import("../utils/Builder.zig");
 const Vm = @import("../Vm.zig");
+const boolean_fns = @import("boolean_fns.zig");
+const equivalence_fns = @import("equivalence_fns.zig");
+const number_fns = @import("number_fns.zig");
 
-pub fn init(vm: *Vm) Vm.Error!Handle(Module) {
-    const b = vm.builder();
-
-    const env_handle = try b.makeEnvironment(&.{
-        (try b.makeStaticSymbolHandle("scheme")),
-        (try b.makeStaticSymbolHandle("base")),
-    }, &[_]Builder.Definition{
-        .{
-            .symbol = (try b.makeStaticSymbolHandle("+")),
-            .value = Val.initNativeProc(&add),
-        },
-        .{
-            .symbol = (try b.makeStaticSymbolHandle("-")),
-            .value = Val.initNativeProc(&sub),
-        },
-        .{
-            .symbol = (try b.makeStaticSymbolHandle("<")),
-            .value = Val.initNativeProc(&lt),
-        },
-        .{
-            .symbol = (try b.makeStaticSymbolHandle("<=")),
-            .value = Val.initNativeProc(&lte),
-        },
-        .{
-            .symbol = (try b.makeStaticSymbolHandle(">")),
-            .value = Val.initNativeProc(&gt),
-        },
-        .{
-            .symbol = (try b.makeStaticSymbolHandle("not")),
-            .value = Val.initNativeProc(&not),
-        },
-        .{
-            .symbol = (try b.makeStaticSymbolHandle("apply")),
-            .value = Val.initNativeProc(&apply),
-        },
-        .{
-            .symbol = (try b.makeStaticSymbolHandle("call/cc")),
-            .value = Val.initNativeProc(&call_cc),
-        },
-        .{
-            .symbol = (try b.makeStaticSymbolHandle("call-with-current-continuation")),
-            .value = Val.initNativeProc(&call_cc),
-        },
-        .{
-            .symbol = (try b.makeStaticSymbolHandle("with-exception-handler")),
-            .value = Val.initNativeProc(&with_exception_handler),
-        },
-        .{
-            .symbol = (try b.makeStaticSymbolHandle("raise-continuable")),
-            .value = Val.initNativeProc(&raise_continuable),
-        },
-        .{
-            .symbol = (try b.makeStaticSymbolHandle("%szl-raise-next")),
-            .value = Val.initNativeProc(&szl_raise_next),
-        },
-        .{
-            .symbol = (try b.makeStaticSymbolHandle("import")),
-            .value = Val.initNativeProc(&import),
-        },
-        .{
-            .symbol = (try b.makeStaticSymbolHandle("string-length")),
-            .value = Val.initNativeProc(&string_length),
-        },
-    });
-    _ = try vm.evalStr(@embedFile("base.scm"), env_handle);
-
-    return env_handle;
-}
-
-const add = NativeProc.withRawArgs(struct {
-    pub const name = "+";
-    pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
-        const inspector = vm.inspector();
-        var sum: i64 = 0;
-        // TODO: Raise an exception.
-        for (args) |v| sum += inspector.asInt(v) catch return .{ .err = error.NotImplemented };
-        return .{ .val = Val.initInt(sum) };
-    }
-});
-
-const sub = NativeProc.withRawArgs(struct {
-    pub const name = "-";
-    pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
-        const inspector = vm.inspector();
-        // TODO: Raise an exception.
-        const result: i64 = switch (args.len) {
-            0 => return .{ .err = error.NotImplemented },
-            1 => blk: {
-                const n = inspector.asInt(args[0]) catch return .{ .err = error.NotImplemented };
-                break :blk -n;
-            },
-            else => blk: {
-                var diff = inspector.asInt(args[0]) catch return .{ .err = error.NotImplemented };
-                for (args[1..]) |v| diff -= inspector.asInt(v) catch return .{ .err = error.NotImplemented };
-                break :blk diff;
-            },
-        };
-        return .{ .val = Val.initInt(result) };
-    }
-});
-
-const lt = NativeProc.withRawArgs(struct {
-    pub const name = "<";
-    pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
-        const inspector = vm.inspector();
-
-        // Check if strictly ordered by comparing adjacent pairs.
-        // TODO: Raise an exception instead of NotImplemented.
-        const is_ordered = switch (args.len) {
-            0 => true,
-            1 => blk: {
-                // Validate single argument is an integer
-                _ = inspector.asInt(args[0]) catch return .{ .err = error.NotImplemented };
-                break :blk true;
-            },
-            else => blk: {
-                var prev = inspector.asInt(args[0]) catch return .{ .err = error.NotImplemented };
-                for (args[1..]) |v| {
-                    const curr = inspector.asInt(v) catch return .{ .err = error.NotImplemented };
-                    if (prev >= curr) break :blk false;
-                    prev = curr;
-                }
-                break :blk true;
-            },
-        };
-        return .{ .val = Val.initBool(is_ordered) };
-    }
-});
-
-const lte = NativeProc.withRawArgs(struct {
-    pub const name = "<=";
-    pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
-        const inspector = vm.inspector();
-
-        // Check if ordered by comparing adjacent pairs.
-        // TODO: Raise an exception instead of NotImplemented.
-        const is_ordered = switch (args.len) {
-            0 => true,
-            1 => blk: {
-                // Validate single argument is an integer
-                _ = inspector.asInt(args[0]) catch return .{ .err = error.NotImplemented };
-                break :blk true;
-            },
-            else => blk: {
-                var prev = inspector.asInt(args[0]) catch return .{ .err = error.NotImplemented };
-                for (args[1..]) |v| {
-                    const curr = inspector.asInt(v) catch return .{ .err = error.NotImplemented };
-                    if (prev > curr) break :blk false;
-                    prev = curr;
-                }
-                break :blk true;
-            },
-        };
-        return .{ .val = Val.initBool(is_ordered) };
-    }
-});
-
-const gt = NativeProc.withRawArgs(struct {
-    pub const name = ">";
-    pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
-        const inspector = vm.inspector();
-
-        // Check if strictly ordered in descending order by comparing adjacent pairs.
-        // TODO: Raise an exception instead of NotImplemented.
-        const is_ordered = switch (args.len) {
-            0 => true,
-            1 => blk: {
-                // Validate single argument is an integer
-                _ = inspector.asInt(args[0]) catch return .{ .err = error.NotImplemented };
-                break :blk true;
-            },
-            else => blk: {
-                var prev = inspector.asInt(args[0]) catch return .{ .err = error.NotImplemented };
-                for (args[1..]) |v| {
-                    const curr = inspector.asInt(v) catch return .{ .err = error.NotImplemented };
-                    if (prev <= curr) break :blk false;
-                    prev = curr;
-                }
-                break :blk true;
-            },
-        };
-        return .{ .val = Val.initBool(is_ordered) };
-    }
-});
-
-const not = NativeProc.withRawArgs(struct {
-    pub const name = "not";
-    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
-        return switch (args.len) {
-            1 => NativeProc.Result{ .val = Val.initBool(!args[0].isTruthy()) },
-            else => NativeProc.Result{ .err = Vm.Error.UncaughtException },
-        };
-    }
-});
-
-const call_cc = NativeProc{
+pub const call_cc = NativeProc{
     .name = "call/cc",
     .unsafe_impl = &callCcImpl,
 };
@@ -218,7 +26,7 @@ fn callCcImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
     try (Instruction{ .eval = 1 }).execute(vm);
 }
 
-const with_exception_handler = NativeProc{
+pub const with_exception_handler = NativeProc{
     .name = "with-exception-handler",
     .unsafe_impl = &withExceptionHandlerImpl,
 };
@@ -232,7 +40,7 @@ fn withExceptionHandlerImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
     try (Instruction{ .eval = 0 }).execute(vm);
 }
 
-const raise_continuable = NativeProc{
+pub const raise_continuable = NativeProc{
     .name = "raise-continuable",
     .unsafe_impl = &raiseContinuableImpl,
 };
@@ -244,7 +52,7 @@ fn raiseContinuableImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
     try (Instruction{ .eval = 1 }).execute(vm);
 }
 
-const szl_raise_next = NativeProc{
+pub const szl_raise_next = NativeProc{
     .name = "%szl-raise-next",
     .unsafe_impl = &szlRaiseNextImpl,
 };
@@ -266,7 +74,7 @@ fn szlRaiseNextImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
     try (Instruction{ .eval = 1 }).execute(vm);
 }
 
-const apply = NativeProc{
+pub const apply = NativeProc{
     .name = "apply",
     .unsafe_impl = &applyImpl,
 };
@@ -288,7 +96,7 @@ fn applyImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
     try (Instruction{ .eval = proc_args_count }).execute(vm);
 }
 
-const import = NativeProc{
+pub const import = NativeProc{
     .name = "import",
     .unsafe_impl = &importImpl,
 };
@@ -314,7 +122,7 @@ fn importImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
     );
 }
 
-const string_length = NativeProc.withRawArgs(struct {
+pub const string_length = NativeProc.withRawArgs(struct {
     pub const name = "string-length";
     pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
         if (args.len != 1) return .{ .err = error.NotImplemented };
@@ -325,175 +133,36 @@ const string_length = NativeProc.withRawArgs(struct {
     }
 });
 
-test "+ on ints sums ints" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
+pub fn init(vm: *Vm) Vm.Error!Handle(Module) {
+    const b = vm.builder();
 
-    try vm.expectEval("10", "(+ 1 2 3 4)");
-}
+    const env_handle = try b.makeEnvironment(&.{
+        (try b.makeStaticSymbolHandle("scheme")),
+        (try b.makeStaticSymbolHandle("base")),
+    }, &[_]Builder.Definition{
+        .{ .symbol = (try b.makeStaticSymbolHandle("+")), .value = Val.initNativeProc(&number_fns.add) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("-")), .value = Val.initNativeProc(&number_fns.sub) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("<")), .value = Val.initNativeProc(&number_fns.lt) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("<=")), .value = Val.initNativeProc(&number_fns.lte) },
+        .{ .symbol = (try b.makeStaticSymbolHandle(">")), .value = Val.initNativeProc(&number_fns.gt) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("number?")), .value = Val.initNativeProc(&number_fns.number_p) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("integer?")), .value = Val.initNativeProc(&number_fns.integer_p) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("not")), .value = Val.initNativeProc(&boolean_fns.not) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("boolean?")), .value = Val.initNativeProc(&boolean_fns.boolean_p) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("eq?")), .value = Val.initNativeProc(&equivalence_fns.eq_p) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("equal?")), .value = Val.initNativeProc(&equivalence_fns.equal_p) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("apply")), .value = Val.initNativeProc(&apply) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("call/cc")), .value = Val.initNativeProc(&call_cc) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("call-with-current-continuation")), .value = Val.initNativeProc(&call_cc) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("with-exception-handler")), .value = Val.initNativeProc(&with_exception_handler) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("raise-continuable")), .value = Val.initNativeProc(&raise_continuable) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("%szl-raise-next")), .value = Val.initNativeProc(&szl_raise_next) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("import")), .value = Val.initNativeProc(&import) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("string-length")), .value = Val.initNativeProc(&string_length) },
+    });
+    _ = try vm.evalStr(@embedFile("base.scm"), env_handle);
 
-test "empty + returns 0" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    try vm.expectEval("0", "(+)");
-}
-
-test "+ on non-ints returns error" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    try testing.expectError(Vm.Error.NotImplemented, vm.evalStr("(+ #t)", null));
-}
-
-test "- on two ints subtracts them" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    try vm.expectEval("5", "(- 10 5)");
-    try vm.expectEval("-5", "(- 5 10)");
-}
-
-test "- on multiple ints subtracts sequentially" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    try vm.expectEval("5", "(- 10 3 2)");
-    try vm.expectEval("0", "(- 10 5 5)");
-}
-
-test "- with single arg returns negation" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    try vm.expectEval("-5", "(- 5)");
-    try vm.expectEval("5", "(- -5)");
-    try vm.expectEval("0", "(- 0)");
-}
-
-test "- with no args returns error" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    try testing.expectError(Vm.Error.NotImplemented, vm.evalStr("(-)", null));
-}
-
-test "- on non-ints returns error" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    try testing.expectError(Vm.Error.NotImplemented, vm.evalStr("(- #t)", null));
-    try testing.expectError(Vm.Error.NotImplemented, vm.evalStr("(- 5 #f)", null));
-}
-
-test "<= on ordered ints returns true" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    try vm.expectEval("#t", "(<= 1 2 3)");
-}
-
-test "<= on non-ordered ints returns false" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    try vm.expectEval("#f", "(<= 3 2 1)");
-}
-
-test "<= on equal ints returns true" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    try vm.expectEval("#t", "(<= 1 1 2)");
-}
-
-test "<= with less than 2 args returns true" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    try vm.expectEval("#t", "(<= )");
-    try vm.expectEval("#t", "(<= 1)");
-}
-
-test "<= on non-ints returns error" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    try testing.expectError(Vm.Error.NotImplemented, vm.evalStr("(<= #t)", null));
-}
-
-test "< on strictly ordered ints returns true" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    try vm.expectEval("#t", "(< 1 2 3)");
-}
-
-test "< on non-ordered ints returns false" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    try vm.expectEval("#f", "(< 3 2 1)");
-}
-
-test "< on equal ints returns false" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    try vm.expectEval("#f", "(< 1 1 2)");
-    try vm.expectEval("#f", "(< 1 2 2)");
-}
-
-test "< with less than 2 args returns true" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    try vm.expectEval("#t", "(< )");
-    try vm.expectEval("#t", "(< 1)");
-}
-
-test "< on non-ints returns error" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    try testing.expectError(Vm.Error.NotImplemented, vm.evalStr("(< #t)", null));
-}
-
-test "> on strictly ordered descending ints returns true" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    try vm.expectEval("#t", "(> 3 2 1)");
-}
-
-test "> on non-ordered ints returns false" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    try vm.expectEval("#f", "(> 1 2 3)");
-}
-
-test "> on equal ints returns false" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    try vm.expectEval("#f", "(> 2 1 1)");
-    try vm.expectEval("#f", "(> 2 2 1)");
-}
-
-test "> with less than 2 args returns true" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    try vm.expectEval("#t", "(> )");
-    try vm.expectEval("#t", "(> 1)");
-}
-
-test "> on non-ints returns error" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    try testing.expectError(Vm.Error.NotImplemented, vm.evalStr("(> #t)", null));
+    return env_handle;
 }
 
 test "raise-continuable calls exception handler and continues" {

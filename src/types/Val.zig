@@ -92,6 +92,13 @@ pub fn asSymbol(self: Val) ?Symbol {
     }
 }
 
+pub fn asBool(self: Val) ?bool {
+    switch (self.data) {
+        .boolean => |x| return x,
+        else => return null,
+    }
+}
+
 pub fn eq(self: Val, other: Val) bool {
     return std.meta.eql(self, other);
 }
