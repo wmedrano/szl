@@ -6,6 +6,10 @@ A Scheme interpreter implemented in Zig.
 
 szl is a Scheme language implemented in Zig.
 
+## Requirements
+
+- Zig 0.15
+
 ## Building
 
 Build the project using Zig's build system:

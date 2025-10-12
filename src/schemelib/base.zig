@@ -15,6 +15,7 @@ const control_fns = @import("control_fns.zig");
 const equivalence_fns = @import("equivalence_fns.zig");
 const exception_fns = @import("exception_fns.zig");
 const number_fns = @import("number_fns.zig");
+const pair_fns = @import("pair_fns.zig");
 const string_fns = @import("string_fns.zig");
 
 pub const import = NativeProc{
@@ -66,6 +67,22 @@ pub fn init(vm: *Vm) Vm.Error!Handle(Module) {
         .{ .symbol = (try b.makeStaticSymbolHandle("not")), .value = Val.initNativeProc(&boolean_fns.not) },
         .{ .symbol = (try b.makeStaticSymbolHandle("boolean?")), .value = Val.initNativeProc(&boolean_fns.boolean_p) },
         // 6.4 Pairs and lists
+        .{ .symbol = (try b.makeStaticSymbolHandle("pair?")), .value = Val.initNativeProc(&pair_fns.pair_p) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("cons")), .value = Val.initNativeProc(&pair_fns.cons) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("car")), .value = Val.initNativeProc(&pair_fns.car) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("cdr")), .value = Val.initNativeProc(&pair_fns.cdr) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("set-car!")), .value = Val.initNativeProc(&pair_fns.set_car_b) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("set-cdr!")), .value = Val.initNativeProc(&pair_fns.set_cdr_b) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("null?")), .value = Val.initNativeProc(&pair_fns.null_p) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("list?")), .value = Val.initNativeProc(&pair_fns.list_p) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("make-list")), .value = Val.initNativeProc(&pair_fns.make_list) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("list")), .value = Val.initNativeProc(&pair_fns.list) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("length")), .value = Val.initNativeProc(&pair_fns.length) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("append")), .value = Val.initNativeProc(&pair_fns.append) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("reverse")), .value = Val.initNativeProc(&pair_fns.reverse) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("list-tail")), .value = Val.initNativeProc(&pair_fns.list_tail) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("list-ref")), .value = Val.initNativeProc(&pair_fns.list_ref) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("list-set!")), .value = Val.initNativeProc(&pair_fns.list_set_b) },
         // 6.5 Symbols
         // 6.6 Characters
         .{ .symbol = (try b.makeStaticSymbolHandle("integer?")), .value = Val.initNativeProc(&number_fns.integer_p) },

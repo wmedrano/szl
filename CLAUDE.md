@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 szl is a Scheme interpreter implemented in Zig. The project compiles Scheme expressions to bytecode instructions, executes them on a stack-based virtual machine, and uses a mark-and-sweep garbage collector.
 
+**Requirements:** Zig 0.15
+
 ## Build Commands
 
 ### Build and Run
