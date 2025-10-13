@@ -10,33 +10,132 @@ const Reader = @This();
 
 tokenizer: Tokenizer,
 vm: *Vm,
+last_token: ?Tokenizer.Token = null,
 
-pub fn init(vm: *Vm, source: []const u8) Reader {
-    return Reader{
-        .vm = vm,
-        .tokenizer = Tokenizer.init(source),
+/// Diagnostic information for reader errors
+pub const Diagnostic = struct {
+    /// The type of error that occurred
+    kind: Kind = .unexpected_token,
+    /// Line number where the error occurred (1-indexed)
+    line: u32 = 0,
+    /// Column number where the error occurred (1-indexed)
+    column: u32 = 0,
+    /// Optional context information about the error
+    message: []const u8 = "",
+    /// Optional lexeme that caused the error
+    lexeme: ?[]const u8 = null,
+
+    pub const Kind = enum {
+        unexpected_eof,
+        unexpected_token,
+        invalid_number,
+        invalid_string,
+        invalid_character,
+        invalid_bytevector,
+        unexpected_dot,
+        unexpected_close_paren,
+        empty_dot_list,
+        multiple_values,
+        no_values,
     };
-}
 
-pub fn readNext(self: *Reader) Vm.Error!?Val {
-    const result = try self.readNextImpl();
-    switch (result) {
-        .atom => |v| return v,
-        .end_expr => return Vm.Error.ReadError,
-        .dot => return Vm.Error.ReadError,
-        .end => return null,
+    pub fn format(
+        self: Diagnostic,
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
+        if (self.lexeme) |lex| {
+            try writer.print("{}:{}: error: {s}: {s}: '{s}'", .{
+                self.line,
+                self.column,
+                @tagName(self.kind),
+                self.message,
+                lex,
+            });
+        } else {
+            try writer.print("{}:{}: error: {s}: {s}", .{
+                self.line,
+                self.column,
+                @tagName(self.kind),
+                self.message,
+            });
+        }
     }
-}
+};
+
+pub const Error = error{
+    ReadError,
+    NotImplemented,
+    OutOfMemory,
+};
 
 pub const ReadOneError = Vm.Error || error{
     NoValue,
     TooManyValues,
 };
 
-pub fn readOne(vm: *Vm, source: []const u8) ReadOneError!Val {
+pub fn init(vm: *Vm, source: []const u8) Reader {
+    return Reader{
+        .vm = vm,
+        .tokenizer = Tokenizer.init(source),
+        .last_token = null,
+    };
+}
+
+pub fn readNext(self: *Reader, diagnostic: ?*Diagnostic) Error!?Val {
+    const result = try self.readNextImpl(diagnostic);
+    switch (result) {
+        .atom => |v| return v,
+        .end_expr => {
+            if (diagnostic) |diag| {
+                const token = self.last_token orelse Tokenizer.Token{ .type = .right_paren, .lexeme = ")", .line = 1, .column = 1 };
+                diag.* = .{
+                    .kind = .unexpected_close_paren,
+                    .line = token.line,
+                    .column = token.column,
+                    .message = "unexpected closing parenthesis",
+                };
+            }
+            return Error.ReadError;
+        },
+        .dot => {
+            if (diagnostic) |diag| {
+                const token = self.last_token orelse Tokenizer.Token{ .type = .dot, .lexeme = ".", .line = 1, .column = 1 };
+                diag.* = .{
+                    .kind = .unexpected_dot,
+                    .line = token.line,
+                    .column = token.column,
+                    .message = "unexpected dot notation",
+                };
+            }
+            return Error.ReadError;
+        },
+        .end => return null,
+    }
+}
+
+pub fn readOne(vm: *Vm, source: []const u8, diagnostic: ?*Diagnostic) ReadOneError!Val {
     var reader = Reader.init(vm, source);
-    const first = try reader.readNext() orelse return ReadOneError.NoValue;
-    if (try reader.readNext()) |_| {
+    const first = try reader.readNext(diagnostic) orelse {
+        if (diagnostic) |diag| {
+            diag.* = .{
+                .kind = .no_values,
+                .line = 1,
+                .column = 1,
+                .message = "expected at least one value",
+            };
+        }
+        return ReadOneError.NoValue;
+    };
+    if (try reader.readNext(diagnostic)) |_| {
+        if (diagnostic) |diag| {
+            const token = reader.last_token orelse Tokenizer.Token{ .type = .left_paren, .lexeme = "", .line = 1, .column = 1 };
+            diag.* = .{
+                .kind = .multiple_values,
+                .line = token.line,
+                .column = token.column,
+                .message = "expected only one value, found multiple",
+            };
+        }
         return ReadOneError.TooManyValues;
     }
     return first;
@@ -49,114 +148,336 @@ const ReadResult = union(enum) {
     end,
 };
 
-pub fn readNextImpl(self: *Reader) Vm.Error!ReadResult {
+fn readNextImpl(self: *Reader, diagnostic: ?*Diagnostic) Error!ReadResult {
     const next_token = self.tokenizer.nextToken() orelse
         return ReadResult{ .end = {} };
-    const builder = self.vm.builder();
+    self.last_token = next_token;
     switch (next_token.type) {
-        .left_paren => {
-            var elements = std.ArrayList(Val){};
-            defer elements.deinit(self.vm.allocator());
-            var dot_idx: ?usize = null;
-            while (true) {
-                switch (try self.readNextImpl()) {
-                    .atom => |v| try elements.append(self.vm.allocator(), v),
-                    .end_expr => {
-                        const res = if (dot_idx == elements.items.len)
-                            try builder.makePairs(elements.items)
-                        else
-                            try builder.makeList(elements.items);
-                        return ReadResult{ .atom = res };
-                    },
-                    .end => return Vm.Error.ReadError,
-                    .dot => {
-                        if (elements.items.len == 0) return Vm.Error.ReadError;
-                        dot_idx = elements.items.len + 1;
-                    },
-                }
-            }
-        },
+        .left_paren => return try self.readList(next_token, diagnostic),
         .right_paren => return ReadResult{ .end_expr = {} },
         .dot => return ReadResult{ .dot = {} },
-        .bytevector_start => {
-            var bytes = std.ArrayList(u8){};
-            defer bytes.deinit(self.vm.allocator());
-            while (true) {
-                switch (try self.readNextImpl()) {
-                    .atom => |v| {
-                        // Parse value as u8 (0-255)
-                        const int_val = v.asInt() orelse return Vm.Error.ReadError;
-                        if (int_val < 0 or int_val > 255) return Vm.Error.ReadError;
-                        try bytes.append(self.vm.allocator(), @intCast(int_val));
-                    },
-                    .end_expr => {
-                        const bv = try builder.makeBytevector(bytes.items);
-                        return ReadResult{ .atom = bv };
-                    },
-                    .end => return Vm.Error.ReadError,
-                    .dot => return Vm.Error.ReadError, // Bytevectors don't support dot notation
+        .bytevector_start => return try self.readBytevector(next_token, diagnostic),
+        .vector_start => return try self.readVector(next_token, diagnostic),
+        .identifier => {
+            // Classify the identifier based on its lexeme
+            const lexeme = next_token.lexeme;
+
+            // Check if it's a character literal (#\...)
+            if (lexeme.len >= 2 and lexeme[0] == '#' and lexeme[1] == '\\') {
+                return try self.parseCharacter(next_token, diagnostic);
+            }
+
+            // Check if it's a boolean (#t, #f, #true, #false)
+            if (std.mem.eql(u8, lexeme, "#t") or
+                std.mem.eql(u8, lexeme, "#f") or
+                std.mem.eql(u8, lexeme, "#true") or
+                std.mem.eql(u8, lexeme, "#false") or
+                (lexeme.len > 0 and lexeme[0] == '#'))
+            {
+                return try self.parseBoolean(next_token, diagnostic);
+            }
+
+            // Check if it's a number (starts with digit, +digit, -digit, or just + or -)
+            if (lexeme.len > 0) {
+                const first = lexeme[0];
+                if (std.ascii.isDigit(first)) {
+                    return try self.parseNumber(next_token, diagnostic);
+                } else if ((first == '+' or first == '-')) {
+                    if (lexeme.len == 1) {
+                        // Just + or - by itself is a symbol
+                        return try self.parseSymbol(next_token);
+                    } else if (std.ascii.isDigit(lexeme[1])) {
+                        // +/- followed by digit is a number
+                        return try self.parseNumber(next_token, diagnostic);
+                    }
                 }
             }
+
+            // Otherwise, it's a symbol
+            return try self.parseSymbol(next_token);
         },
-        .vector_start => {
-            var elements = std.ArrayList(Val){};
-            defer elements.deinit(self.vm.allocator());
-            while (true) {
-                switch (try self.readNextImpl()) {
-                    .atom => |v| try elements.append(self.vm.allocator(), v),
-                    .end_expr => {
-                        const vec = try builder.makeVector(elements.items);
-                        return ReadResult{ .atom = vec };
-                    },
-                    .end => return Vm.Error.ReadError,
-                    .dot => return Vm.Error.ReadError, // Vectors don't support dot notation
-                }
+        .string => return try self.parseString(next_token, diagnostic),
+        .quote => return try self.readQuote(next_token, diagnostic),
+        .quasiquote => {
+            if (diagnostic) |diag| {
+                diag.* = .{
+                    .kind = .unexpected_token,
+                    .line = next_token.line,
+                    .column = next_token.column,
+                    .message = "quasiquote syntax is not yet implemented",
+                    .lexeme = next_token.lexeme,
+                };
             }
+            return Error.NotImplemented;
         },
-        .number => return try self.parseNumber(next_token.lexeme),
-        .string => return try self.parseString(next_token.lexeme),
-        .symbol => return try self.parseSymbol(next_token.lexeme),
-        .boolean => return try self.parseBoolean(next_token.lexeme),
-        .character => return try self.parseCharacter(next_token.lexeme),
-        .quote => {
-            const next = try self.readNextImpl();
-            switch (next) {
-                .atom => |v| {
-                    const quote_symbol = try builder.makeStaticSymbol("quote");
-                    const list_items = [_]Val{ quote_symbol, v };
-                    const quoted = try builder.makeList(&list_items);
-                    return ReadResult{ .atom = quoted };
-                },
-                .end => return Vm.Error.ReadError,
-                .end_expr => return Vm.Error.ReadError,
-                .dot => return Vm.Error.ReadError,
+        .unquote => {
+            if (diagnostic) |diag| {
+                diag.* = .{
+                    .kind = .unexpected_token,
+                    .line = next_token.line,
+                    .column = next_token.column,
+                    .message = "unquote syntax is not yet implemented",
+                    .lexeme = next_token.lexeme,
+                };
             }
+            return Error.NotImplemented;
         },
-        .quasiquote => return Vm.Error.NotImplemented,
-        .unquote => return Vm.Error.NotImplemented,
-        .unquote_splicing => return Vm.Error.NotImplemented,
+        .unquote_splicing => {
+            if (diagnostic) |diag| {
+                diag.* = .{
+                    .kind = .unexpected_token,
+                    .line = next_token.line,
+                    .column = next_token.column,
+                    .message = "unquote-splicing syntax is not yet implemented",
+                    .lexeme = next_token.lexeme,
+                };
+            }
+            return Error.NotImplemented;
+        },
     }
 }
 
-fn parseNumber(_: Reader, token: []const u8) Vm.Error!ReadResult {
-    if (token.len == 0) return Vm.Error.ReadError;
+fn readList(self: *Reader, open_paren_token: Tokenizer.Token, diagnostic: ?*Diagnostic) Error!ReadResult {
+    var elements = std.ArrayList(Val){};
+    defer elements.deinit(self.vm.allocator());
+    var dot_idx: ?usize = null;
+    const builder = self.vm.builder();
+
+    while (true) {
+        switch (try self.readNextImpl(diagnostic)) {
+            .atom => |v| try elements.append(self.vm.allocator(), v),
+            .end_expr => {
+                const res = if (dot_idx == elements.items.len)
+                    try builder.makePairs(elements.items)
+                else
+                    try builder.makeList(elements.items);
+                return ReadResult{ .atom = res };
+            },
+            .end => {
+                if (diagnostic) |diag| {
+                    diag.* = .{
+                        .kind = .unexpected_eof,
+                        .line = open_paren_token.line,
+                        .column = open_paren_token.column,
+                        .message = "missing closing parenthesis for list",
+                    };
+                }
+                return Error.ReadError;
+            },
+            .dot => {
+                if (elements.items.len == 0) {
+                    if (diagnostic) |diag| {
+                        const token = self.last_token orelse open_paren_token;
+                        diag.* = .{
+                            .kind = .empty_dot_list,
+                            .line = token.line,
+                            .column = token.column,
+                            .message = "dot notation requires at least one element before the dot",
+                        };
+                    }
+                    return Error.ReadError;
+                }
+                dot_idx = elements.items.len + 1;
+            },
+        }
+    }
+}
+
+fn readBytevector(self: *Reader, open_token: Tokenizer.Token, diagnostic: ?*Diagnostic) Error!ReadResult {
+    var bytes = std.ArrayList(u8){};
+    defer bytes.deinit(self.vm.allocator());
+    const builder = self.vm.builder();
+
+    while (true) {
+        switch (try self.readNextImpl(diagnostic)) {
+            .atom => |v| {
+                // Parse value as u8 (0-255)
+                const int_val = v.asInt() orelse {
+                    if (diagnostic) |diag| {
+                        const token = self.last_token orelse open_token;
+                        diag.* = .{
+                            .kind = .invalid_bytevector,
+                            .line = token.line,
+                            .column = token.column,
+                            .message = "bytevector elements must be integers",
+                        };
+                    }
+                    return Error.ReadError;
+                };
+                if (int_val < 0 or int_val > 255) {
+                    if (diagnostic) |diag| {
+                        const token = self.last_token orelse open_token;
+                        diag.* = .{
+                            .kind = .invalid_bytevector,
+                            .line = token.line,
+                            .column = token.column,
+                            .message = "bytevector elements must be in range 0-255",
+                        };
+                    }
+                    return Error.ReadError;
+                }
+                try bytes.append(self.vm.allocator(), @intCast(int_val));
+            },
+            .end_expr => {
+                const bv = try builder.makeBytevector(bytes.items);
+                return ReadResult{ .atom = bv };
+            },
+            .end => {
+                if (diagnostic) |diag| {
+                    diag.* = .{
+                        .kind = .unexpected_eof,
+                        .line = open_token.line,
+                        .column = open_token.column,
+                        .message = "missing closing parenthesis for bytevector",
+                    };
+                }
+                return Error.ReadError;
+            },
+            .dot => {
+                if (diagnostic) |diag| {
+                    const token = self.last_token orelse open_token;
+                    diag.* = .{
+                        .kind = .unexpected_dot,
+                        .line = token.line,
+                        .column = token.column,
+                        .message = "bytevectors do not support dot notation",
+                    };
+                }
+                return Error.ReadError;
+            },
+        }
+    }
+}
+
+fn readVector(self: *Reader, open_token: Tokenizer.Token, diagnostic: ?*Diagnostic) Error!ReadResult {
+    var elements = std.ArrayList(Val){};
+    defer elements.deinit(self.vm.allocator());
+    const builder = self.vm.builder();
+
+    while (true) {
+        switch (try self.readNextImpl(diagnostic)) {
+            .atom => |v| try elements.append(self.vm.allocator(), v),
+            .end_expr => {
+                const vec = try builder.makeVector(elements.items);
+                return ReadResult{ .atom = vec };
+            },
+            .end => {
+                if (diagnostic) |diag| {
+                    diag.* = .{
+                        .kind = .unexpected_eof,
+                        .line = open_token.line,
+                        .column = open_token.column,
+                        .message = "missing closing parenthesis for vector",
+                    };
+                }
+                return Error.ReadError;
+            },
+            .dot => {
+                if (diagnostic) |diag| {
+                    const token = self.last_token orelse open_token;
+                    diag.* = .{
+                        .kind = .unexpected_dot,
+                        .line = token.line,
+                        .column = token.column,
+                        .message = "vectors do not support dot notation",
+                    };
+                }
+                return Error.ReadError;
+            },
+        }
+    }
+}
+
+fn readQuote(self: *Reader, quote_token: Tokenizer.Token, diagnostic: ?*Diagnostic) Error!ReadResult {
+    const builder = self.vm.builder();
+    const next = try self.readNextImpl(diagnostic);
+
+    switch (next) {
+        .atom => |v| {
+            const quote_symbol = try builder.makeStaticSymbol("quote");
+            const list_items = [_]Val{ quote_symbol, v };
+            const quoted = try builder.makeList(&list_items);
+            return ReadResult{ .atom = quoted };
+        },
+        .end => {
+            if (diagnostic) |diag| {
+                diag.* = .{
+                    .kind = .unexpected_eof,
+                    .line = quote_token.line,
+                    .column = quote_token.column,
+                    .message = "expected value after quote",
+                };
+            }
+            return Error.ReadError;
+        },
+        .end_expr => {
+            if (diagnostic) |diag| {
+                const token = self.last_token orelse quote_token;
+                diag.* = .{
+                    .kind = .unexpected_close_paren,
+                    .line = token.line,
+                    .column = token.column,
+                    .message = "expected value after quote, found closing parenthesis",
+                };
+            }
+            return Error.ReadError;
+        },
+        .dot => {
+            if (diagnostic) |diag| {
+                const token = self.last_token orelse quote_token;
+                diag.* = .{
+                    .kind = .unexpected_dot,
+                    .line = token.line,
+                    .column = token.column,
+                    .message = "expected value after quote, found dot",
+                };
+            }
+            return Error.ReadError;
+        },
+    }
+}
+
+fn parseNumber(_: Reader, token: Tokenizer.Token, diagnostic: ?*Diagnostic) Error!ReadResult {
+    const lexeme = token.lexeme;
+    if (lexeme.len == 0) {
+        if (diagnostic) |diag| {
+            diag.* = .{
+                .kind = .invalid_number,
+                .line = token.line,
+                .column = token.column,
+                .message = "empty number literal",
+            };
+        }
+        return Error.ReadError;
+    }
 
     var is_negative = false;
     var start_idx: usize = 0;
 
     // Handle leading sign
-    if (token[0] == '-') {
+    if (lexeme[0] == '-') {
         is_negative = true;
         start_idx = 1;
-    } else if (token[0] == '+') {
+    } else if (lexeme[0] == '+') {
         start_idx = 1;
     }
 
-    if (start_idx >= token.len) return Vm.Error.ReadError;
+    if (start_idx >= lexeme.len) {
+        if (diagnostic) |diag| {
+            diag.* = .{
+                .kind = .invalid_number,
+                .line = token.line,
+                .column = token.column,
+                .message = "number literal contains only sign character",
+                .lexeme = lexeme,
+            };
+        }
+        return Error.ReadError;
+    }
 
     // Check if this is a float (contains a decimal point)
     var has_decimal = false;
-    for (token[start_idx..]) |c| {
+    for (lexeme[start_idx..]) |c| {
         if (c == '.') {
             has_decimal = true;
             break;
@@ -165,13 +486,35 @@ fn parseNumber(_: Reader, token: []const u8) Vm.Error!ReadResult {
 
     if (has_decimal) {
         // Parse as float
-        const f = std.fmt.parseFloat(f64, token) catch return Vm.Error.ReadError;
+        const f = std.fmt.parseFloat(f64, lexeme) catch {
+            if (diagnostic) |diag| {
+                diag.* = .{
+                    .kind = .invalid_number,
+                    .line = token.line,
+                    .column = token.column,
+                    .message = "invalid floating-point number",
+                    .lexeme = lexeme,
+                };
+            }
+            return Error.ReadError;
+        };
         const val = Val.initFloat(f);
         return ReadResult{ .atom = val };
     } // Parse as integer
     var n: i64 = 0;
-    for (token[start_idx..]) |digit| {
-        if (digit < '0' or digit > '9') return Vm.Error.ReadError;
+    for (lexeme[start_idx..]) |digit| {
+        if (digit < '0' or digit > '9') {
+            if (diagnostic) |diag| {
+                diag.* = .{
+                    .kind = .invalid_number,
+                    .line = token.line,
+                    .column = token.column,
+                    .message = "invalid digit in integer literal",
+                    .lexeme = lexeme,
+                };
+            }
+            return Error.ReadError;
+        }
         n *= 10;
         n += digit - '0';
     }
@@ -182,29 +525,49 @@ fn parseNumber(_: Reader, token: []const u8) Vm.Error!ReadResult {
     return ReadResult{ .atom = val };
 }
 
-fn parseSymbol(self: Reader, token: []const u8) Vm.Error!ReadResult {
-    const symbol = try self.vm.builder().makeStaticSymbol(token);
+fn parseSymbol(self: Reader, token: Tokenizer.Token) Error!ReadResult {
+    const symbol = try self.vm.builder().makeSymbol(token.lexeme);
     return ReadResult{ .atom = symbol };
 }
 
-fn parseBoolean(_: Reader, token: []const u8) Vm.Error!ReadResult {
-    const value = if (std.mem.eql(u8, token, "#t") or std.mem.eql(u8, token, "#true"))
+fn parseBoolean(_: Reader, token: Tokenizer.Token, diagnostic: ?*Diagnostic) Error!ReadResult {
+    const lexeme = token.lexeme;
+    const value = if (std.mem.eql(u8, lexeme, "#t") or std.mem.eql(u8, lexeme, "#true"))
         true
-    else if (std.mem.eql(u8, token, "#f") or std.mem.eql(u8, token, "#false"))
+    else if (std.mem.eql(u8, lexeme, "#f") or std.mem.eql(u8, lexeme, "#false"))
         false
-    else
-        return Vm.Error.ReadError;
+    else {
+        if (diagnostic) |diag| {
+            diag.* = .{
+                .kind = .unexpected_token,
+                .line = token.line,
+                .column = token.column,
+                .message = "invalid boolean literal",
+                .lexeme = lexeme,
+            };
+        }
+        return Error.ReadError;
+    };
     const val = Val.initBool(value);
     return ReadResult{ .atom = val };
 }
 
-fn parseString(self: Reader, token: []const u8) Vm.Error!ReadResult {
+fn parseString(self: Reader, token: Tokenizer.Token, diagnostic: ?*Diagnostic) Error!ReadResult {
+    const lexeme = token.lexeme;
     // Token includes the quotes, so we need to strip them
-    if (token.len < 2 or token[0] != '"' or token[token.len - 1] != '"') {
-        return Vm.Error.ReadError;
+    if (lexeme.len < 2 or lexeme[0] != '"' or lexeme[lexeme.len - 1] != '"') {
+        if (diagnostic) |diag| {
+            diag.* = .{
+                .kind = .invalid_string,
+                .line = token.line,
+                .column = token.column,
+                .message = "malformed string literal",
+            };
+        }
+        return Error.ReadError;
     }
 
-    const content = token[1 .. token.len - 1];
+    const content = lexeme[1 .. lexeme.len - 1];
 
     // Process escape sequences
     var unescaped = std.ArrayList(u8){};
@@ -233,45 +596,78 @@ fn parseString(self: Reader, token: []const u8) Vm.Error!ReadResult {
     return ReadResult{ .atom = string_val };
 }
 
-fn parseCharacter(_: Reader, token: []const u8) Vm.Error!ReadResult {
+fn parseCharacter(_: Reader, token: Tokenizer.Token, diagnostic: ?*Diagnostic) Error!ReadResult {
+    const lexeme = token.lexeme;
     // Token format: #\<character>
     // Examples: #\a, #\space, #\newline, #\x3BB
-    if (token.len < 3 or token[0] != '#' or token[1] != '\\') {
-        return Vm.Error.ReadError;
+    if (lexeme.len < 3 or lexeme[0] != '#' or lexeme[1] != '\\') {
+        if (diagnostic) |diag| {
+            diag.* = .{
+                .kind = .invalid_character,
+                .line = token.line,
+                .column = token.column,
+                .message = "malformed character literal",
+            };
+        }
+        return Error.ReadError;
     }
 
-    const char_part = token[2..];
+    const char_part = lexeme[2..];
 
     // Handle named characters
-    const char_value: u21 = if (std.mem.eql(u8, char_part, "alarm"))
-        0x0007
-    else if (std.mem.eql(u8, char_part, "backspace"))
-        0x0008
-    else if (std.mem.eql(u8, char_part, "delete"))
-        0x007F
-    else if (std.mem.eql(u8, char_part, "escape"))
-        0x001B
-    else if (std.mem.eql(u8, char_part, "newline"))
-        0x000A
-    else if (std.mem.eql(u8, char_part, "null"))
-        0x0000
-    else if (std.mem.eql(u8, char_part, "return"))
-        0x000D
-    else if (std.mem.eql(u8, char_part, "space"))
-        ' '
-    else if (std.mem.eql(u8, char_part, "tab"))
-        0x0009
+    const named_characters = std.StaticStringMap(u21).initComptime(.{
+        .{ "alarm", 0x0007 },
+        .{ "backspace", 0x0008 },
+        .{ "delete", 0x007F },
+        .{ "escape", 0x001B },
+        .{ "newline", 0x000A },
+        .{ "null", 0x0000 },
+        .{ "return", 0x000D },
+        .{ "space", ' ' },
+        .{ "tab", 0x0009 },
+    });
+    const char_value: u21 = if (named_characters.get(char_part)) |value|
+        value
     else if (char_part.len > 1 and char_part[0] == 'x') blk: {
         // Hex escape: #\x3BB
         const hex_str = char_part[1..];
-        if (hex_str.len == 0) return Vm.Error.ReadError;
-        break :blk std.fmt.parseInt(u21, hex_str, 16) catch return Vm.Error.ReadError;
+        if (hex_str.len == 0) {
+            if (diagnostic) |diag| {
+                diag.* = .{
+                    .kind = .invalid_character,
+                    .line = token.line,
+                    .column = token.column,
+                    .message = "hex character escape requires at least one digit",
+                };
+            }
+            return Error.ReadError;
+        }
+        break :blk std.fmt.parseInt(u21, hex_str, 16) catch {
+            if (diagnostic) |diag| {
+                diag.* = .{
+                    .kind = .invalid_character,
+                    .line = token.line,
+                    .column = token.column,
+                    .message = "invalid hex character escape",
+                };
+            }
+            return Error.ReadError;
+        };
     } else if (char_part.len == 1)
         // Single character
         char_part[0]
     else {
         // Unknown named character or invalid format
-        return Vm.Error.ReadError;
+        if (diagnostic) |diag| {
+            diag.* = .{
+                .kind = .invalid_character,
+                .line = token.line,
+                .column = token.column,
+                .message = "unknown named character",
+                .lexeme = lexeme,
+            };
+        }
+        return Error.ReadError;
     };
 
     const val = Val.initChar(char_value);
@@ -281,7 +677,7 @@ fn parseCharacter(_: Reader, token: []const u8) Vm.Error!ReadResult {
 fn expectReadNext(self: *Reader, expect: ?[]const u8, vm: *const Vm) !void {
     const end_of_read = "end_of_read";
     const expect_normalized = expect orelse end_of_read;
-    if (try self.readNext()) |next| {
+    if (try self.readNext(null)) |next| {
         const pretty = vm.pretty(next);
         try testing.expectFmt(
             expect_normalized,
@@ -334,15 +730,6 @@ test "read symbol" {
     try reader.expectReadNext(null, &vm);
 }
 
-test "read list with symbols" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    var reader = Reader.init(&vm, "(define x 42)");
-    try reader.expectReadNext("(define x 42)", &vm);
-    try reader.expectReadNext(null, &vm);
-}
-
 test "read boolean" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
@@ -368,20 +755,12 @@ test "read character" {
     try reader.expectReadNext(null, &vm);
 }
 
-test "read empty vector" {
+test "read vectors" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    var reader = Reader.init(&vm, "#()");
+    var reader = Reader.init(&vm, "#() #(1 2 3)");
     try reader.expectReadNext("#()", &vm);
-    try reader.expectReadNext(null, &vm);
-}
-
-test "read vector with numbers" {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    var reader = Reader.init(&vm, "#(1 2 3)");
     try reader.expectReadNext("#(1 2 3)", &vm);
     try reader.expectReadNext(null, &vm);
 }
@@ -404,21 +783,181 @@ test "read nested vectors" {
     try reader.expectReadNext(null, &vm);
 }
 
-test "read vector with list" {
+test "read string" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    var reader = Reader.init(&vm, "#((1 2) 3)");
-    try reader.expectReadNext("#((1 2) 3)", &vm);
+    var reader = Reader.init(&vm, "\"hello\" \"\" \"world\"");
+    try reader.expectReadNext("\"hello\"", &vm);
+    try reader.expectReadNext("\"\"", &vm);
+    try reader.expectReadNext("\"world\"", &vm);
     try reader.expectReadNext(null, &vm);
 }
 
-test "read multiple vectors" {
+test "read string with escapes" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    var reader = Reader.init(&vm, "#(1 2) #(3 4)");
-    try reader.expectReadNext("#(1 2)", &vm);
-    try reader.expectReadNext("#(3 4)", &vm);
+    // Pretty printer outputs the actual escaped characters, not the escape sequences
+    var reader = Reader.init(&vm, "\"line1\\nline2\" \"tab\\there\" \"quote\\\"inside\"");
+    const val1 = (try reader.readNext(null)).?;
+    const val2 = (try reader.readNext(null)).?;
+    const val3 = (try reader.readNext(null)).?;
     try reader.expectReadNext(null, &vm);
+
+    // Verify the strings contain the actual escaped characters
+    const str1 = vm.objects.strings.get(val1.data.string).?.asSlice();
+    const str2 = vm.objects.strings.get(val2.data.string).?.asSlice();
+    const str3 = vm.objects.strings.get(val3.data.string).?.asSlice();
+
+    try testing.expectEqualStrings("line1\nline2", str1);
+    try testing.expectEqualStrings("tab\there", str2);
+    try testing.expectEqualStrings("quote\"inside", str3);
+}
+
+test "read float" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var reader = Reader.init(&vm, "3.14 -2.5 +0.5");
+    try reader.expectReadNext("3.14", &vm);
+    try reader.expectReadNext("-2.5", &vm);
+    try reader.expectReadNext("0.5", &vm);
+    try reader.expectReadNext(null, &vm);
+}
+
+test "read negative int" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var reader = Reader.init(&vm, "-42 +100");
+    try reader.expectReadNext("-42", &vm);
+    try reader.expectReadNext("100", &vm);
+    try reader.expectReadNext(null, &vm);
+}
+
+test "read quote" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var reader = Reader.init(&vm, "'x '(1 2) ''nested");
+    try reader.expectReadNext("(quote x)", &vm);
+    try reader.expectReadNext("(quote (1 2))", &vm);
+    try reader.expectReadNext("(quote (quote nested))", &vm);
+    try reader.expectReadNext(null, &vm);
+}
+
+test "read bytevector" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var reader = Reader.init(&vm, "#u8() #u8(0 1 255)");
+    try reader.expectReadNext("#u8()", &vm);
+    try reader.expectReadNext("#u8(0 1 255)", &vm);
+    try reader.expectReadNext(null, &vm);
+}
+
+test "read special symbols" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var reader = Reader.init(&vm, "+ - +foo foo? foo! ->string");
+    try reader.expectReadNext("+", &vm);
+    try reader.expectReadNext("-", &vm);
+    try reader.expectReadNext("+foo", &vm);
+    try reader.expectReadNext("foo?", &vm);
+    try reader.expectReadNext("foo!", &vm);
+    try reader.expectReadNext("->string", &vm);
+    try reader.expectReadNext(null, &vm);
+}
+
+test "read character named variants" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var reader = Reader.init(&vm, "#\\alarm #\\backspace #\\delete #\\escape #\\null #\\return #\\tab");
+    try reader.expectReadNext("#\\alarm", &vm);
+    try reader.expectReadNext("#\\backspace", &vm);
+    try reader.expectReadNext("#\\delete", &vm);
+    try reader.expectReadNext("#\\escape", &vm);
+    try reader.expectReadNext("#\\null", &vm);
+    try reader.expectReadNext("#\\return", &vm);
+    try reader.expectReadNext("#\\tab", &vm);
+    try reader.expectReadNext(null, &vm);
+}
+
+test "error unclosed list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var diag: Diagnostic = undefined;
+    var reader = Reader.init(&vm, "(1 2 3");
+    const result = reader.readNext(&diag);
+    try testing.expectError(Error.ReadError, result);
+    try testing.expectEqual(Diagnostic.Kind.unexpected_eof, diag.kind);
+}
+
+test "error unexpected close paren" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var diag: Diagnostic = undefined;
+    var reader = Reader.init(&vm, "1)");
+    _ = try reader.readNext(null);
+    const result = reader.readNext(&diag);
+    try testing.expectError(Error.ReadError, result);
+    try testing.expectEqual(Diagnostic.Kind.unexpected_close_paren, diag.kind);
+}
+
+test "error empty dot list" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var diag: Diagnostic = undefined;
+    var reader = Reader.init(&vm, "(. 1)");
+    const result = reader.readNext(&diag);
+    try testing.expectError(Error.ReadError, result);
+    try testing.expectEqual(Diagnostic.Kind.empty_dot_list, diag.kind);
+}
+
+test "error unexpected dot" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var diag: Diagnostic = undefined;
+    var reader = Reader.init(&vm, ".");
+    const result = reader.readNext(&diag);
+    try testing.expectError(Error.ReadError, result);
+    try testing.expectEqual(Diagnostic.Kind.unexpected_dot, diag.kind);
+}
+
+test "error readOne no values" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var diag: Diagnostic = undefined;
+    const result = Reader.readOne(&vm, "", &diag);
+    try testing.expectError(ReadOneError.NoValue, result);
+    try testing.expectEqual(Diagnostic.Kind.no_values, diag.kind);
+}
+
+test "error readOne multiple values" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var diag: Diagnostic = undefined;
+    const result = Reader.readOne(&vm, "1 2", &diag);
+    try testing.expectError(ReadOneError.TooManyValues, result);
+    try testing.expectEqual(Diagnostic.Kind.multiple_values, diag.kind);
+}
+
+test "error invalid bytevector" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var diag: Diagnostic = undefined;
+    var reader = Reader.init(&vm, "#u8(256)");
+    const result = reader.readNext(&diag);
+    try testing.expectError(Error.ReadError, result);
+    try testing.expectEqual(Diagnostic.Kind.invalid_bytevector, diag.kind);
 }

@@ -185,14 +185,14 @@ test read {
     try testing.expectFmt(
         "(1 2 3)",
         "{f}",
-        .{vm.pretty((try (reader.readNext())).?)},
+        .{vm.pretty((try (reader.readNext(null))).?)},
     );
 }
 
 pub fn evalStr(self: *Vm, source: []const u8, maybe_env: ?Handle(Module)) Error!Val {
     var reader = self.read(source);
     var return_val = Val.initEmptyList();
-    while (try reader.readNext()) |raw_expr| {
+    while (try reader.readNext(null)) |raw_expr| {
         return_val = try self.evalExpr(raw_expr, maybe_env);
     }
     return return_val;

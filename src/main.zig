@@ -30,25 +30,10 @@ fn runScript(allocator: std.mem.Allocator) !void {
     var source = try readInput(allocator);
     defer source.deinit(allocator);
 
-    // Initialize stdout
-    var stdout_buffer: [1024]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
-    const stdout = &stdout_writer.interface;
-
     // Evaluate each expression
     var vm = try szl.Vm.init(.{ .allocator = allocator });
     defer vm.deinit();
-    var reader = vm.read(source.items);
-    var expr_count: usize = 0;
-    while (try reader.readNext()) |expr| {
-        expr_count += 1;
-        const result = try vm.evalExpr(expr, null);
-        try stdout.print(
-            COLOR_CYAN ++ "${}" ++ COLOR_RESET ++ " => " ++ COLOR_GREEN ++ "{f}" ++ COLOR_RESET ++ "\n",
-            .{ expr_count, vm.pretty(result) },
-        );
-        try stdout.flush();
-    }
+    _ = try vm.evalStr(source.items, null);
 }
 
 fn readInput(allocator: std.mem.Allocator) !std.ArrayList(u8) {
@@ -60,10 +45,7 @@ fn readInput(allocator: std.mem.Allocator) !std.ArrayList(u8) {
     var input_buffer: [1024]u8 = undefined;
     var reader = stdin.reader(&input_buffer);
     while (!reader.atEnd()) {
-        const len = reader.read(&input_buffer) catch |err| switch (err) {
-            error.EndOfStream => 0,
-            else => break,
-        };
+        const len = reader.read(&input_buffer) catch break;
         try ret.appendSlice(allocator, input_buffer[0..len]);
     }
     return ret;
@@ -89,15 +71,17 @@ fn runRepl(allocator: std.mem.Allocator) !void {
         const prompt = if (input_buffer.items.len == 0) "szl> " else "...> ";
 
         // Read a line using the line editor
-        const line = try editor.readLine(prompt);
-        if (line == null) return;
-        try input_buffer.appendSlice(allocator, line.?);
+        const line = try editor.readLine(prompt) orelse return;
+        try input_buffer.appendSlice(allocator, line);
         try input_buffer.append(allocator, '\n');
 
         // Check if expression is complete
         switch (Tokenizer.isComplete(input_buffer.items)) {
-            .complete => {},
-            .missing_close_paren => continue, // Wait for more input
+            .complete => {
+                defer input_buffer.clearRetainingCapacity();
+                try evaluateAndPrint(&vm, input_buffer.items, &expr_count);
+            },
+            .missing_close_paren => {},
             .malformed => {
                 const stdout = std.fs.File.stdout();
                 try stdout.writeAll(
@@ -107,29 +91,36 @@ fn runRepl(allocator: std.mem.Allocator) !void {
                 continue;
             },
         }
+    }
+}
 
-        // Evaluate the expression
-        var reader = vm.read(input_buffer.items);
-        defer input_buffer.clearRetainingCapacity();
-        const stdout = std.fs.File.stdout();
-        var buf: [512]u8 = undefined;
-        while (reader.readNext() catch |err| {
+fn evaluateAndPrint(vm: *szl.Vm, source: []const u8, expr_count: *usize) !void {
+    var reader = vm.read(source);
+    var diagnostic = szl.Reader.Diagnostic{};
+    const stdout = std.fs.File.stdout();
+    var buf: [512]u8 = undefined;
+
+    while (true) {
+        const expr = reader.readNext(&diagnostic) catch |err| switch (err) {
+            szl.Reader.Error.OutOfMemory => return err,
+            szl.Reader.Error.NotImplemented, szl.Reader.Error.ReadError => {
+                const msg = try std.fmt.bufPrint(&buf, COLOR_RED ++ "{f}\n" ++ COLOR_RESET, .{diagnostic});
+                try stdout.writeAll(msg);
+                return;
+            },
+        } orelse return;
+
+        const result = vm.evalExpr(expr, null) catch |err| {
             const msg = try std.fmt.bufPrint(&buf, COLOR_RED ++ "Error: {}\n" ++ COLOR_RESET, .{err});
             try stdout.writeAll(msg);
             continue;
-        }) |expr| {
-            const result = vm.evalExpr(expr, null) catch |err| {
-                const msg = try std.fmt.bufPrint(&buf, COLOR_RED ++ "Error: {}\n" ++ COLOR_RESET, .{err});
-                try stdout.writeAll(msg);
-                continue;
-            };
-            expr_count += 1;
-            const msg = try std.fmt.bufPrint(
-                &buf,
-                COLOR_CYAN ++ "${}" ++ COLOR_RESET ++ " => " ++ COLOR_GREEN ++ "{f}" ++ COLOR_RESET ++ "\n",
-                .{ expr_count, vm.pretty(result) },
-            );
-            try stdout.writeAll(msg);
-        }
+        };
+        expr_count.* += 1;
+        const msg = try std.fmt.bufPrint(
+            &buf,
+            COLOR_CYAN ++ "${}" ++ COLOR_RESET ++ " => " ++ COLOR_GREEN ++ "{f}" ++ COLOR_RESET ++ "\n",
+            .{ expr_count.*, vm.pretty(result) },
+        );
+        try stdout.writeAll(msg);
     }
 }

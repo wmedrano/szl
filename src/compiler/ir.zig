@@ -540,12 +540,7 @@ const Builder = struct {
         if (!has_expanded) return null;
 
         // Reconstruct the list
-        return self.vm.builder().makeList(expanded_items) catch |err| switch (err) {
-            error.InvalidExpression => return Error.InvalidExpression,
-            error.NotImplemented => return Error.NotImplemented,
-            error.OutOfMemory => return Error.OutOfMemory,
-            error.UndefinedBehavior => return Error.UndefinedBehavior,
-            error.ReadError, error.Unreachable, error.WrongType, error.UncaughtException => return Error.UndefinedBehavior,
-        };
+        const ret = try self.vm.builder().makeList(expanded_items);
+        return ret;
     }
 };

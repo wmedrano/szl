@@ -24,7 +24,7 @@ pub fn init(vm: *Vm) Builder {
     return Builder{ .vm = vm };
 }
 
-pub inline fn makePair(self: Builder, car: Val, cdr: Val) Vm.Error!Val {
+pub inline fn makePair(self: Builder, car: Val, cdr: Val) error{OutOfMemory}!Val {
     const h = try self.vm.objects.pairs.put(
         self.vm.allocator(),
         Pair{ .car = car, .cdr = cdr },
@@ -33,17 +33,17 @@ pub inline fn makePair(self: Builder, car: Val, cdr: Val) Vm.Error!Val {
     return val;
 }
 
-pub inline fn makeList(self: Builder, items: []const Val) Vm.Error!Val {
+pub inline fn makeList(self: Builder, items: []const Val) error{OutOfMemory}!Val {
     return self.makePairsWithCdr(items, Val.initEmptyList());
 }
 
-pub inline fn makePairs(self: Builder, items: []const Val) Vm.Error!Val {
+pub inline fn makePairs(self: Builder, items: []const Val) error{ ReadError, OutOfMemory }!Val {
     const len = items.len;
-    if (len < 2) return Vm.Error.ReadError;
+    if (len < 2) return error.ReadError;
     return self.makePairsWithCdr(items[0 .. len - 1], items[len - 1]);
 }
 
-pub inline fn makePairsWithCdr(self: Builder, items: []const Val, cdr: Val) Vm.Error!Val {
+pub inline fn makePairsWithCdr(self: Builder, items: []const Val, cdr: Val) error{OutOfMemory}!Val {
     var result = cdr;
     var index: usize = items.len;
     while (index > 0) {
@@ -56,11 +56,11 @@ pub inline fn makePairsWithCdr(self: Builder, items: []const Val, cdr: Val) Vm.E
 /// Creates a symbol value, copying the symbol's string data.
 /// The input symbol's lifetime does not need to extend beyond this function call,
 /// as the string data is copied and managed by the VM's allocator.
-pub inline fn makeSymbol(self: Builder, symbol: []const u8) Vm.Error!Val {
+pub inline fn makeSymbol(self: Builder, symbol: []const u8) error{OutOfMemory}!Val {
     return Val.initSymbol(try self.makeSymbolHandle(symbol));
 }
 
-pub inline fn makeStaticSymbol(self: Builder, symbol: []const u8) Vm.Error!Val {
+pub inline fn makeStaticSymbol(self: Builder, comptime symbol: []const u8) error{OutOfMemory}!Val {
     return Val.initSymbol(try self.makeStaticSymbolHandle(symbol));
 }
 
@@ -68,11 +68,11 @@ pub inline fn makeSymbolHandle(self: Builder, symbol: []const u8) error{OutOfMem
     return try self.vm.objects.symbols.intern(self.vm.allocator(), symbol);
 }
 
-pub inline fn makeStaticSymbolHandle(self: Builder, symbol: []const u8) error{OutOfMemory}!Symbol {
+pub inline fn makeStaticSymbolHandle(self: Builder, comptime symbol: []const u8) error{OutOfMemory}!Symbol {
     return try self.vm.objects.symbols.internStatic(self.vm.allocator(), symbol);
 }
 
-pub inline fn makeString(self: Builder, s: []const u8) Vm.Error!Val {
+pub inline fn makeString(self: Builder, s: []const u8) error{OutOfMemory}!Val {
     const string = try String.init(self.vm.allocator(), s);
     const h = try self.vm.objects.strings.put(self.vm.allocator(), string);
     return Val{ .data = .{ .string = h } };
@@ -104,37 +104,37 @@ pub inline fn makeEnvironment(
     return h;
 }
 
-pub inline fn makeVector(self: Builder, vals: []const Val) Vm.Error!Val {
+pub inline fn makeVector(self: Builder, vals: []const Val) error{OutOfMemory}!Val {
     const h = try self.makeVectorHandle(vals);
     return Val{ .data = .{ .vector = h } };
 }
 
-pub inline fn makeVectorHandle(self: Builder, vals: []const Val) Vm.Error!Handle(Vector) {
+pub inline fn makeVectorHandle(self: Builder, vals: []const Val) error{OutOfMemory}!Handle(Vector) {
     const copy = try self.vm.allocator().dupe(Val, vals);
     errdefer self.vm.allocator().free(copy);
     const vec = Vector.fromOwnedSlice(copy);
     return try self.vm.objects.vectors.put(self.vm.allocator(), vec);
 }
 
-pub inline fn makeBytevector(self: Builder, bytes: []const u8) Vm.Error!Val {
+pub inline fn makeBytevector(self: Builder, bytes: []const u8) error{OutOfMemory}!Val {
     const h = try self.makeBytevectorHandle(bytes);
     return Val{ .data = .{ .bytevector = h } };
 }
 
-pub inline fn makeBytevectorHandle(self: Builder, bytes: []const u8) Vm.Error!Handle(ByteVector) {
+pub inline fn makeBytevectorHandle(self: Builder, bytes: []const u8) error{OutOfMemory}!Handle(ByteVector) {
     const copy = try self.vm.allocator().dupe(u8, bytes);
     errdefer self.vm.allocator().free(copy);
     const bv = ByteVector.fromOwnedSlice(copy);
     return try self.vm.objects.bytevectors.put(self.vm.allocator(), bv);
 }
 
-pub inline fn makeContinuationHandle(self: Builder, context: Context) Vm.Error!Handle(Continuation) {
+pub inline fn makeContinuationHandle(self: Builder, context: Context) error{OutOfMemory}!Handle(Continuation) {
     var cont = try Continuation.init(self.vm.allocator(), context);
     errdefer cont.deinit(self.vm.allocator());
     return try self.vm.objects.continuations.put(self.vm.allocator(), cont);
 }
 
-pub inline fn makeContinuation(self: Builder, context: Context) Vm.Error!Val {
+pub inline fn makeContinuation(self: Builder, context: Context) error{OutOfMemory}!Val {
     const h = try self.makeContinuationHandle(context);
     return Val{ .data = .{ .continuation = h } };
 }

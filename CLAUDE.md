@@ -8,6 +8,8 @@ szl is a Scheme interpreter implemented in Zig. The project compiles Scheme expr
 
 **Requirements:** Zig 0.15
 
+**IMPORTANT:** This project does NOT use git. Never use git commands (git stash, git commit, git status, etc.).
+
 ## Zig 0.15 Compatibility Notes
 
 **IMPORTANT:** In Zig 0.15, `ArrayList` behaves like the old `ArrayListUnmanaged`:

@@ -89,14 +89,19 @@ pub fn currentExceptionHandler(self: Context) ?Val {
 }
 
 pub fn unwindBeforeExceptionHandler(self: *Context) Vm.Error!?Val {
-    while (true) {
-        if (self.stack_frame.exceptionHandler()) |h| {
-            _ = self.popStackFrame(.discard);
+    if (self.stack_frame.exceptionHandler()) |h| {
+        _ = self.popStackFrame(.discard);
+        return h;
+    }
+    while (self.stack_frames.pop()) |frame| {
+        if (frame.exceptionHandler()) |h| {
+            self.stack.shrinkRetainingCapacity(frame.stack_start);
+            self.stack_frame = frame;
+            self.stack_frame.exception_handler = Val.initEmptyList();
             return h;
         }
-        if (self.stack_frames.items.len == 0) return null;
-        _ = self.popStackFrame(.discard);
     }
+    return null;
 }
 
 pub fn popStackFrame(self: *Context, comptime dest: TopDestination) bool {

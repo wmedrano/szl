@@ -9,11 +9,8 @@ pub const TokenType = enum {
     right_paren,
     dot,
     // Literals
-    number,
+    identifier,
     string,
-    symbol,
-    boolean,
-    character,
     vector_start,
     bytevector_start,
     // Special
@@ -64,7 +61,7 @@ pub fn nextToken(self: *Tokenizer) ?Token {
         '.' => if (self.isAtEnd() or isDelimiter(self.peek()))
             self.makeTokenAt(.dot, start_column)
         else
-            self.scanSymbol(start_column),
+            self.scanIdentifier(start_column),
         '\'' => self.makeTokenAt(.quote, start_column),
         '`' => self.makeTokenAt(.quasiquote, start_column),
         ',' => if (self.match('@'))
@@ -73,14 +70,7 @@ pub fn nextToken(self: *Tokenizer) ?Token {
             self.makeTokenAt(.unquote, start_column),
         '"' => self.scanString(start_column),
         '#' => self.scanHashPrefix(start_column),
-        '-', '+' => if (self.isAtEnd() or isDelimiter(self.peek()))
-            self.makeTokenAt(.symbol, start_column)
-        else if (std.ascii.isDigit(self.peek()))
-            self.scanNumber(start_column)
-        else
-            self.scanSymbol(start_column),
-        '0'...'9' => self.scanNumber(start_column),
-        else => self.scanSymbol(start_column),
+        else => self.scanIdentifier(start_column),
     };
 }
 
@@ -132,43 +122,10 @@ fn scanString(self: *Tokenizer, start_column: u32) Token {
     return self.makeTokenAt(.string, start_column);
 }
 
-fn scanNumber(self: *Tokenizer, start_column: u32) Token {
-    while (!self.isAtEnd() and std.ascii.isDigit(self.peek())) {
-        _ = self.advance();
-    }
-
-    // Look for decimal part
-    if (!self.isAtEnd() and self.peek() == '.') {
-        const next = if (self.current + 1 < self.source.len)
-            self.source[self.current + 1]
-        else
-            0;
-        if (std.ascii.isDigit(next)) {
-            _ = self.advance(); // consume '.'
-            while (!self.isAtEnd() and std.ascii.isDigit(self.peek())) {
-                _ = self.advance();
-            }
-        }
-    }
-
-    // Make sure a standalone '.' following a number is not consumed
-    if (!self.isAtEnd() and self.peek() == '.') {
-        const next = if (self.current + 1 < self.source.len)
-            self.source[self.current + 1]
-        else
-            0;
-        if (isDelimiter(next)) {
-            // The dot is a separate token, don't consume it
-        }
-    }
-
-    return self.makeTokenAt(.number, start_column);
-}
-
 fn scanHashPrefix(self: *Tokenizer, start_column: u32) Token {
     // Could be boolean (#t, #f, #true, #false), character (#\a, #\newline, #\x3BB), vector (#(), or bytevector (#u8()
     if (self.isAtEnd()) {
-        return self.makeTokenAt(.symbol, start_column); // Just '#'
+        return self.makeTokenAt(.identifier, start_column); // Just '#'
     }
 
     if (self.peek() == '(') {
@@ -176,7 +133,7 @@ fn scanHashPrefix(self: *Tokenizer, start_column: u32) Token {
         _ = self.advance(); // consume '('
         return self.makeTokenAt(.vector_start, start_column);
     } else if (self.peek() == 'u') {
-        // Could be bytevector (#u8() or other symbol
+        // Could be bytevector (#u8() or other identifier
         const next_pos = self.current + 1;
         if (next_pos < self.source.len and self.source[next_pos] == '8') {
             const next_next_pos = next_pos + 1;
@@ -187,63 +144,46 @@ fn scanHashPrefix(self: *Tokenizer, start_column: u32) Token {
                 return self.makeTokenAt(.bytevector_start, start_column);
             }
         }
-        // Not a bytevector, treat as boolean or other
-        return self.scanBoolean(start_column);
+        // Not a bytevector, treat as identifier
+        return self.scanIdentifier(start_column);
     } else if (self.peek() == '\\') {
-        // Character literal
+        // Character literal - scan the rest
         _ = self.advance(); // consume '\'
-        return self.scanCharacter(start_column);
-    } else {
-        // Boolean
-        return self.scanBoolean(start_column);
-    }
-}
 
-fn scanBoolean(self: *Tokenizer, start_column: u32) Token {
-    // #t, #f, #true, or #false
-    while (!self.isAtEnd() and !isDelimiter(self.peek())) {
+        if (self.isAtEnd()) {
+            return self.makeTokenAt(.identifier, start_column);
+        }
+
+        // Check for hex escape
+        if (self.peek() == 'x') {
+            _ = self.advance(); // consume 'x'
+            // Read hex digits
+            while (!self.isAtEnd() and std.ascii.isHex(self.peek())) {
+                _ = self.advance();
+            }
+            return self.makeTokenAt(.identifier, start_column);
+        }
+
+        // First, consume at least one character
         _ = self.advance();
-    }
-    return self.makeTokenAt(.boolean, start_column);
-}
 
-fn scanCharacter(self: *Tokenizer, start_column: u32) Token {
-    // After #\ we can have:
-    // - A single character: #\a
-    // - A named character: #\newline, #\space, etc.
-    // - A hex escape: #\x3BB
-
-    if (self.isAtEnd()) {
-        return self.makeTokenAt(.character, start_column);
-    }
-
-    // Check for hex escape
-    if (self.peek() == 'x') {
-        _ = self.advance(); // consume 'x'
-        // Read hex digits
-        while (!self.isAtEnd() and std.ascii.isHex(self.peek())) {
+        // Check if this is a named character (more chars follow that aren't delimiters)
+        while (!self.isAtEnd() and !isDelimiter(self.peek())) {
             _ = self.advance();
         }
-        return self.makeTokenAt(.character, start_column);
+
+        return self.makeTokenAt(.identifier, start_column);
+    } else {
+        // Boolean or other identifier starting with #
+        return self.scanIdentifier(start_column);
     }
-
-    // First, consume at least one character
-    _ = self.advance();
-
-    // Check if this is a named character (more chars follow that aren't delimiters)
-    // If the next char is a delimiter, we have a single character literal
-    while (!self.isAtEnd() and !isDelimiter(self.peek())) {
-        _ = self.advance();
-    }
-
-    return self.makeTokenAt(.character, start_column);
 }
 
-fn scanSymbol(self: *Tokenizer, start_column: u32) Token {
+fn scanIdentifier(self: *Tokenizer, start_column: u32) Token {
     while (!self.isAtEnd() and !isDelimiter(self.peek())) {
         _ = self.advance();
     }
-    return self.makeTokenAt(.symbol, start_column);
+    return self.makeTokenAt(.identifier, start_column);
 }
 
 fn isDelimiter(c: u8) bool {
@@ -277,12 +217,7 @@ fn isAtEnd(self: *Tokenizer) bool {
 }
 
 fn makeToken(self: *Tokenizer, token_type: TokenType) Token {
-    return .{
-        .type = token_type,
-        .lexeme = self.source[self.start..self.current],
-        .line = self.line,
-        .column = self.column - (self.current - self.start),
-    };
+    return self.makeTokenAt(token_type, self.column - (self.current - self.start));
 }
 
 fn makeTokenAt(self: *Tokenizer, token_type: TokenType, start_column: u32) Token {
@@ -339,31 +274,29 @@ test "tokenize parentheses" {
     try testing.expectEqualDeep(null, tokenizer.nextToken());
 }
 
-test "tokenize numbers" {
-    var tokenizer = Tokenizer.init("123 45.67");
+test "tokenize identifiers" {
+    var tokenizer = Tokenizer.init("+ define a-lambda 123 45.67");
+    // Operators
     try testing.expectEqualDeep(
-        Token{ .type = TokenType.number, .lexeme = "123", .line = 1, .column = 1 },
+        Token{ .type = TokenType.identifier, .lexeme = "+", .line = 1, .column = 1 },
+        tokenizer.nextToken(),
+    );
+    // Multi-character symbols
+    try testing.expectEqualDeep(
+        Token{ .type = TokenType.identifier, .lexeme = "define", .line = 1, .column = 3 },
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(
-        Token{ .type = TokenType.number, .lexeme = "45.67", .line = 1, .column = 5 },
+        Token{ .type = TokenType.identifier, .lexeme = "a-lambda", .line = 1, .column = 10 },
         tokenizer.nextToken(),
     );
-    try testing.expectEqualDeep(null, tokenizer.nextToken());
-}
-
-test "tokenize symbols" {
-    var tokenizer = Tokenizer.init("+ define a-lambda");
+    // Numbers
     try testing.expectEqualDeep(
-        Token{ .type = TokenType.symbol, .lexeme = "+", .line = 1, .column = 1 },
+        Token{ .type = TokenType.identifier, .lexeme = "123", .line = 1, .column = 19 },
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(
-        Token{ .type = TokenType.symbol, .lexeme = "define", .line = 1, .column = 3 },
-        tokenizer.nextToken(),
-    );
-    try testing.expectEqualDeep(
-        Token{ .type = TokenType.symbol, .lexeme = "a-lambda", .line = 1, .column = 10 },
+        Token{ .type = TokenType.identifier, .lexeme = "45.67", .line = 1, .column = 23 },
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(null, tokenizer.nextToken());
@@ -378,26 +311,26 @@ test "tokenize strings" {
     try testing.expectEqualDeep(null, tokenizer.nextToken());
 }
 
-test "tokenize booleans" {
+test "tokenize hash-prefixed identifiers" {
     var tokenizer = Tokenizer.init("#t #f #true #false #badboolean");
     try testing.expectEqualDeep(
-        Token{ .type = TokenType.boolean, .lexeme = "#t", .line = 1, .column = 1 },
+        Token{ .type = TokenType.identifier, .lexeme = "#t", .line = 1, .column = 1 },
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(
-        Token{ .type = TokenType.boolean, .lexeme = "#f", .line = 1, .column = 4 },
+        Token{ .type = TokenType.identifier, .lexeme = "#f", .line = 1, .column = 4 },
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(
-        Token{ .type = TokenType.boolean, .lexeme = "#true", .line = 1, .column = 7 },
+        Token{ .type = TokenType.identifier, .lexeme = "#true", .line = 1, .column = 7 },
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(
-        Token{ .type = TokenType.boolean, .lexeme = "#false", .line = 1, .column = 13 },
+        Token{ .type = TokenType.identifier, .lexeme = "#false", .line = 1, .column = 13 },
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(
-        Token{ .type = TokenType.boolean, .lexeme = "#badboolean", .line = 1, .column = 20 },
+        Token{ .type = TokenType.identifier, .lexeme = "#badboolean", .line = 1, .column = 20 },
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(null, tokenizer.nextToken());
@@ -406,27 +339,27 @@ test "tokenize booleans" {
 test "tokenize characters" {
     var tokenizer = Tokenizer.init("#\\a #\\Z #\\( #\\space #\\newline #\\x3BB");
     try testing.expectEqualDeep(
-        Token{ .type = TokenType.character, .lexeme = "#\\a", .line = 1, .column = 1 },
+        Token{ .type = TokenType.identifier, .lexeme = "#\\a", .line = 1, .column = 1 },
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(
-        Token{ .type = TokenType.character, .lexeme = "#\\Z", .line = 1, .column = 5 },
+        Token{ .type = TokenType.identifier, .lexeme = "#\\Z", .line = 1, .column = 5 },
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(
-        Token{ .type = TokenType.character, .lexeme = "#\\(", .line = 1, .column = 9 },
+        Token{ .type = TokenType.identifier, .lexeme = "#\\(", .line = 1, .column = 9 },
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(
-        Token{ .type = TokenType.character, .lexeme = "#\\space", .line = 1, .column = 13 },
+        Token{ .type = TokenType.identifier, .lexeme = "#\\space", .line = 1, .column = 13 },
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(
-        Token{ .type = TokenType.character, .lexeme = "#\\newline", .line = 1, .column = 21 },
+        Token{ .type = TokenType.identifier, .lexeme = "#\\newline", .line = 1, .column = 21 },
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(
-        Token{ .type = TokenType.character, .lexeme = "#\\x3BB", .line = 1, .column = 31 },
+        Token{ .type = TokenType.identifier, .lexeme = "#\\x3BB", .line = 1, .column = 31 },
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(null, tokenizer.nextToken());
@@ -439,7 +372,7 @@ test "tokenize quote forms" {
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(
-        Token{ .type = TokenType.symbol, .lexeme = "x", .line = 1, .column = 2 },
+        Token{ .type = TokenType.identifier, .lexeme = "x", .line = 1, .column = 2 },
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(
@@ -447,7 +380,7 @@ test "tokenize quote forms" {
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(
-        Token{ .type = TokenType.symbol, .lexeme = "x", .line = 1, .column = 5 },
+        Token{ .type = TokenType.identifier, .lexeme = "x", .line = 1, .column = 5 },
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(
@@ -455,7 +388,7 @@ test "tokenize quote forms" {
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(
-        Token{ .type = TokenType.symbol, .lexeme = "x", .line = 1, .column = 8 },
+        Token{ .type = TokenType.identifier, .lexeme = "x", .line = 1, .column = 8 },
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(
@@ -463,7 +396,7 @@ test "tokenize quote forms" {
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(
-        Token{ .type = TokenType.symbol, .lexeme = "x", .line = 1, .column = 12 },
+        Token{ .type = TokenType.identifier, .lexeme = "x", .line = 1, .column = 12 },
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(null, tokenizer.nextToken());
@@ -476,15 +409,15 @@ test "tokenize with comments" {
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(
-        Token{ .type = TokenType.symbol, .lexeme = "+", .line = 2, .column = 2 },
+        Token{ .type = TokenType.identifier, .lexeme = "+", .line = 2, .column = 2 },
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(
-        Token{ .type = TokenType.number, .lexeme = "1", .line = 2, .column = 4 },
+        Token{ .type = TokenType.identifier, .lexeme = "1", .line = 2, .column = 4 },
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(
-        Token{ .type = TokenType.number, .lexeme = "2", .line = 2, .column = 6 },
+        Token{ .type = TokenType.identifier, .lexeme = "2", .line = 2, .column = 6 },
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(
@@ -561,15 +494,15 @@ test "tokenize vectors" {
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(
-        Token{ .type = TokenType.number, .lexeme = "1", .line = 1, .column = 7 },
+        Token{ .type = TokenType.identifier, .lexeme = "1", .line = 1, .column = 7 },
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(
-        Token{ .type = TokenType.number, .lexeme = "2", .line = 1, .column = 9 },
+        Token{ .type = TokenType.identifier, .lexeme = "2", .line = 1, .column = 9 },
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(
-        Token{ .type = TokenType.number, .lexeme = "3", .line = 1, .column = 11 },
+        Token{ .type = TokenType.identifier, .lexeme = "3", .line = 1, .column = 11 },
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(
@@ -597,4 +530,21 @@ test "isComplete: missing close paren in vector" {
 
 test "isComplete: vector with list is complete" {
     try testing.expectEqual(CompletionStatus.complete, isComplete("#((1 2) 3)"));
+}
+
+test "tokenizer with number-like items parses as identifiers" {
+    var tokenizer = Tokenizer.init("13-4 2x 99red-balloons");
+    try testing.expectEqualDeep(
+        Token{ .type = TokenType.identifier, .lexeme = "13-4", .line = 1, .column = 1 },
+        tokenizer.nextToken(),
+    );
+    try testing.expectEqualDeep(
+        Token{ .type = TokenType.identifier, .lexeme = "2x", .line = 1, .column = 6 },
+        tokenizer.nextToken(),
+    );
+    try testing.expectEqualDeep(
+        Token{ .type = TokenType.identifier, .lexeme = "99red-balloons", .line = 1, .column = 9 },
+        tokenizer.nextToken(),
+    );
+    try testing.expectEqualDeep(null, tokenizer.nextToken());
 }
