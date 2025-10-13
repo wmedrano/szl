@@ -227,6 +227,29 @@ fn formatRecordDescriptor(self: PrettyPrinter, writer: *std.Io.Writer, h: Handle
     try writer.writeAll(">");
 }
 
+/// Returns a human-readable type name for the value.
+/// For records, includes the record type name if available.
+pub fn typeName(self: PrettyPrinter) []const u8 {
+    return switch (self.val.data) {
+        .empty_list => "empty list",
+        .boolean => "boolean",
+        .int => "integer",
+        .float => "float",
+        .char => "character",
+        .symbol => "symbol",
+        .string => "string",
+        .pair => "pair",
+        .vector => "vector",
+        .bytevector => "bytevector",
+        .module => "module",
+        .proc, .closure, .native_proc => "procedure",
+        .continuation => "continuation",
+        .syntax_rules => "syntax-rules",
+        .record => "record",
+        .record_descriptor => "record descriptor",
+    };
+}
+
 test "format empty list is empty parens" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();

@@ -18,7 +18,7 @@ pub const not = NativeProc.withRawArgs(struct {
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         return switch (args.len) {
             1 => NativeProc.Result{ .val = Val.initBool(!args[0].isTruthy()) },
-            else => NativeProc.Result{ .err = Vm.Error.UncaughtException },
+            else => NativeProc.Result{ .wrong_arg_count = .{ .expected = 1, .got = @intCast(args.len) } },
         };
     }
 });
@@ -36,7 +36,7 @@ pub const boolean_p = NativeProc.withRawArgs(struct {
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         return switch (args.len) {
             1 => NativeProc.Result{ .val = Val.initBool(args[0].asBool() != null) },
-            else => NativeProc.Result{ .err = Vm.Error.UncaughtException },
+            else => NativeProc.Result{ .wrong_arg_count = .{ .expected = 1, .got = @intCast(args.len) } },
         };
     }
 });
@@ -68,14 +68,14 @@ test "not with no arguments returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(not)", null));
+    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(not)", null, null));
 }
 
 test "not with multiple arguments returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(not #t #f)", null));
+    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(not #t #f)", null, null));
 }
 
 test "boolean? with true returns true" {
@@ -107,12 +107,12 @@ test "boolean? with no arguments returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(boolean?)", null));
+    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(boolean?)", null, null));
 }
 
 test "boolean? with multiple arguments returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(boolean? #t #f)", null));
+    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(boolean? #t #f)", null, null));
 }

@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const Diagnostics = @import("../Diagnostics.zig");
 const Closure = @import("../types/Closure.zig");
 const Continuation = @import("../types/Continuation.zig");
 const Module = @import("../types/Module.zig");
@@ -162,12 +163,15 @@ fn pathEq(a: []const Symbol, b: []const Symbol) bool {
     return true;
 }
 
-pub fn getReplEnv(self: Inspector) Vm.Error!Handle(Module) {
+pub fn getReplEnv(self: Inspector, diagnostics: ?*Diagnostics) Vm.Error!Handle(Module) {
     const b = self.vm.builder();
-    return self.findModule(&.{
+    const module = self.findModule(&.{
         try b.makeStaticSymbolHandle("user"),
         try b.makeStaticSymbolHandle("repl"),
-    }) orelse return Vm.Error.Unreachable;
+    });
+    if (module) |m| return m;
+    if (diagnostics) |d| d.appendUndefinedBehavior("Could not find (user repl) module");
+    return Vm.Error.UndefinedBehavior;
 }
 
 /// Iterator for traversing Scheme-style linked lists (pairs).

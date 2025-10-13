@@ -1,5 +1,6 @@
 const std = @import("std");
 const testing = std.testing;
+
 const NativeProc = @import("../types/NativeProc.zig");
 const Val = @import("../types/Val.zig");
 const Vm = @import("../Vm.zig");
@@ -49,6 +50,12 @@ test "string-length on non-string returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.WrongType, vm.evalStr("(string-length 42)", null));
-    try testing.expectError(Vm.Error.WrongType, vm.evalStr("(string-length #t)", null));
+    try testing.expectError(
+        Vm.Error.WrongType,
+        vm.evalStr("(string-length 42)", null, null),
+    );
+    try testing.expectError(
+        Vm.Error.WrongType,
+        vm.evalStr("(string-length #t)", null, null),
+    );
 }

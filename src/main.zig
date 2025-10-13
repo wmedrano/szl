@@ -33,7 +33,19 @@ fn runScript(allocator: std.mem.Allocator) !void {
     // Evaluate each expression
     var vm = try szl.Vm.init(.{ .allocator = allocator });
     defer vm.deinit();
-    _ = try vm.evalStr(source.items, null);
+
+    var diagnostics = szl.Diagnostics.init(allocator);
+    defer diagnostics.deinit();
+
+    _ = vm.evalStr(source.items, null, &diagnostics) catch |err| {
+        const stderr = std.fs.File.stderr();
+        var buf: [4096]u8 = undefined;
+        var msg = try std.fmt.bufPrint(&buf, "{s}Error: {}\n", .{ COLOR_RED, err });
+        try stderr.writeAll(msg);
+        msg = try std.fmt.bufPrint(&buf, "{f}{s}\n", .{ diagnostics.pretty(&vm), COLOR_RESET });
+        try stderr.writeAll(msg);
+        return err;
+    };
 }
 
 fn readInput(allocator: std.mem.Allocator) !std.ArrayList(u8) {
@@ -79,7 +91,7 @@ fn runRepl(allocator: std.mem.Allocator) !void {
         switch (Tokenizer.isComplete(input_buffer.items)) {
             .complete => {
                 defer input_buffer.clearRetainingCapacity();
-                try evaluateAndPrint(&vm, input_buffer.items, &expr_count);
+                try evaluateAndPrint(allocator, &vm, input_buffer.items, &expr_count);
             },
             .missing_close_paren => {},
             .malformed => {
@@ -94,24 +106,29 @@ fn runRepl(allocator: std.mem.Allocator) !void {
     }
 }
 
-fn evaluateAndPrint(vm: *szl.Vm, source: []const u8, expr_count: *usize) !void {
-    var reader = vm.read(source);
+fn evaluateAndPrint(allocator: std.mem.Allocator, vm: *szl.Vm, source: []const u8, expr_count: *usize) !void {
+    var diagnostics = szl.Diagnostics.init(allocator);
+    defer diagnostics.deinit();
+
+    var reader = szl.Reader.init(vm, source);
     var diagnostic = szl.Reader.Diagnostic{};
     const stdout = std.fs.File.stdout();
-    var buf: [512]u8 = undefined;
+    var buf: [4096]u8 = undefined;
 
     while (true) {
         const expr = reader.readNext(&diagnostic) catch |err| switch (err) {
             szl.Reader.Error.OutOfMemory => return err,
             szl.Reader.Error.NotImplemented, szl.Reader.Error.ReadError => {
-                const msg = try std.fmt.bufPrint(&buf, COLOR_RED ++ "{f}\n" ++ COLOR_RESET, .{diagnostic});
+                const msg = try std.fmt.bufPrint(&buf, COLOR_RED ++ "{f}\n\n\n" ++ COLOR_RESET, .{diagnostic});
                 try stdout.writeAll(msg);
                 return;
             },
         } orelse return;
 
-        const result = vm.evalExpr(expr, null) catch |err| {
-            const msg = try std.fmt.bufPrint(&buf, COLOR_RED ++ "Error: {}\n" ++ COLOR_RESET, .{err});
+        const result = vm.evalExpr(expr, null, &diagnostics) catch |err| {
+            var msg = try std.fmt.bufPrint(&buf, COLOR_RED ++ "Error: {}\n\n" ++ COLOR_RESET, .{err});
+            try stdout.writeAll(msg);
+            msg = try std.fmt.bufPrint(&buf, "{f}\n\n\n", .{diagnostics.pretty(vm)});
             try stdout.writeAll(msg);
             continue;
         };

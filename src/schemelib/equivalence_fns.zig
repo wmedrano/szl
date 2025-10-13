@@ -18,7 +18,9 @@ pub const eq_p = NativeProc.withRawArgs(struct {
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         return switch (args.len) {
             2 => NativeProc.Result{ .val = Val.initBool(args[0].eq(args[1])) },
-            else => NativeProc.Result{ .err = Vm.Error.UncaughtException },
+            else => NativeProc.Result{
+                .wrong_arg_count = .{ .expected = 2, .got = @intCast(args.len) },
+            },
         };
     }
 });
@@ -36,7 +38,9 @@ pub const eqv_p = NativeProc.withRawArgs(struct {
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         return switch (args.len) {
             2 => NativeProc.Result{ .val = Val.initBool(args[0].eq(args[1])) },
-            else => NativeProc.Result{ .err = Vm.Error.UncaughtException },
+            else => NativeProc.Result{
+                .wrong_arg_count = .{ .expected = 2, .got = @intCast(args.len) },
+            },
         };
     }
 });
@@ -59,7 +63,9 @@ pub const equal_p = NativeProc.withRawArgs(struct {
                 };
                 return NativeProc.Result{ .val = Val.initBool(result) };
             },
-            else => NativeProc.Result{ .err = Vm.Error.UncaughtException },
+            else => NativeProc.Result{
+                .wrong_arg_count = .{ .expected = 2, .got = @intCast(args.len) },
+            },
         };
     }
 });
@@ -132,21 +138,21 @@ test "eq? with no arguments returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(eq?)", null));
+    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(eq?)", null, null));
 }
 
 test "eq? with one argument returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(eq? #t)", null));
+    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(eq? #t)", null, null));
 }
 
 test "eq? with three arguments returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(eq? #t #f #t)", null));
+    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(eq? #t #f #t)", null, null));
 }
 
 test "equal? with identical primitives returns true" {
@@ -220,19 +226,19 @@ test "equal? with no arguments returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(equal?)", null));
+    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(equal?)", null, null));
 }
 
 test "equal? with one argument returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(equal? #t)", null));
+    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(equal? #t)", null, null));
 }
 
 test "equal? with three arguments returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(equal? #t #f #t)", null));
+    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(equal? #t #f #t)", null, null));
 }

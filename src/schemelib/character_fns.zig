@@ -482,8 +482,8 @@ test "char? with wrong argument count returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(char?)", null));
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(char? #\\a #\\b)", null));
+    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(char?)", null, null));
+    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(char? #\\a #\\b)", null, null));
 }
 
 test "char=? on equal characters returns true" {
@@ -707,8 +707,8 @@ test "integer->char rejects invalid code points" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.NotImplemented, vm.evalStr("(integer->char -1)", null));
-    try testing.expectError(Vm.Error.NotImplemented, vm.evalStr("(integer->char 1114112)", null));
+    try testing.expectError(Vm.Error.NotImplemented, vm.evalStr("(integer->char -1)", null, null));
+    try testing.expectError(Vm.Error.NotImplemented, vm.evalStr("(integer->char 1114112)", null, null));
 }
 
 test "char->integer and integer->char are inverses" {

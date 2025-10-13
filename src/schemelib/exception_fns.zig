@@ -1,5 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
+
+const Diagnostics = @import("../Diagnostics.zig");
 const Instruction = @import("../instruction.zig").Instruction;
 const NativeProc = @import("../types/NativeProc.zig");
 const Val = @import("../types/Val.zig");
@@ -17,13 +19,19 @@ pub const with_exception_handler = NativeProc{
     ,
 };
 
-fn withExceptionHandlerImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
-    if (arg_count != 2) return Vm.Error.NotImplemented;
-    const thunk = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
-    const handler = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
+fn withExceptionHandlerImpl(vm: *Vm, diagnostics: ?*Diagnostics, arg_count: u32) Vm.Error!void {
+    // TODO: Add diagnostics
+    if (arg_count != 2) {
+        if (diagnostics) |d| {
+            d.appendWrongArgCount(.{ .expected = 2, .got = arg_count, .proc = Val.initNativeProc(&with_exception_handler) });
+        }
+        return Vm.Error.UncaughtException;
+    }
+    const thunk = vm.context.pop() orelse return Vm.Error.NotImplemented;
+    const handler = vm.context.pop() orelse return Vm.Error.NotImplemented;
     try vm.context.setExceptionHandler(handler);
     try vm.context.push(vm.allocator(), thunk);
-    try (Instruction{ .eval = 0 }).execute(vm);
+    try (Instruction{ .eval = 0 }).execute(vm, null);
 }
 
 pub const raise_continuable = NativeProc{
@@ -36,11 +44,16 @@ pub const raise_continuable = NativeProc{
     ,
 };
 
-fn raiseContinuableImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
-    if (arg_count != 1) return Vm.Error.NotImplemented;
+fn raiseContinuableImpl(vm: *Vm, diagnostics: ?*Diagnostics, arg_count: u32) Vm.Error!void {
+    if (arg_count != 1) {
+        if (diagnostics) |d| {
+            d.appendWrongArgCount(.{ .expected = 1, .got = arg_count, .proc = Val.initNativeProc(&raise_continuable) });
+        }
+        return Vm.Error.UncaughtException;
+    }
     const handler = vm.context.currentExceptionHandler() orelse return Vm.Error.UncaughtException;
     try vm.context.push(vm.allocator(), handler);
-    try (Instruction{ .eval = 1 }).execute(vm);
+    try (Instruction{ .eval = 1 }).execute(vm, null);
 }
 
 pub const szl_raise_next = NativeProc{
@@ -53,7 +66,7 @@ pub const szl_raise_next = NativeProc{
     ,
 };
 
-fn szlRaiseNextImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
+fn szlRaiseNextImpl(vm: *Vm, _: ?*Diagnostics, arg_count: u32) Vm.Error!void {
     const inspector = vm.inspector();
     const builder = vm.builder();
     if (arg_count != 1) return Vm.Error.NotImplemented;
@@ -67,7 +80,7 @@ fn szlRaiseNextImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
     const raise_proc = global_mod.getBySymbol(try builder.makeStaticSymbolHandle("raise")) orelse
         return Vm.Error.UndefinedBehavior;
     try vm.context.pushSlice(vm.allocator(), &.{ err, raise_proc });
-    try (Instruction{ .eval = 1 }).execute(vm);
+    try (Instruction{ .eval = 1 }).execute(vm, null);
 }
 
 test "raise-continuable calls exception handler and continues" {
@@ -99,7 +112,7 @@ test "raise calls all exceptions" {
         \\     (with-exception-handler set-two!
         \\       (lambda () (raise 'exception)))))
     ;
-    try testing.expectError(error.UncaughtException, vm.evalStr(source, null));
+    try testing.expectError(error.UncaughtException, vm.evalStr(source, null, null));
     try vm.expectEval("1", "one");
     try vm.expectEval("2", "two");
 }

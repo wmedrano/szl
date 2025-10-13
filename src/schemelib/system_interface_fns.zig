@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const Diagnostics = @import("../Diagnostics.zig");
 const NativeProc = @import("../types/NativeProc.zig");
 const Val = @import("../types/Val.zig");
 const Vm = @import("../Vm.zig");
@@ -15,7 +16,7 @@ pub const exit = NativeProc{
     ,
 };
 
-fn exitImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
+fn exitImpl(vm: *Vm, _: ?*Diagnostics, arg_count: u32) Vm.Error!void {
     const exit_code: u8 = switch (arg_count) {
         0 => 0,
         else => blk: {

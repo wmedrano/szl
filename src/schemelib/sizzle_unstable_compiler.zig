@@ -30,7 +30,11 @@ pub fn init(vm: *Vm) Vm.Error!Handle(Module) {
 const proc_instructions = NativeProc.withRawArgs(struct {
     pub const name = "proc-instructions";
     pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
-        if (args.len != 1) return .{ .err = error.NotImplemented };
+        if (args.len != 1) {
+            return NativeProc.Result{
+                .wrong_arg_count = .{ .expected = 1, .got = @intCast(args.len) },
+            };
+        }
         const raw_instructions = switch (args[0].data) {
             .proc => |h| blk: {
                 const proc = vm.objects.procs.get(h) orelse return .{ .err = error.UndefinedBehavior };

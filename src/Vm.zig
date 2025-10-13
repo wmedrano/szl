@@ -4,6 +4,7 @@ const testing = std.testing;
 const Compiler = @import("compiler/Compiler.zig");
 const Reader = @import("compiler/Reader.zig");
 const Context = @import("Context.zig");
+const Diagnostics = @import("Diagnostics.zig");
 const Gc = @import("Gc.zig");
 const instruction = @import("instruction.zig");
 const Instruction = @import("instruction.zig").Instruction;
@@ -173,43 +174,47 @@ test builder {
     );
 }
 
-pub fn read(self: *Vm, source: []const u8) Reader {
-    return Reader.init(self, source);
-}
-
-test read {
-    var vm = try Vm.init(.{ .allocator = testing.allocator });
-    defer vm.deinit();
-
-    var reader = vm.read("(1 2 3)");
-    try testing.expectFmt(
-        "(1 2 3)",
-        "{f}",
-        .{vm.pretty((try (reader.readNext(null))).?)},
-    );
-}
-
-pub fn evalStr(self: *Vm, source: []const u8, maybe_env: ?Handle(Module)) Error!Val {
-    var reader = self.read(source);
+pub fn evalStr(
+    self: *Vm,
+    source: []const u8,
+    maybe_env: ?Handle(Module),
+    diagnostics: ?*Diagnostics,
+) Error!Val {
+    var reader = Reader.init(self, source);
     var return_val = Val.initEmptyList();
-    while (try reader.readNext(null)) |raw_expr| {
-        return_val = try self.evalExpr(raw_expr, maybe_env);
+
+    var reader_diag: Reader.Diagnostic = undefined;
+    while (true) {
+        const maybe_raw_expr = reader.readNext(
+            if (diagnostics == null) null else &reader_diag,
+        );
+        const raw_expr = (maybe_raw_expr catch |err| {
+            if (diagnostics) |d| d.appendReader(reader_diag);
+            return err;
+        }) orelse break;
+
+        return_val = try self.evalExpr(raw_expr, maybe_env, diagnostics);
     }
     return return_val;
 }
 
 pub fn expectEval(self: *Vm, expect: []const u8, source: []const u8) !void {
-    const actual = try self.evalStr(source, null);
+    const actual = try self.evalStr(source, null, null);
     try testing.expectFmt(expect, "{f}", .{self.pretty(actual)});
 }
 
-pub fn evalExpr(self: *Vm, expr: Val, maybe_env: ?Handle(Module)) Error!Val {
-    const env = maybe_env orelse try self.inspector().getReplEnv();
+pub fn evalExpr(
+    self: *Vm,
+    expr: Val,
+    maybe_env: ?Handle(Module),
+    diagnostics: ?*Diagnostics,
+) Error!Val {
+    const env = maybe_env orelse try self.inspector().getReplEnv(diagnostics);
     const proc = try self.compile(expr, env);
     self.context.reset();
     try self.context.push(self.allocator(), proc);
-    try (Instruction{ .eval = 0 }).execute(self);
-    return try instruction.executeUntilEnd(self);
+    try (Instruction{ .eval = 0 }).execute(self, diagnostics);
+    return try instruction.executeUntilEnd(self, diagnostics);
 }
 
 fn compile(self: *Vm, expr: Val, env: Handle(Module)) !Val {
@@ -226,7 +231,7 @@ test evalStr {
 
     try testing.expectEqual(
         Val.initInt(42),
-        try vm.evalStr("((lambda (x) (+ x 30 2)) 10)", null),
+        try vm.evalStr("((lambda (x) (+ x 30 2)) 10)", null, null),
     );
 }
 
@@ -249,8 +254,11 @@ test "runGc is ok" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(Val.initInt(42), try vm.evalStr("((lambda (x) (+ x 30 2)) 10)", null));
+    try vm.expectEval(
+        "42",
+        "((lambda (x) (+ x 30 2)) 10)",
+    );
     try testing.expectEqual(34, try vm.runGc());
     try testing.expectEqual(0, try vm.runGc());
-    try testing.expectEqual(Val.initInt(42), try vm.evalStr("((lambda (x) (+ x 30 2)) 10)", null));
+    try vm.expectEval("42", "((lambda (x) (+ x 30 2)) 10)");
 }

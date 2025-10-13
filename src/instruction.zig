@@ -2,6 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 
 const Context = @import("Context.zig");
+const Diagnostics = @import("Diagnostics.zig");
 const Closure = @import("types/Closure.zig");
 const Continuation = @import("types/Continuation.zig");
 const Module = @import("types/Module.zig");
@@ -138,24 +139,25 @@ pub const Instruction = union(enum) {
         }
     }
 
-    pub fn execute(self: Instruction, vm: *Vm) Vm.Error!void {
+    pub fn execute(self: Instruction, vm: *Vm, diagnostics: ?*Diagnostics) Vm.Error!void {
+        errdefer if (diagnostics) |d| d.setStackFrames(vm.context);
         switch (self) {
             .push_const => |val| try vm.context.push(vm.allocator(), val),
-            .get_global => |g| try moduleGet(vm, g.module, g.symbol),
+            .get_global => |g| try moduleGet(vm, g.module, g.symbol, diagnostics),
             .get_proc => {
                 const val = vm.context.getProc();
                 try vm.context.push(vm.allocator(), val);
             },
             .get_arg => |idx| {
-                const val = try vm.context.getArg(idx);
+                const val = vm.context.getArg(idx);
                 try vm.context.push(vm.allocator(), val);
             },
             .get_local => |idx| {
-                const val = try vm.context.getLocal(idx);
+                const val = vm.context.getLocal(idx);
                 try vm.context.push(vm.allocator(), val);
             },
             .get_capture => |idx| {
-                const val = try vm.context.getCapture(idx);
+                const val = vm.context.getCapture(idx);
                 try vm.context.push(vm.allocator(), val);
             },
             .set_global => |g| {
@@ -173,23 +175,27 @@ pub const Instruction = union(enum) {
                 if (!test_val.isTruthy()) try vm.context.jump(n);
             },
             .squash => |n| try vm.context.stackSquash(n),
-            .eval => |n| try eval(vm, n),
+            .eval => |n| try eval(vm, n, diagnostics),
             .make_closure => |proc| try makeClosure(vm, proc),
             .ret => _ = vm.context.popStackFrame(.place_on_top),
         }
     }
 };
 
-pub fn executeUntilEnd(vm: *Vm) Vm.Error!Val {
+pub fn executeUntilEnd(vm: *Vm, diagnostics: ?*Diagnostics) Vm.Error!Val {
     while (vm.context.nextInstruction()) |instruction| {
-        try instruction.execute(vm);
+        try instruction.execute(vm, diagnostics);
     }
     return vm.context.top() orelse Val.initEmptyList();
 }
 
-fn moduleGet(vm: *Vm, module: Handle(Module), symbol: Symbol) !void {
-    const m = vm.inspector().handleToModule(module) catch return Vm.Error.UndefinedBehavior;
+fn moduleGet(vm: *Vm, module: Handle(Module), symbol: Symbol, diagnostics: ?*Diagnostics) !void {
+    const m = vm.inspector().handleToModule(module) catch {
+        if (diagnostics) |d| d.appendUndefinedBehavior("Failed to resolve module handle");
+        return Vm.Error.UndefinedBehavior;
+    };
     const val = m.getBySymbol(symbol) orelse {
+        if (diagnostics) |d| d.appendUndefinedVariable(.{ .module = module, .symbol = symbol });
         return Vm.Error.UndefinedBehavior;
     };
     try vm.context.push(vm.allocator(), val);
@@ -200,28 +206,41 @@ const EvalOptions = struct {
     exception_handler: ?Val = null,
 };
 
-fn eval(vm: *Vm, arg_count: u32) Vm.Error!void {
-    const proc_val = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
+fn eval(vm: *Vm, arg_count: u32, diagnostics: ?*Diagnostics) Vm.Error!void {
+    const proc_val = vm.context.pop() orelse {
+        if (diagnostics) |d| d.appendUndefinedBehavior("VM.eval could not find any value to call");
+        return Vm.Error.UndefinedBehavior;
+    };
     const start = vm.context.stackLen() - arg_count;
     switch (proc_val.data) {
-        // TODO: Raise an exception.
-        .empty_list, .boolean, .int, .float, .char, .module, .pair, .string, .symbol, .vector, .bytevector, .syntax_rules, .record, .record_descriptor => return Vm.Error.NotImplemented,
-        .proc => |h| try evalProc(vm, h, arg_count, start),
-        .closure => |h| return try evalClosure(vm, h, arg_count, start),
-        .native_proc => |p| return evalNativeProc(vm, p, arg_count),
-        .continuation => |c| return evalContinuation(vm, c, arg_count),
+        .empty_list, .boolean, .int, .float, .char, .module, .pair, .string, .symbol, .vector, .bytevector, .syntax_rules, .record, .record_descriptor => {
+            if (diagnostics) |d| {
+                d.appendNotCallable(proc_val);
+            }
+            return Vm.Error.UncaughtException;
+        },
+        .proc => |h| try evalProc(vm, h, arg_count, start, diagnostics),
+        .closure => |h| return try evalClosure(vm, h, arg_count, start, diagnostics),
+        .native_proc => |p| return evalNativeProc(vm, diagnostics, p, start, arg_count),
+        .continuation => |c| return evalContinuation(vm, c, arg_count, diagnostics),
     }
 }
 
-fn evalProc(vm: *Vm, h: Handle(Proc), arg_count: u32, start: usize) !void {
+fn evalProc(vm: *Vm, h: Handle(Proc), arg_count: u32, start: usize, diagnostics: ?*Diagnostics) !void {
     const proc = try vm.inspector().handleToProc(h);
     // 1. Check arguments.
     if (arg_count != proc.arg_count) {
-        return Vm.Error.NotImplemented;
+        if (diagnostics) |d| d.appendWrongArgCount(.{ .expected = proc.arg_count, .got = arg_count, .proc = Val.initProc(h) });
+        return Vm.Error.UncaughtException;
     }
     // 2. Initialize locals.
     try vm.context.pushMany(vm.allocator(), Val.initEmptyList(), proc.locals_count);
-    if (proc.captures_count != 0) return Vm.Error.UndefinedBehavior;
+    if (proc.captures_count != 0) {
+        if (diagnostics) |d| {
+            d.appendUndefinedBehavior("Unexpected captures in procedure");
+        }
+        return Vm.Error.UndefinedBehavior;
+    }
     // 3. Set the context.
     try vm.context.pushStackFrame(vm.allocator(), .{
         .stack_start = @intCast(start),
@@ -231,11 +250,14 @@ fn evalProc(vm: *Vm, h: Handle(Proc), arg_count: u32, start: usize) !void {
     });
 }
 
-fn evalClosure(vm: *Vm, h: Handle(Closure), arg_count: u32, start: usize) !void {
+fn evalClosure(vm: *Vm, h: Handle(Closure), arg_count: u32, start: usize, diagnostics: ?*Diagnostics) !void {
     const closure = try vm.inspector().handleToClosure(h);
     // 1. Check arguments.
     if (arg_count != closure.arg_count) {
-        return Vm.Error.NotImplemented;
+        if (diagnostics) |d| {
+            d.appendWrongArgCount(.{ .expected = closure.arg_count, .got = arg_count, .proc = Val.initClosure(h) });
+        }
+        return Vm.Error.UncaughtException;
     }
     // 2. Initialize locals.
     try vm.context.pushMany(vm.allocator(), Val.initEmptyList(), closure.locals_count);
@@ -249,13 +271,28 @@ fn evalClosure(vm: *Vm, h: Handle(Closure), arg_count: u32, start: usize) !void 
     });
 }
 
-fn evalNativeProc(vm: *Vm, builtin: *const NativeProc, arg_count: u32) !void {
-    try builtin.unsafe_impl(vm, arg_count);
+fn evalNativeProc(vm: *Vm, diagnostics: ?*Diagnostics, builtin: *const NativeProc, stack_start: u32, arg_count: u32) !void {
+    // 1. Set the stack frame for debugging purposes.
+    try vm.context.pushStackFrame(vm.allocator(), .{
+        .stack_start = stack_start,
+        .arg_count = arg_count,
+        .instruction_idx = 0,
+        .proc = Val.initNativeProc(builtin),
+        // If the native function does not pop its own stack, it will
+        // automatically return its top value.
+        .instructions = &.{.{ .ret = {} }},
+    });
+    try builtin.unsafe_impl(vm, diagnostics, arg_count);
 }
 
-fn evalContinuation(vm: *Vm, handle: Handle(Continuation), arg_count: u32) !void {
+fn evalContinuation(vm: *Vm, handle: Handle(Continuation), arg_count: u32, diagnostics: ?*Diagnostics) !void {
     const inspector = vm.inspector();
-    if (arg_count != 1) return Vm.Error.NotImplemented;
+    if (arg_count != 1) {
+        if (diagnostics) |d| {
+            d.appendWrongArgCount(.{ .expected = 1, .got = arg_count, .proc = Val.initContinuation(handle) });
+        }
+        return Vm.Error.NotImplemented;
+    }
     const arg = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
     const continuation = inspector.handleToContinuation(handle) catch
         return Vm.Error.NotImplemented;

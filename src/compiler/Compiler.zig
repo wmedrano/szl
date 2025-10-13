@@ -270,44 +270,32 @@ test "define value can be referenced" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.initInt(20),
-        try vm.evalStr("(define x 20) x", null),
-    );
+    try vm.expectEval("20", "(define x 20) x");
 }
 
 test "multiple defines uses latest" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(Val.initInt(20), try vm.evalStr("(define x 20)", null));
-    try testing.expectEqual(Val.initInt(20), try vm.evalStr("x", null));
-    try testing.expectEqual(Val.initInt(30), try vm.evalStr("(define x 30)", null));
-    try testing.expectEqual(Val.initInt(30), try vm.evalStr("x", null));
+    try vm.expectEval("20", "(define x 20)");
+    try vm.expectEval("20", "x");
+    try vm.expectEval("30", "(define x 30)");
+    try vm.expectEval("30", "x");
 }
 
 test "if statement picks correct branch" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.initInt(10),
-        try vm.evalStr("(if #t 10 20)", null),
-    );
-    try testing.expectEqual(
-        Val.initInt(20),
-        try vm.evalStr("(if #f 10 20)", null),
-    );
+    try vm.expectEval("10", "(if #t 10 20)");
+    try vm.expectEval("20", "(if #f 10 20)");
 }
 
 test "let is evaluated" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.initInt(3),
-        try vm.evalStr("(let ((x 1) (y 2)) (+ x y))", null),
-    );
+    try vm.expectEval("3", "(let ((x 1) (y 2)) (+ x y))");
 }
 
 test "let bindings can't reference themselves" {
@@ -316,7 +304,7 @@ test "let bindings can't reference themselves" {
 
     try testing.expectError(
         error.UndefinedBehavior,
-        vm.evalStr("(let ((x 1) (y x)) (+ x y))", null),
+        vm.evalStr("(let ((x 1) (y x)) (+ x y))", null, null),
     );
 }
 
@@ -324,40 +312,28 @@ test "let variable shadows global" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.initInt(101),
-        try vm.evalStr("(define x 20) (let ((x 100)) (+ x 1))", null),
-    );
+    try vm.expectEval("101", "(define x 20) (let ((x 100)) (+ x 1))");
 }
 
 test "lambda is evaluated" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.initInt(10),
-        try vm.evalStr("((lambda () (+ 1 2 3 4)))", null),
-    );
+    try vm.expectEval("10", "((lambda () (+ 1 2 3 4)))");
 }
 
 test "lambda without body is empty list" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.initEmptyList(),
-        try vm.evalStr("((lambda ()))", null),
-    );
+    try vm.expectEval("()", "((lambda ()))");
 }
 
 test "lambda with args is evaluated" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.initInt(10),
-        try vm.evalStr("((lambda (a b c d) (+ a b c d)) 1 2 3 4)", null),
-    );
+    try vm.expectEval("10", "((lambda (a b c d) (+ a b c d)) 1 2 3 4)");
 }
 
 test "lambda with wrong number of args is error" {
@@ -365,8 +341,8 @@ test "lambda with wrong number of args is error" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.NotImplemented,
-        vm.evalStr("((lambda (a b c d) (+ a b c d)) 1 2 3)", null),
+        error.UncaughtException,
+        vm.evalStr("((lambda (a b c d) (+ a b c d)) 1 2 3)", null, null),
     );
 }
 
@@ -379,30 +355,21 @@ test "lambda can capture environment" {
         \\   (let ((proc (lambda (y) (+ x y))))
         \\     (proc 100)))
     ;
-    try testing.expectEqual(
-        Val.initInt(110),
-        try vm.evalStr(source, null),
-    );
+    try vm.expectEval("110", source);
 }
 
 test "define with args creates callable procedure" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.initInt(7),
-        try vm.evalStr("(define (add a b) (+ a b)) (add 3 4)", null),
-    );
+    try vm.expectEval("7", "(define (add a b) (+ a b)) (add 3 4)");
 }
 
 test "define without args create callable thunk" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.initInt(42),
-        try vm.evalStr("(define (get-answer) 42) (get-answer)", null),
-    );
+    try vm.expectEval("42", "(define (get-answer) 42) (get-answer)");
 }
 
 test "define can call recursively" {
@@ -416,25 +383,19 @@ test "define can call recursively" {
         \\       (+ (fib (- n 1)) (fib (- n 2)))))
         \\ (fib 10)
     ;
-    try testing.expectEqual(Val.initInt(55), try vm.evalStr(source, null));
+    try vm.expectEval("55", source);
 }
 
 test "call/cc that doesn't call continuation returns as normal" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
-    try testing.expectEqual(
-        Val.initInt(2),
-        try vm.evalStr("(call/cc (lambda (k) 1 2))", null),
-    );
+    try vm.expectEval("2", "(call/cc (lambda (k) 1 2))");
 }
 
 test "call/cc that calls continuation returns specified value" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectEqual(
-        Val.initInt(1),
-        // The final expression is an error. We never call it so the vm is ok.
-        try vm.evalStr("(call/cc (lambda (k) (k 1) (+ #f) 2))", null),
-    );
+    // The final expression is an error. We never call it so the vm is ok.
+    try vm.expectEval("1", "(call/cc (lambda (k) (k 1) (+ #f) 2))");
 }

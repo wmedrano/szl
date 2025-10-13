@@ -134,16 +134,16 @@ pub fn getProc(self: Context) Val {
     return self.stack_frame.proc;
 }
 
-pub fn getCapture(self: Context, idx: u32) Vm.Error!Val {
+pub fn getCapture(self: Context, idx: u32) Val {
     return self.stack_frame.captures[@intCast(idx)];
 }
 
-pub fn getArg(self: Context, idx: u32) Vm.Error!Val {
+pub fn getArg(self: Context, idx: u32) Val {
     const abs_idx = self.stack_frame.stack_start + idx;
     return self.stack.items[@intCast(abs_idx)];
 }
 
-pub fn getLocal(self: *Context, idx: u32) Vm.Error!Val {
+pub fn getLocal(self: *Context, idx: u32) Val {
     const abs_idx = self.stack_frame.stack_start + self.stack_frame.arg_count + idx;
     return self.stack.items[@intCast(abs_idx)];
 }

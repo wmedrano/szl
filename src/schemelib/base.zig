@@ -1,6 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 
+const Diagnostics = @import("../Diagnostics.zig");
 const Instruction = @import("../instruction.zig").Instruction;
 const Module = @import("../types/Module.zig");
 const NativeProc = @import("../types/NativeProc.zig");
@@ -26,7 +27,7 @@ pub const import = NativeProc{
 };
 
 // TODO: This should support the full `import` syntax specified by r7rs.
-fn importImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
+fn importImpl(vm: *Vm, _: ?*Diagnostics, arg_count: u32) Vm.Error!void {
     if (arg_count != 1) return Vm.Error.NotImplemented;
     const inspector = vm.inspector();
     const module_specifier = try inspector.listToSliceAlloc(vm.allocator(), vm.context.top() orelse
@@ -38,13 +39,12 @@ fn importImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
         sym.* = val.asSymbol() orelse return Vm.Error.NotImplemented;
     }
     // TODO: Import into the correct environment.
-    const dst_module = try inspector.getReplEnv();
+    const dst_module = try inspector.getReplEnv(null);
     const src_module = inspector.findModule(module_symbols) orelse return Vm.Error.NotImplemented;
     try (try inspector.handleToModule(dst_module)).import(
         vm.allocator(),
         (try inspector.handleToModule(src_module)).*,
     );
-    _ = vm.context.pop();
     try vm.context.push(vm.allocator(), Val.initEmptyList());
 }
 
@@ -132,7 +132,7 @@ pub fn init(vm: *Vm) Vm.Error!Handle(Module) {
         // 5.6 Libraries
         .{ .symbol = (try b.makeStaticSymbolHandle("%szl-import")), .value = Val.initNativeProc(&import) },
     });
-    _ = try vm.evalStr(@embedFile("base.scm"), env_handle);
+    _ = try vm.evalStr(@embedFile("base.scm"), env_handle, null);
 
     return env_handle;
 }

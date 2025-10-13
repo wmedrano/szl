@@ -10,6 +10,12 @@ szl is a Scheme interpreter implemented in Zig. The project compiles Scheme expr
 
 **IMPORTANT:** This project does NOT use git. Never use git commands (git stash, git commit, git status, etc.).
 
+**IMPORTANT:** When testing with the REPL (`zig-out/bin/szl`), Claude Code runs in script mode (via stdin), NOT interactive REPL mode. This means:
+- The REPL will exit on the first error
+- You cannot interact with the REPL interactively
+- For testing, use `printf 'expression\n' | zig-out/bin/szl` to pipe script input
+- Always prefer `zig build test --summary all` for testing - it's faster and more reliable
+
 ## Zig 0.15 Compatibility Notes
 
 **IMPORTANT:** In Zig 0.15, `ArrayList` behaves like the old `ArrayListUnmanaged`:
@@ -18,6 +24,18 @@ szl is a Scheme interpreter implemented in Zig. The project compiles Scheme expr
 - Methods like `init()` do not take an allocator parameter: `ArrayList(T).init()`
 - Methods like `deinit()` do not take an allocator parameter: `list.deinit(allocator)`
 - If you need the old managed behavior, use `ArrayListAligned` instead
+
+**Custom Formatting in Zig 0.15:**
+- To enable custom formatting, implement a `format` method with this signature:
+  ```zig
+  pub fn format(self: YourType, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+      try writer.print("...", .{...});
+      try writer.writeAll("...");
+  }
+  ```
+- The `writer` parameter is `*std.Io.Writer` (defined in this codebase)
+- Use `writer.print()`, `writer.writeAll()`, etc. to output formatted text
+- Once implemented, you can use `{f}` format specifier: `std.debug.print("{f}", .{your_value});`
 
 ## Build Commands
 

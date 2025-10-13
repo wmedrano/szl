@@ -1,6 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 
+const Diagnostics = @import("../Diagnostics.zig");
 const Instruction = @import("../instruction.zig").Instruction;
 const NativeProc = @import("../types/NativeProc.zig");
 const Val = @import("../types/Val.zig");
@@ -19,12 +20,16 @@ pub const call_cc = NativeProc{
     ,
 };
 
-fn callCcImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
-    if (arg_count != 1) return Vm.Error.NotImplemented;
+fn callCcImpl(vm: *Vm, diagnostics: ?*Diagnostics, arg_count: u32) Vm.Error!void {
+    if (arg_count != 1) {
+        if (diagnostics) |d| {
+            d.appendWrongArgCount(.{ .expected = 1, .got = arg_count, .proc = Val.initNativeProc(&call_cc) });
+        }
+    }
     const proc = vm.context.pop() orelse return Vm.Error.NotImplemented;
     const cont = try vm.builder().makeContinuation(vm.context);
     try vm.context.pushSlice(vm.allocator(), &.{ cont, proc });
-    try (Instruction{ .eval = 1 }).execute(vm);
+    try (Instruction{ .eval = 1 }).execute(vm, null);
 }
 
 pub const apply = NativeProc{
@@ -39,7 +44,7 @@ pub const apply = NativeProc{
     ,
 };
 
-fn applyImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
+fn applyImpl(vm: *Vm, _: ?*Diagnostics, arg_count: u32) Vm.Error!void {
     if (arg_count < 2) return Vm.Error.NotImplemented;
     const args = vm.context.stackTopNUnstable(arg_count);
     const proc = args[0];
@@ -53,7 +58,7 @@ fn applyImpl(vm: *Vm, arg_count: u32) Vm.Error!void {
         try vm.context.push(vm.allocator(), next);
     }
     try vm.context.push(vm.allocator(), proc);
-    try (Instruction{ .eval = proc_args_count }).execute(vm);
+    try (Instruction{ .eval = proc_args_count }).execute(vm, null);
 }
 
 test "call/cc can stop exception from propagating" {

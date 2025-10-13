@@ -3,6 +3,7 @@ const std = @import("std");
 
 pub const Val = @import("types/Val.zig");
 pub const Vm = @import("Vm.zig");
+pub const Diagnostics = @import("Diagnostics.zig");
 pub const Tokenizer = @import("compiler/Tokenizer.zig");
 pub const Reader = @import("compiler/Reader.zig");
 

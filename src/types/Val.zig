@@ -83,6 +83,10 @@ pub fn initNativeProc(proc: *const NativeProc) Val {
     return Val{ .data = .{ .native_proc = proc } };
 }
 
+pub fn initContinuation(continuation: Handle(Continuation)) Val {
+    return Val{ .data = .{ .continuation = continuation } };
+}
+
 pub fn isNull(self: Val) bool {
     return self.data == .empty_list;
 }
