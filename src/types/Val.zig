@@ -3,7 +3,6 @@ const testing = std.testing;
 
 const PrettyPrinter = @import("../utils/PrettyPrinter.zig");
 const Vm = @import("../Vm.zig");
-const Closure = @import("Closure.zig");
 const Continuation = @import("Continuation.zig");
 const Handle = @import("object_pool.zig").Handle;
 const Module = @import("Module.zig");
@@ -33,7 +32,6 @@ pub const Data = union(enum) {
     symbol: Symbol,
     module: Handle(Module),
     proc: Handle(Proc),
-    closure: Handle(Closure),
     native_proc: *const NativeProc,
     vector: Handle(Vector),
     bytevector: Handle(ByteVector),
@@ -75,8 +73,8 @@ pub fn initProc(proc: Handle(Proc)) Val {
     return Val{ .data = .{ .proc = proc } };
 }
 
-pub fn initClosure(closure: Handle(Closure)) Val {
-    return Val{ .data = .{ .closure = closure } };
+pub fn initClosure(closure: Handle(Proc)) Val {
+    return Val{ .data = .{ .proc = closure } };
 }
 
 pub fn initNativeProc(proc: *const NativeProc) Val {
@@ -100,7 +98,7 @@ pub fn isTruthy(self: Val) bool {
 
 pub fn isProc(self: Val) bool {
     return switch (self.data) {
-        .proc, .closure, .native_proc => true,
+        .proc, .native_proc => true,
         else => false,
     };
 }

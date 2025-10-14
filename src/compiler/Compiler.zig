@@ -22,6 +22,7 @@ vm: *Vm,
 arena: *std.heap.ArenaAllocator,
 scope: Scope,
 instructions: std.ArrayList(Instruction) = .{},
+constants: std.ArrayList(Val) = .{},
 
 pub const Error = error{
     InvalidExpression,
@@ -52,7 +53,7 @@ pub const Scope = struct {
         arg: u32,
         local: u32,
         capture: u32,
-        module: struct { module: Handle(Module), name: Symbol },
+        module: Symbol,
     };
 
     pub fn resolve(self: *Scope, name: Symbol) Location {
@@ -80,7 +81,7 @@ pub const Scope = struct {
             self.captures_count += 1;
             return Location{ .capture = idx };
         }
-        return Location{ .module = .{ .module = self.module, .name = name } };
+        return Location{ .module = name };
     }
 
     pub fn toCaptureCandidates(self: Scope, allocator: std.mem.Allocator) error{OutOfMemory}!Captures {
@@ -123,7 +124,7 @@ pub fn compile(self: *Compiler, expr: Val) Error!Val {
 
 fn addIr(self: *Compiler, ir: Ir, return_value: bool) Error!void {
     switch (ir) {
-        .push_const => |v| try self.addInstruction(.{ .push_const = v }),
+        .push_const => |v| try self.addConst(v),
         .get => |sym| try self.addGet(sym),
         .define => |d| try self.addDefine(d.symbol, d.expr.*),
         .if_expr => |expr| return self.addIf(expr.test_expr.*, expr.true_expr.*, expr.false_expr.*, return_value),
@@ -148,13 +149,28 @@ fn addIrs(self: *Compiler, irs: []const Ir, return_value: bool) Error!void {
     }
 }
 
+fn addConst(self: *Compiler, val: Val) Error!void {
+    const idx = self.constants.items.len;
+    try self.constants.append(self.arena.allocator(), val);
+    try self.addInstruction(.{ .load_const = @intCast(idx) });
+}
+
 fn addGet(self: *Compiler, sym: Symbol) Error!void {
     const instruction = switch (self.scope.resolve(sym)) {
-        .proc => Instruction{ .get_proc = {} },
-        .arg => |idx| Instruction{ .get_arg = idx },
-        .local => |idx| Instruction{ .get_local = idx },
-        .capture => |idx| Instruction{ .get_capture = idx },
-        .module => |m| Instruction{ .get_global = .{ .module = m.module, .symbol = m.name } },
+        .proc => Instruction{ .load_proc = {} },
+        .arg => |idx| Instruction{ .load_arg = idx },
+        .local => |idx| Instruction{ .load_local = idx },
+        .capture => |idx| blk: {
+            // Captures are encoded as negative indices during compilation,
+            // then patched to positive indices in makeProc() after all constants
+            // are collected. This allows captures to be stored in the constants
+            // array alongside compile-time constants.
+            // Formula: -idx - 1 becomes (constants.len + captures.len) - idx - 1
+            // Example: capture 0 -> -1, capture 1 -> -2, etc.
+            const signed_idx: i32 = @intCast(idx);
+            break :blk Instruction{ .load_const = -signed_idx - 1 };
+        },
+        .module => |mod_sym| Instruction{ .load_global = mod_sym },
     };
     try self.addInstruction(instruction);
 }
@@ -175,7 +191,7 @@ fn addLambda(self: *Compiler, lambda: Ir.Lambda) Error!void {
         .arena = self.arena,
         .scope = Scope{
             .module = self.scope.module,
-            .proc = null,
+            .proc = lambda.name,
             .args = lambda.args,
             .captures = try self.scope.toCaptureCandidates(self.arena.allocator()),
         },
@@ -183,7 +199,7 @@ fn addLambda(self: *Compiler, lambda: Ir.Lambda) Error!void {
     try sub_compiler.addIrs(lambda.body, true);
     const proc = try sub_compiler.makeProc(lambda.name);
     if (proc.captures.len == 0) {
-        return self.addInstruction(.{ .push_const = Val.initProc(proc.handle) });
+        return self.addConst(Val.initProc(proc.handle));
     }
     for (proc.captures) |capture| try self.addGet(capture);
     try self.addInstruction(.{ .make_closure = proc.handle });
@@ -197,7 +213,7 @@ fn jumpDistance(src: usize, dst: usize) i32 {
 
 fn addDefine(self: *Compiler, symbol: Symbol, expr: Ir) Error!void {
     try self.addIr(expr, false);
-    try self.addInstruction(.{ .set_global = .{ .module = self.scope.module, .symbol = symbol } });
+    try self.addInstruction(.{ .set_global = symbol });
 }
 
 fn addIf(self: *Compiler, test_expr: Ir, true_expr: Ir, false_expr: Ir, return_value: bool) !void {
@@ -254,9 +270,29 @@ fn makeProc(self: Compiler, name: ?Symbol) Error!struct {
 } {
     const proc_name = name orelse try self.vm.builder().makeStaticSymbolHandle("_");
     const captures = try self.scope.capturesSlice(self.arena.allocator());
+
+    // Patch negative capture indices to positive constants array indices.
+    // Negative indices (-1, -2, ...) are temporary placeholders for captures
+    // that get transformed to point to the end of the constants array.
+    // Runtime check: Ensure constants array doesn't exceed i32 range (extremely unlikely).
+    if (self.constants.items.len > std.math.maxInt(i32)) {
+        return Error.InvalidExpression;
+    }
+
+    for (self.instructions.items) |*instruction| {
+        switch (instruction.*) {
+            .load_const => |idx| if (idx < 0) {
+                const constants_count: i32 = @intCast(self.constants.items.len);
+                instruction.* = Instruction{ .load_const = constants_count - idx - 1 };
+            },
+            else => {},
+        }
+    }
     var proc = Proc{
         .name = proc_name,
         .instructions = try self.vm.allocator().dupe(Instruction, self.instructions.items),
+        .constants = try self.vm.allocator().dupe(Val, self.constants.items),
+        .module = self.scope.module,
         .arg_count = @intCast(self.scope.args.len),
         .locals_count = @intCast(self.scope.locals.items.len),
         .captures_count = @intCast(captures.len),

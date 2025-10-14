@@ -96,7 +96,7 @@ fn checkOrdered(args: []const Val, comptime compare_fn: fn (Number, Number) bool
     return .{ .val = Val.initBool(is_ordered) };
 }
 
-pub const add = NativeProc.withRawArgs(struct {
+const Add = struct {
     pub const name = "+";
     pub const docstring =
         \\(+ z1 ...)
@@ -134,9 +134,11 @@ pub const add = NativeProc.withRawArgs(struct {
         }
         return NativeProc.Result{ .val = Val.initInt(int_sum) };
     }
-});
+};
 
-pub const sub = NativeProc.withRawArgs(struct {
+pub const add = NativeProc.withRawArgs(Add);
+
+const Sub = struct {
     pub const name = "-";
     pub const docstring =
         \\(- z1 z2 ...)
@@ -188,9 +190,11 @@ pub const sub = NativeProc.withRawArgs(struct {
         }
         return .{ .val = Val.initInt(int_result) };
     }
-});
+};
 
-pub const lt = NativeProc.withRawArgs(struct {
+pub const sub = NativeProc.withRawArgs(Sub);
+
+const Lt = struct {
     pub const name = "<";
     pub const docstring =
         \\(< x1 x2 x3 ...)
@@ -202,9 +206,11 @@ pub const lt = NativeProc.withRawArgs(struct {
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         return checkOrdered(args, isLessThan);
     }
-});
+};
 
-pub const lte = NativeProc.withRawArgs(struct {
+pub const lt = NativeProc.withRawArgs(Lt);
+
+const Lte = struct {
     pub const name = "<=";
     pub const docstring =
         \\(<= x1 x2 x3 ...)
@@ -216,9 +222,11 @@ pub const lte = NativeProc.withRawArgs(struct {
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         return checkOrdered(args, isLessThanOrEqual);
     }
-});
+};
 
-pub const gt = NativeProc.withRawArgs(struct {
+pub const lte = NativeProc.withRawArgs(Lte);
+
+const Gt = struct {
     pub const name = ">";
     pub const docstring =
         \\(> x1 x2 x3 ...)
@@ -230,7 +238,9 @@ pub const gt = NativeProc.withRawArgs(struct {
     pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
         return checkOrdered(args, isGreaterThan);
     }
-});
+};
+
+pub const gt = NativeProc.withRawArgs(Gt);
 
 pub const gte = NativeProc.withRawArgs(struct {
     pub const name = ">=";
@@ -246,7 +256,7 @@ pub const gte = NativeProc.withRawArgs(struct {
     }
 });
 
-pub const eq = NativeProc.withRawArgs(struct {
+const Eq = struct {
     pub const name = "=";
     pub const docstring =
         \\(= z1 z2 z3 ...)
@@ -283,7 +293,9 @@ pub const eq = NativeProc.withRawArgs(struct {
         };
         return .{ .val = Val.initBool(is_equal) };
     }
-});
+};
+
+pub const eq = NativeProc.withRawArgs(Eq);
 
 pub const number_p = NativeProc.withRawArgs(struct {
     pub const name = "number?";

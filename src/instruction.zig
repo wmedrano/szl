@@ -3,7 +3,6 @@ const testing = std.testing;
 
 const Context = @import("Context.zig");
 const Diagnostics = @import("Diagnostics.zig");
-const Closure = @import("types/Closure.zig");
 const Continuation = @import("types/Continuation.zig");
 const Module = @import("types/Module.zig");
 const NativeProc = @import("types/NativeProc.zig");
@@ -15,13 +14,12 @@ const Vector = Val.Vector;
 const Vm = @import("Vm.zig");
 
 pub const Instruction = union(enum) {
-    push_const: Val,
-    get_global: struct { module: Handle(Module), symbol: Symbol },
-    get_proc,
-    get_arg: u32,
-    get_local: u32,
-    get_capture: u32,
-    set_global: Global,
+    load_const: i32,
+    load_global: Symbol,
+    load_proc,
+    load_arg: u32,
+    load_local: u32,
+    set_global: Symbol,
     set_local: u32,
     jump: i32,
     jump_if_not: i32,
@@ -30,61 +28,47 @@ pub const Instruction = union(enum) {
     make_closure: Handle(Proc),
     ret,
 
-    const Global = struct {
-        module: Handle(Module),
-        symbol: Symbol,
-    };
-
     pub fn toVal(self: Instruction, vm: *Vm) Vm.Error!Val {
         const builder = vm.builder();
         switch (self) {
-            .push_const => |val| {
+            .load_const => |idx| {
                 const items = [_]Val{
-                    try builder.makeStaticSymbol("push-const"),
-                    val,
+                    try builder.makeStaticSymbol("load-const"),
+                    Val.initInt(idx),
                 };
                 return builder.makeList(&items);
             },
-            .get_global => |g| {
+            .load_global => |sym| {
                 const items = [_]Val{
-                    try builder.makeStaticSymbol("get-global"),
-                    Val{ .data = .{ .module = g.module } },
-                    Val.initSymbol(g.symbol),
+                    try builder.makeStaticSymbol("load-global"),
+                    Val.initSymbol(sym),
                 };
                 return builder.makeList(&items);
             },
-            .get_proc => {
+            .load_proc => {
                 const items = [_]Val{
-                    try builder.makeStaticSymbol("get-proc"),
+                    try builder.makeStaticSymbol("load-proc"),
                 };
                 return builder.makeList(&items);
             },
-            .get_arg => |idx| {
+            .load_arg => |idx| {
                 const items = [_]Val{
-                    try builder.makeStaticSymbol("get-arg"),
+                    try builder.makeStaticSymbol("load-arg"),
                     Val.initInt(@intCast(idx)),
                 };
                 return builder.makeList(&items);
             },
-            .get_local => |idx| {
+            .load_local => |idx| {
                 const items = [_]Val{
-                    try builder.makeStaticSymbol("get-local"),
+                    try builder.makeStaticSymbol("load-local"),
                     Val.initInt(@intCast(idx)),
                 };
                 return builder.makeList(&items);
             },
-            .get_capture => |idx| {
-                const items = [_]Val{
-                    try builder.makeStaticSymbol("get-capture"),
-                    Val.initInt(@intCast(idx)),
-                };
-                return builder.makeList(&items);
-            },
-            .set_global => |g| {
+            .set_global => |sym| {
                 const items = [_]Val{
                     try builder.makeStaticSymbol("set-global"),
-                    Val{ .data = .{ .module = g.module } },
-                    Val.initSymbol(g.symbol),
+                    Val.initSymbol(sym),
                 };
                 return builder.makeList(&items);
             },
@@ -142,28 +126,27 @@ pub const Instruction = union(enum) {
     pub fn execute(self: Instruction, vm: *Vm, diagnostics: ?*Diagnostics) Vm.Error!void {
         errdefer if (diagnostics) |d| d.setStackFrames(vm.context);
         switch (self) {
-            .push_const => |val| try vm.context.push(vm.allocator(), val),
-            .get_global => |g| try moduleGet(vm, g.module, g.symbol, diagnostics),
-            .get_proc => {
+            .load_const => |idx| {
+                const val = vm.context.stack_frame.constants[@intCast(idx)];
+                try vm.context.push(vm.allocator(), val);
+            },
+            .load_global => |sym| try moduleGet(vm, sym, diagnostics),
+            .load_proc => {
                 const val = vm.context.getProc();
                 try vm.context.push(vm.allocator(), val);
             },
-            .get_arg => |idx| {
+            .load_arg => |idx| {
                 const val = vm.context.getArg(idx);
                 try vm.context.push(vm.allocator(), val);
             },
-            .get_local => |idx| {
+            .load_local => |idx| {
                 const val = vm.context.getLocal(idx);
                 try vm.context.push(vm.allocator(), val);
             },
-            .get_capture => |idx| {
-                const val = vm.context.getCapture(idx);
-                try vm.context.push(vm.allocator(), val);
-            },
-            .set_global => |g| {
+            .set_global => |sym| {
                 const val = vm.context.top() orelse return Vm.Error.UndefinedBehavior;
-                const m = try vm.inspector().handleToModule(g.module);
-                try m.setBySymbol(vm.allocator(), g.symbol, val);
+                const m = try vm.inspector().handleToModule(vm.context.module().?);
+                try m.setBySymbol(vm.allocator(), sym, val);
             },
             .set_local => |idx| {
                 const val = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
@@ -189,7 +172,11 @@ pub fn executeUntilEnd(vm: *Vm, diagnostics: ?*Diagnostics) Vm.Error!Val {
     return vm.context.top() orelse Val.initEmptyList();
 }
 
-fn moduleGet(vm: *Vm, module: Handle(Module), symbol: Symbol, diagnostics: ?*Diagnostics) !void {
+fn moduleGet(vm: *Vm, symbol: Symbol, diagnostics: ?*Diagnostics) !void {
+    const module = vm.context.module() orelse {
+        if (diagnostics) |d| d.appendUndefinedBehavior("Failed to get current environment");
+        return Vm.Error.UndefinedBehavior;
+    };
     const m = vm.inspector().handleToModule(module) catch {
         if (diagnostics) |d| d.appendUndefinedBehavior("Failed to resolve module handle");
         return Vm.Error.UndefinedBehavior;
@@ -220,7 +207,6 @@ fn eval(vm: *Vm, arg_count: u32, diagnostics: ?*Diagnostics) Vm.Error!void {
             return Vm.Error.UncaughtException;
         },
         .proc => |h| try evalProc(vm, h, arg_count, start, diagnostics),
-        .closure => |h| return try evalClosure(vm, h, arg_count, start, diagnostics),
         .native_proc => |p| return evalNativeProc(vm, diagnostics, p, start, arg_count),
         .continuation => |c| return evalContinuation(vm, c, arg_count, diagnostics),
     }
@@ -235,39 +221,14 @@ fn evalProc(vm: *Vm, h: Handle(Proc), arg_count: u32, start: usize, diagnostics:
     }
     // 2. Initialize locals.
     try vm.context.pushMany(vm.allocator(), Val.initEmptyList(), proc.locals_count);
-    if (proc.captures_count != 0) {
-        if (diagnostics) |d| {
-            d.appendUndefinedBehavior("Unexpected captures in procedure");
-        }
-        return Vm.Error.UndefinedBehavior;
-    }
     // 3. Set the context.
     try vm.context.pushStackFrame(vm.allocator(), .{
         .stack_start = @intCast(start),
         .arg_count = arg_count,
+        .module = proc.module,
         .proc = Val.initProc(h),
         .instructions = proc.instructions,
-    });
-}
-
-fn evalClosure(vm: *Vm, h: Handle(Closure), arg_count: u32, start: usize, diagnostics: ?*Diagnostics) !void {
-    const closure = try vm.inspector().handleToClosure(h);
-    // 1. Check arguments.
-    if (arg_count != closure.arg_count) {
-        if (diagnostics) |d| {
-            d.appendWrongArgCount(.{ .expected = closure.arg_count, .got = arg_count, .proc = Val.initClosure(h) });
-        }
-        return Vm.Error.UncaughtException;
-    }
-    // 2. Initialize locals.
-    try vm.context.pushMany(vm.allocator(), Val.initEmptyList(), closure.locals_count);
-    // 3. Set the context.
-    try vm.context.pushStackFrame(vm.allocator(), .{
-        .stack_start = @intCast(start),
-        .arg_count = arg_count,
-        .proc = Val.initClosure(h),
-        .instructions = closure.instructions,
-        .captures = closure.captures,
+        .constants = proc.constants,
     });
 }
 
@@ -277,10 +238,12 @@ fn evalNativeProc(vm: *Vm, diagnostics: ?*Diagnostics, builtin: *const NativePro
         .stack_start = stack_start,
         .arg_count = arg_count,
         .instruction_idx = 0,
+        .module = null,
         .proc = Val.initNativeProc(builtin),
         // If the native function does not pop its own stack, it will
         // automatically return its top value.
         .instructions = &.{.{ .ret = {} }},
+        .constants = &.{},
     });
     try builtin.unsafe_impl(vm, diagnostics, arg_count);
 }
@@ -308,4 +271,8 @@ fn makeClosure(vm: *Vm, proc_h: Handle(Proc)) !void {
     const capture_vals = vm.context.stackTopN(proc.captures_count);
     const closure = try vm.builder().makeClosure(proc.*, capture_vals);
     try vm.context.push(vm.allocator(), Val.initClosure(closure));
+}
+
+test "instruction is small" {
+    try testing.expectEqual(8, @sizeOf(Instruction));
 }

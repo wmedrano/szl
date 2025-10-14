@@ -2,7 +2,6 @@ const std = @import("std");
 
 const Context = @import("Context.zig");
 const Instruction = @import("instruction.zig").Instruction;
-const Closure = @import("types/Closure.zig");
 const Continuation = @import("types/Continuation.zig");
 const Module = @import("types/Module.zig");
 const Handle = @import("types/object_pool.zig").Handle;
@@ -26,7 +25,6 @@ const GcObject = union(enum) {
     proc: Handle(Proc),
     pair: Handle(Pair),
     string: Handle(String),
-    closure: Handle(Closure),
     vector: Handle(Vector),
     bytevector: Handle(ByteVector),
     continuation: Handle(Continuation),
@@ -42,7 +40,6 @@ const GcObject = union(enum) {
             .proc => |p| .{ .proc = p },
             .pair => |p| .{ .pair = p },
             .string => |s| .{ .string = s },
-            .closure => |c| .{ .closure = c },
             .vector => |v| .{ .vector = v },
             .bytevector => |bv| .{ .bytevector = bv },
             .continuation => |c| .{ .continuation = c },
@@ -60,7 +57,7 @@ pub fn markOne(self: *Gc, vm: *Vm, val: Val) Vm.Error!void {
     switch (obj) {
         .proc => |h| {
             const proc = try vm.inspector().handleToProc(h);
-            try self.markInstructions(vm, proc.instructions);
+            try self.markMany(vm, proc.constants);
         },
         .pair => |h| {
             const pair = try vm.inspector().handleToPair(h);
@@ -68,18 +65,9 @@ pub fn markOne(self: *Gc, vm: *Vm, val: Val) Vm.Error!void {
             try self.markOne(vm, pair.cdr);
         },
         .string => {},
-        .closure => |h| {
-            const closure = try vm.inspector().handleToClosure(h);
-            try self.markInstructions(vm, closure.instructions);
-            for (closure.captures) |capture| {
-                try self.markOne(vm, capture);
-            }
-        },
         .vector => |h| {
             const vec = try vm.inspector().handleToVector(h);
-            for (vec.items) |item| {
-                try self.markOne(vm, item);
-            }
+            try self.markMany(vm, vec.items);
         },
         .bytevector => {},
         .continuation => |h| {
@@ -98,13 +86,17 @@ pub fn markOne(self: *Gc, vm: *Vm, val: Val) Vm.Error!void {
     }
 }
 
+fn markMany(self: *Gc, vm: *Vm, vals: []const Val) Vm.Error!void {
+    for (vals) |v| try self.markOne(vm, v);
+}
+
 pub fn markModule(self: *Gc, vm: *Vm, h: Handle(Module)) Vm.Error!void {
     const module = try vm.inspector().handleToModule(h);
     for (module.slots.items) |v| try self.markOne(vm, v);
 }
 
 pub fn markContext(self: *Gc, vm: *Vm, context: Context) Vm.Error!void {
-    for (context.stack.items) |item| try self.markOne(vm, item);
+    try self.markMany(vm, context.stack.items);
     try self.markStackFrame(vm, context.stack_frame);
     for (context.stack_frames.items) |sf| try self.markStackFrame(vm, sf);
 }
@@ -112,16 +104,7 @@ pub fn markContext(self: *Gc, vm: *Vm, context: Context) Vm.Error!void {
 fn markStackFrame(self: *Gc, vm: *Vm, stack_frame: Context.StackFrame) Vm.Error!void {
     try self.markOne(vm, stack_frame.proc);
     try self.markOne(vm, stack_frame.exception_handler);
-    for (stack_frame.captures) |v| try self.markOne(vm, v);
-}
-
-fn markInstructions(self: *Gc, vm: *Vm, instructions: []const Instruction) Vm.Error!void {
-    for (instructions) |inst| {
-        switch (inst) {
-            .push_const => |v| try self.markOne(vm, v),
-            else => {},
-        }
-    }
+    try self.markMany(vm, stack_frame.constants);
 }
 
 pub fn sweep(self: Gc, vm: *Vm) Vm.Error!usize {
@@ -175,24 +158,6 @@ pub fn sweep(self: Gc, vm: *Vm) Vm.Error!usize {
     try vm.objects.procs.removeAll(
         vm.allocator(),
         RemoveProc{ .gc = self, .allocator = vm.allocator(), .count = &removed_count },
-    );
-
-    const RemoveClosure = struct {
-        gc: Gc,
-        allocator: std.mem.Allocator,
-        count: *usize,
-        pub fn remove(this: @This(), h: Handle(Closure), obj: *Closure) bool {
-            const should_remove = !this.gc.marked.contains(GcObject{ .closure = h });
-            if (should_remove) {
-                obj.deinit(this.allocator);
-                this.count.* += 1;
-            }
-            return should_remove;
-        }
-    };
-    try vm.objects.closures.removeAll(
-        vm.allocator(),
-        RemoveClosure{ .gc = self, .allocator = vm.allocator(), .count = &removed_count },
     );
 
     const RemoveVector = struct {

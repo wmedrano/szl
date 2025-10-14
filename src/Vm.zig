@@ -10,7 +10,6 @@ const instruction = @import("instruction.zig");
 const Instruction = @import("instruction.zig").Instruction;
 const builtins = @import("schemelib/base.zig");
 const sizzle_unstable_compiler = @import("schemelib/sizzle_unstable_compiler.zig");
-const Closure = @import("types/Closure.zig");
 const Continuation = @import("types/Continuation.zig");
 const Module = @import("types/Module.zig");
 const NativeProc = @import("types/NativeProc.zig");
@@ -31,27 +30,6 @@ const PrettyPrinter = @import("utils/PrettyPrinter.zig");
 
 const Vm = @This();
 
-pub const Objects = struct {
-    symbols: Symbol.Interner,
-    pairs: ObjectPool(Pair) = .{},
-    strings: ObjectPool(String) = .{},
-    modules: ObjectPool(Module) = .{},
-    procs: ObjectPool(Proc) = .{},
-    closures: ObjectPool(Closure) = .{},
-    vectors: ObjectPool(Vector) = .{},
-    bytevectors: ObjectPool(ByteVector) = .{},
-    continuations: ObjectPool(Continuation) = .{},
-    syntax_rules: ObjectPool(SyntaxRules) = .{},
-    records: ObjectPool(Record) = .{},
-    record_descriptors: ObjectPool(Record.Descriptor) = .{},
-
-    pub fn init(alloc: std.mem.Allocator) Objects {
-        return Objects{
-            .symbols = Symbol.Interner.init(alloc),
-        };
-    }
-};
-
 options: Options,
 objects: Objects,
 context: Context,
@@ -69,6 +47,56 @@ pub const Error = error{
     Unreachable,
     WrongType,
     UncaughtException,
+};
+
+pub const Objects = struct {
+    symbols: Symbol.Interner,
+    pairs: ObjectPool(Pair) = .{},
+    strings: ObjectPool(String) = .{},
+    modules: ObjectPool(Module) = .{},
+    procs: ObjectPool(Proc) = .{},
+    vectors: ObjectPool(Vector) = .{},
+    bytevectors: ObjectPool(ByteVector) = .{},
+    continuations: ObjectPool(Continuation) = .{},
+    syntax_rules: ObjectPool(SyntaxRules) = .{},
+    records: ObjectPool(Record) = .{},
+    record_descriptors: ObjectPool(Record.Descriptor) = .{},
+
+    pub fn init(alloc: std.mem.Allocator) Objects {
+        return Objects{
+            .symbols = Symbol.Interner.init(alloc),
+        };
+    }
+
+    pub fn deinit(self: *Objects, alloc: std.mem.Allocator) void {
+        self.pairs.deinit(alloc);
+        self.symbols.deinit(alloc);
+
+        const standard_deinit = struct {
+            allocator: std.mem.Allocator,
+            pub fn apply(this: @This(), obj: anytype) void {
+                obj.deinit(this.allocator);
+            }
+        }{ .allocator = alloc };
+        self.strings.applyAll(standard_deinit);
+        self.strings.deinit(alloc);
+        self.modules.applyAll(standard_deinit);
+        self.modules.deinit(alloc);
+        self.procs.applyAll(standard_deinit);
+        self.procs.deinit(alloc);
+        self.vectors.applyAll(standard_deinit);
+        self.vectors.deinit(alloc);
+        self.bytevectors.applyAll(standard_deinit);
+        self.bytevectors.deinit(alloc);
+        self.continuations.applyAll(standard_deinit);
+        self.continuations.deinit(alloc);
+        self.syntax_rules.applyAll(standard_deinit);
+        self.syntax_rules.deinit(alloc);
+        self.records.applyAll(standard_deinit);
+        self.records.deinit(alloc);
+        self.record_descriptors.applyAll(standard_deinit);
+        self.record_descriptors.deinit(alloc);
+    }
 };
 
 pub fn init(options: Options) Error!Vm {
@@ -103,46 +131,7 @@ fn initLibraries(vm: *Vm) Error!void {
 
 pub fn deinit(self: *Vm) void {
     self.context.deinit(self.allocator());
-    self.objects.pairs.deinit(self.allocator());
-
-    const standard_deinit = struct {
-        allocator: std.mem.Allocator,
-        pub fn apply(this: @This(), obj: anytype) void {
-            obj.deinit(this.allocator);
-        }
-    }{ .allocator = self.allocator() };
-
-    self.objects.strings.applyAll(standard_deinit);
-    self.objects.strings.deinit(self.allocator());
-
-    self.objects.modules.applyAll(standard_deinit);
-    self.objects.modules.deinit(self.allocator());
-
-    self.objects.procs.applyAll(standard_deinit);
-    self.objects.procs.deinit(self.allocator());
-
-    self.objects.closures.applyAll(standard_deinit);
-    self.objects.closures.deinit(self.allocator());
-
-    self.objects.vectors.applyAll(standard_deinit);
-    self.objects.vectors.deinit(self.allocator());
-
-    self.objects.bytevectors.applyAll(standard_deinit);
-    self.objects.bytevectors.deinit(self.allocator());
-
-    self.objects.continuations.applyAll(standard_deinit);
-    self.objects.continuations.deinit(self.allocator());
-
-    self.objects.syntax_rules.applyAll(standard_deinit);
-    self.objects.syntax_rules.deinit(self.allocator());
-
-    self.objects.records.applyAll(standard_deinit);
-    self.objects.records.deinit(self.allocator());
-
-    self.objects.record_descriptors.applyAll(standard_deinit);
-    self.objects.record_descriptors.deinit(self.allocator());
-
-    self.objects.symbols.deinit(self.allocator());
+    self.objects.deinit(self.allocator());
 }
 
 pub inline fn allocator(self: Vm) std.mem.Allocator {

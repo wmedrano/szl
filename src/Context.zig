@@ -1,6 +1,8 @@
 const std = @import("std");
 
 const Instruction = @import("instruction.zig").Instruction;
+const Module = @import("types/Module.zig");
+const Handle = @import("types/object_pool.zig").Handle;
 const Val = @import("types/Val.zig");
 const Vm = @import("Vm.zig");
 
@@ -14,10 +16,11 @@ pub const StackFrame = struct {
     stack_start: u32 = 0,
     arg_count: u32 = 0,
     instruction_idx: u32 = 0,
+    module: ?Handle(Module) = null,
     proc: Val = Val.initEmptyList(),
     exception_handler: Val = Val.initEmptyList(),
     instructions: []const Instruction = &.{},
-    captures: []const Val = &.{},
+    constants: []const Val = &.{},
 
     pub inline fn exceptionHandler(self: StackFrame) ?Val {
         return if (self.exception_handler.isNull()) null else self.exception_handler;
@@ -130,12 +133,12 @@ fn stackLocal(self: Context) []Val {
     return self.stack.items[start..];
 }
 
-pub fn getProc(self: Context) Val {
-    return self.stack_frame.proc;
+pub fn module(self: Context) ?Handle(Module) {
+    return self.stack_frame.module;
 }
 
-pub fn getCapture(self: Context, idx: u32) Val {
-    return self.stack_frame.captures[@intCast(idx)];
+pub fn getProc(self: Context) Val {
+    return self.stack_frame.proc;
 }
 
 pub fn getArg(self: Context, idx: u32) Val {
@@ -152,6 +155,10 @@ pub fn setLocal(self: *Context, idx: u32, val: Val) void {
     const local_stack = self.stackLocal();
     const stack_idx = self.argCount() + idx;
     local_stack[@intCast(stack_idx)] = val;
+}
+
+pub fn getConstant(self: Context, idx: u32) Val {
+    return self.stack_frame.constants[@intCast(idx)];
 }
 
 pub fn stackTopN(self: Context, n: u32) []const Val {

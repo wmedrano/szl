@@ -2,7 +2,6 @@ const std = @import("std");
 
 const Context = @import("../Context.zig");
 const Instruction = @import("../instruction.zig").Instruction;
-const Closure = @import("../types/Closure.zig");
 const Continuation = @import("../types/Continuation.zig");
 const Module = @import("../types/Module.zig");
 const Handle = @import("../types/object_pool.zig").Handle;
@@ -148,22 +147,28 @@ pub inline fn makeSyntaxRules(self: Builder, syntax_rules: SyntaxRules) !Val {
     return Val{ .data = .{ .syntax_rules = h } };
 }
 
-pub inline fn makeClosure(self: Builder, base_proc: Proc, caps: []const Val) error{OutOfMemory}!Handle(Closure) {
+pub inline fn makeClosure(self: Builder, base_proc: Proc, captures: []const Val) error{OutOfMemory}!Handle(Proc) {
     const allocator = self.vm.allocator();
     const instructions = try allocator.dupe(Instruction, base_proc.instructions);
     errdefer allocator.free(instructions);
-    const captures = try allocator.dupe(Val, caps);
-    errdefer allocator.free(captures);
-    const closure = Closure{
+
+    const constants = try allocator.alloc(Val, base_proc.constants.len + captures.len);
+    errdefer allocator.free(constants);
+    @memcpy(constants[0..base_proc.constants.len], base_proc.constants);
+    @memcpy(constants[base_proc.constants.len..], captures);
+
+    const closure = Proc{
         .instructions = instructions,
-        .captures = captures,
+        .constants = constants,
         .name = base_proc.name,
+        .module = base_proc.module,
         .arg_count = base_proc.arg_count,
         .locals_count = base_proc.locals_count,
+        .captures_count = 0,
     };
     return try self.makeClosureHandle(closure);
 }
 
-pub inline fn makeClosureHandle(self: Builder, closure: Closure) error{OutOfMemory}!Handle(Closure) {
-    return try self.vm.objects.closures.put(self.vm.allocator(), closure);
+pub inline fn makeClosureHandle(self: Builder, closure: Proc) error{OutOfMemory}!Handle(Proc) {
+    return try self.vm.objects.procs.put(self.vm.allocator(), closure);
 }
