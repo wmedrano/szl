@@ -2,7 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 
 pub fn Handle(comptime T: type) type {
-    return struct {
+    return packed struct {
         const Object = T;
         id: u32,
     };

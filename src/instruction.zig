@@ -127,7 +127,7 @@ pub const Instruction = union(enum) {
         errdefer if (diagnostics) |d| d.setStackFrames(vm.context);
         switch (self) {
             .load_const => |idx| {
-                const val = vm.context.stack_frame.constants[@intCast(idx)];
+                const val = vm.context.getConstant(@intCast(idx));
                 try vm.context.push(vm.allocator(), val);
             },
             .load_global => |sym| try moduleGet(vm, sym, diagnostics),

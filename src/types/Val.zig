@@ -22,8 +22,8 @@ const Val = @This();
 data: Data,
 
 pub const Data = union(enum) {
-    empty_list,
     boolean: bool,
+    empty_list: void,
     int: i64,
     float: f64,
     char: u21,

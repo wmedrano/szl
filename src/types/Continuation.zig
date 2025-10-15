@@ -19,7 +19,6 @@ pub fn init(allocator: std.mem.Allocator, ctx: Context) !Continuation {
     return Continuation{
         .context = .{
             .stack = stack,
-            .stack_frame = ctx.stack_frame,
             .stack_frames = stack_frames,
         },
     };

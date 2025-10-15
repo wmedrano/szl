@@ -97,7 +97,6 @@ pub fn markModule(self: *Gc, vm: *Vm, h: Handle(Module)) Vm.Error!void {
 
 pub fn markContext(self: *Gc, vm: *Vm, context: Context) Vm.Error!void {
     try self.markMany(vm, context.stack.items);
-    try self.markStackFrame(vm, context.stack_frame);
     for (context.stack_frames.items) |sf| try self.markStackFrame(vm, sf);
 }
 

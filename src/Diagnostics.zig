@@ -126,20 +126,14 @@ pub fn appendWrongArgType(self: *Diagnostics, info: struct {
 pub fn setStackFrames(self: *Diagnostics, ctx: Context) void {
     self.stack_frames.clearRetainingCapacity();
 
-    // Append current stack frame (depth 0)
-    self.stack_frames.append(self.alloc, .{ .depth = 0, .proc = ctx.stack_frame.proc }) catch {
-        self.oom = true;
-    };
-
-    // Append historical stack frames in reverse order (most recent first)
-    var idx: usize = 1;
-    var frame_idx = ctx.stack_frames.items.len;
-    while (frame_idx > 0) {
-        frame_idx -= 1;
-        self.stack_frames.append(self.alloc, .{ .depth = idx, .proc = ctx.stack_frames.items[frame_idx].proc }) catch {
+    // Append stack frames in reverse order (most recent first)
+    var depth: usize = 0;
+    while (depth < ctx.stack_frames.items.len) {
+        const frame_idx = ctx.stack_frames.items.len - depth - 1;
+        self.stack_frames.append(self.alloc, .{ .depth = depth, .proc = ctx.stack_frames.items[frame_idx].proc }) catch {
             self.oom = true;
         };
-        idx += 1;
+        depth += 1;
     }
 }
 
@@ -158,16 +152,16 @@ pub const DiagnosticsPrettyPrinter = struct {
         }
 
         if (self.diagnostics.diagnostics.items.len == 0 and self.diagnostics.stack_frames.items.len == 0) {
-            try writer.writeAll("Warning: No diagnostics provided.");
             return;
         }
 
+        // Print diagnostics.
         for (self.diagnostics.diagnostics.items) |diag| {
             try writer.writeAll("\n");
             try self.formatDiagnostic(writer, diag);
         }
 
-        // Print stack frames after diagnostics
+        // Print stack trace.
         if (self.diagnostics.stack_frames.items.len > 0) {
             try writer.writeAll("\n\nStack trace:");
             for (self.diagnostics.stack_frames.items) |sf| {
@@ -218,7 +212,13 @@ pub const DiagnosticsPrettyPrinter = struct {
                 try writer.writeAll("  ");
                 if (wat.arg_position) |pos| {
                     const display_pos = pos + 1; // Convert to 1-indexed for user display
-                    try writer.print("argument {d}", .{display_pos});
+                    const suffix = switch (display_pos % 10) {
+                        1 => if (display_pos % 100 == 11) "th" else "st",
+                        2 => if (display_pos % 100 == 12) "th" else "nd",
+                        3 => if (display_pos % 100 == 13) "th" else "rd",
+                        else => "th",
+                    };
+                    try writer.print("{d}{s} argument", .{ display_pos, suffix });
                 } else {
                     try writer.writeAll("an argument");
                 }
@@ -227,7 +227,7 @@ pub const DiagnosticsPrettyPrinter = struct {
                     try writer.print(" ('{s}')", .{name});
                 }
 
-                try writer.print("\n  expected: {s}\n  got:      {s} {f}", .{
+                try writer.print("\n  expected type: {s}\n  got type: {s}\n  value: {f}", .{
                     wat.expected,
                     self.vm.pretty(wat.got).typeName(),
                     self.vm.pretty(wat.got),

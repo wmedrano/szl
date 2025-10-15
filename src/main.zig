@@ -27,8 +27,8 @@ pub fn main() !void {
 
 fn runScript(allocator: std.mem.Allocator) !void {
     // Read source
-    var source = try readInput(allocator);
-    defer source.deinit(allocator);
+    const source = try readInput(allocator);
+    defer allocator.free(source);
 
     // Evaluate each expression
     var vm = try szl.Vm.init(.{ .allocator = allocator });
@@ -37,7 +37,7 @@ fn runScript(allocator: std.mem.Allocator) !void {
     var diagnostics = szl.Diagnostics.init(allocator);
     defer diagnostics.deinit();
 
-    _ = vm.evalStr(source.items, null, &diagnostics) catch |err| {
+    _ = vm.evalStr(source, null, &diagnostics) catch |err| {
         const stderr = std.fs.File.stderr();
         var buf: [4096]u8 = undefined;
         var msg = try std.fmt.bufPrint(&buf, "{s}Error: {}\n", .{ COLOR_RED, err });
@@ -48,19 +48,12 @@ fn runScript(allocator: std.mem.Allocator) !void {
     };
 }
 
-fn readInput(allocator: std.mem.Allocator) !std.ArrayList(u8) {
-    var ret = std.ArrayList(u8){};
-    errdefer ret.deinit(allocator);
-
+fn readInput(allocator: std.mem.Allocator) ![]const u8 {
     const stdin = std.fs.File.stdin();
     defer stdin.close();
     var input_buffer: [1024]u8 = undefined;
     var reader = stdin.reader(&input_buffer);
-    while (!reader.atEnd()) {
-        const len = reader.read(&input_buffer) catch break;
-        try ret.appendSlice(allocator, input_buffer[0..len]);
-    }
-    return ret;
+    return reader.interface.readAlloc(allocator, 0);
 }
 
 fn runRepl(allocator: std.mem.Allocator) !void {

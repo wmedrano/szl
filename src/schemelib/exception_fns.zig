@@ -71,7 +71,7 @@ fn szlRaiseNextImpl(vm: *Vm, _: ?*Diagnostics, arg_count: u32) Vm.Error!void {
     const builder = vm.builder();
     if (arg_count != 1) return Vm.Error.NotImplemented;
     const err = vm.context.top() orelse return Vm.Error.UndefinedBehavior;
-    _ = try vm.context.unwindBeforeExceptionHandler();
+    vm.context.unwindToNextExceptionHandler();
     const global_mod_handle = inspector.findModule(&.{
         try builder.makeStaticSymbolHandle("scheme"),
         try builder.makeStaticSymbolHandle("base"),
