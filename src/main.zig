@@ -115,7 +115,6 @@ fn replEval(allocator: std.mem.Allocator, vm: *szl.Vm, source: []const u8, expr_
     var diagnostics = szl.Diagnostics.init(allocator);
     defer diagnostics.deinit();
 
-    var reader = szl.Reader.init(vm, source);
     const stdout = std.fs.File.stdout();
     // Detect if stdout is a TTY to enable/disable color output
     const use_color = stdout.isTty();
@@ -124,38 +123,25 @@ fn replEval(allocator: std.mem.Allocator, vm: *szl.Vm, source: []const u8, expr_
     var temp = std.io.Writer.Allocating.init(allocator);
     defer temp.deinit();
 
-    while (true) {
-        const expr = reader.readNext(&diagnostics) catch |err| switch (err) {
-            szl.Reader.Error.OutOfMemory => return err,
-            szl.Reader.Error.NotImplemented, szl.Reader.Error.ReadError => {
-                try temp.writer.print("{f}\n", .{diagnostics.pretty(vm, syntax_highlighting)});
-                try stdout.writeAll(temp.writer.buffered());
-                temp.clearRetainingCapacity();
-                return;
-            },
-        } orelse return;
-
-        const result = vm.evalExpr(expr, null, &diagnostics) catch |err| {
-            if (use_color) {
-                try temp.writer.print(COLOR_RED ++ "{}\n" ++ COLOR_RESET, .{err});
-            } else {
-                try temp.writer.print("{}\n", .{err});
-            }
-            try temp.writer.print("{f}\n", .{diagnostics.pretty(vm, syntax_highlighting)});
-            try stdout.writeAll(temp.writer.buffered());
-            temp.clearRetainingCapacity();
-            continue;
-        };
-        expr_count.* += 1;
+    const result = vm.evalStr(source, null, &diagnostics) catch |err| {
         if (use_color) {
-            try temp.writer.print(
-                COLOR_CYAN ++ "${}" ++ COLOR_RESET ++ " => " ++ COLOR_GREEN ++ "{f}" ++ COLOR_RESET ++ "\n",
-                .{ expr_count.*, vm.pretty(result) },
-            );
+            try temp.writer.print(COLOR_RED ++ "{}\n" ++ COLOR_RESET, .{err});
         } else {
-            try temp.writer.print("${} => {f}\n", .{ expr_count.*, vm.pretty(result) });
+            try temp.writer.print("{}\n", .{err});
         }
+        try temp.writer.print("{f}\n", .{diagnostics.pretty(vm, syntax_highlighting)});
         try stdout.writeAll(temp.writer.buffered());
-        temp.clearRetainingCapacity();
+        return;
+    };
+    expr_count.* += 1;
+    if (use_color) {
+        try temp.writer.print(
+            COLOR_CYAN ++ "${}" ++ COLOR_RESET ++ " => " ++ COLOR_GREEN ++ "{f}" ++ COLOR_RESET ++ "\n",
+            .{ expr_count.*, vm.pretty(result, .{}) },
+        );
+    } else {
+        try temp.writer.print("${} => {f}\n", .{ expr_count.*, vm.pretty(result, .{}) });
     }
+    try stdout.writeAll(temp.writer.buffered());
+    temp.clearRetainingCapacity();
 }

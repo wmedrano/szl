@@ -711,7 +711,7 @@ fn expectReadNext(self: *Reader, expect: ?[]const u8, vm: *const Vm) !void {
     const end_of_read = "end_of_read";
     const expect_normalized = expect orelse end_of_read;
     if (try self.readNext(null)) |next| {
-        const pretty = vm.pretty(next);
+        const pretty = vm.pretty(next, .{});
         try testing.expectFmt(
             expect_normalized,
             "{f}",

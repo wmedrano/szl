@@ -145,8 +145,8 @@ pub fn inspector(self: *Vm) Inspector {
     return Inspector.init(self);
 }
 
-pub fn pretty(self: *const Vm, val: Val) PrettyPrinter {
-    return PrettyPrinter{ .vm = self, .val = val };
+pub fn pretty(self: *const Vm, val: Val, options: PrettyPrinter.Options) PrettyPrinter {
+    return PrettyPrinter{ .vm = self, .val = val, .options = options };
 }
 
 test builder {
@@ -158,7 +158,7 @@ test builder {
     try testing.expectFmt(
         "(1 2 3)",
         "{f}",
-        .{vm.pretty(try b.makeList(&items))},
+        .{vm.pretty(try b.makeList(&items), .{})},
     );
 }
 
@@ -171,12 +171,7 @@ pub fn evalStr(
     var reader = Reader.init(self, source);
     var return_val = Val.initEmptyList();
 
-    while (true) {
-        const maybe_raw_expr = reader.readNext(diagnostics);
-        const raw_expr = (maybe_raw_expr catch |err| {
-            return err;
-        }) orelse break;
-
+    while (try reader.readNext(diagnostics)) |raw_expr| {
         return_val = try self.evalExpr(raw_expr, maybe_env, diagnostics);
     }
     return return_val;
@@ -184,7 +179,7 @@ pub fn evalStr(
 
 pub fn expectEval(self: *Vm, expect: []const u8, source: []const u8) !void {
     const actual = try self.evalStr(source, null, null);
-    try testing.expectFmt(expect, "{f}", .{self.pretty(actual)});
+    try testing.expectFmt(expect, "{f}", .{self.pretty(actual, .{})});
 }
 
 pub fn evalExpr(

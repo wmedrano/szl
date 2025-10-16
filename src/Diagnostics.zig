@@ -209,7 +209,14 @@ pub const DiagnosticsPrettyPrinter = struct {
             }
             try writer.writeAll(self.colorize(Color.reset));
             try writer.writeAll(self.colorize(Color.bold));
-            try writer.print("{f}", .{self.vm.pretty(frame.proc)});
+            if (frame.proc.isNull()) {
+                try writer.print("_", .{});
+            } else {
+                try writer.print(
+                    "{f}",
+                    .{self.vm.pretty(frame.proc, .{ .repr = .display })},
+                );
+            }
             try writer.writeAll(self.colorize(Color.reset));
             depth += 1;
         }
@@ -291,12 +298,12 @@ pub const DiagnosticsPrettyPrinter = struct {
         try writer.writeAll(self.colorize(Color.dim));
         try writer.writeAll("variable: ");
         try writer.writeAll(self.colorize(Color.reset));
-        try writer.print("{f}", .{self.vm.pretty(Val.initSymbol(uv.symbol))});
+        try writer.print("{f}", .{self.vm.pretty(Val.initSymbol(uv.symbol), .{ .repr = .display })});
         try writer.writeAll("\n  ");
         try writer.writeAll(self.colorize(Color.dim));
         try writer.writeAll("module:   ");
         try writer.writeAll(self.colorize(Color.reset));
-        try writer.print("{f}", .{self.vm.pretty(Val.initModule(uv.module))});
+        try writer.print("{f}", .{self.vm.pretty(Val.initModule(uv.module), .{ .repr = .display })});
     }
 
     fn formatNotCallable(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer, val: Val) std.Io.Writer.Error!void {
@@ -309,7 +316,7 @@ pub const DiagnosticsPrettyPrinter = struct {
         try writer.writeAll(self.colorize(Color.dim));
         try writer.writeAll("value: ");
         try writer.writeAll(self.colorize(Color.reset));
-        try writer.print("{f}", .{self.vm.pretty(val)});
+        try writer.print("{f}", .{self.vm.pretty(val, .{})});
         try writer.writeAll("\n  ");
         try writer.writeAll("(expected a procedure)");
     }
@@ -321,7 +328,7 @@ pub const DiagnosticsPrettyPrinter = struct {
         try writer.writeAll(self.colorize(Color.reset));
         try writer.writeAll(" in call to ");
         try writer.writeAll(self.colorize(Color.bold));
-        try writer.print("{f}", .{self.vm.pretty(wac.proc)});
+        try writer.print("{f}", .{self.vm.pretty(wac.proc, .{ .repr = .display })});
         try writer.writeAll(self.colorize(Color.reset));
         try writer.writeAll(":");
         // Field labels - Dim
@@ -361,7 +368,7 @@ pub const DiagnosticsPrettyPrinter = struct {
 
         try writer.writeAll(" in call to ");
         try writer.writeAll(self.colorize(Color.bold));
-        try writer.print("{f}", .{self.vm.pretty(wat.proc)});
+        try writer.print("{f}", .{self.vm.pretty(wat.proc, .{})});
         try writer.writeAll(self.colorize(Color.reset));
         try writer.writeAll(":");
         // Field labels - Dim, values colored appropriately
@@ -377,14 +384,14 @@ pub const DiagnosticsPrettyPrinter = struct {
         try writer.writeAll("got type:      ");
         try writer.writeAll(self.colorize(Color.reset));
         try writer.writeAll(self.colorize(Color.red));
-        try writer.print("{s}", .{self.vm.pretty(wat.got).typeName()});
+        try writer.print("{s}", .{self.vm.pretty(wat.got, .{}).typeName()});
         try writer.writeAll(self.colorize(Color.reset));
         try writer.writeAll("\n  ");
         try writer.writeAll(self.colorize(Color.dim));
         try writer.writeAll("value:         ");
         try writer.writeAll(self.colorize(Color.reset));
         try writer.writeAll(self.colorize(Color.bold));
-        try writer.print("{f}", .{self.vm.pretty(wat.got)});
+        try writer.print("{f}", .{self.vm.pretty(wat.got, .{})});
         try writer.writeAll(self.colorize(Color.reset));
     }
 
