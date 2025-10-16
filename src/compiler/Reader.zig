@@ -162,19 +162,9 @@ fn readNextImpl(self: *Reader, diagnostic: ?*Diagnostic) Error!ReadResult {
             // Classify the identifier based on its lexeme
             const lexeme = next_token.lexeme;
 
-            // Check if it's a character literal (#\...)
-            if (lexeme.len >= 2 and lexeme[0] == '#' and lexeme[1] == '\\') {
-                return try self.parseCharacter(next_token, diagnostic);
-            }
-
-            // Check if it's a boolean (#t, #f, #true, #false)
-            if (std.mem.eql(u8, lexeme, "#t") or
-                std.mem.eql(u8, lexeme, "#f") or
-                std.mem.eql(u8, lexeme, "#true") or
-                std.mem.eql(u8, lexeme, "#false") or
-                (lexeme.len > 0 and lexeme[0] == '#'))
-            {
-                return try self.parseBoolean(next_token, diagnostic);
+            // Check if it starts with '#' (sharpsign literal)
+            if (lexeme.len > 0 and lexeme[0] == '#') {
+                return try self.parseSharpsign(next_token, diagnostic);
             }
 
             // Check if it's a number (starts with digit, +digit, -digit, or just + or -)
@@ -437,6 +427,49 @@ fn readQuote(self: *Reader, quote_token: Tokenizer.Token, diagnostic: ?*Diagnost
     }
 }
 
+fn parseSharpsign(self: Reader, token: Tokenizer.Token, diagnostic: ?*Diagnostic) Error!ReadResult {
+    const lexeme = token.lexeme;
+
+    // Lexeme must start with '#'
+    if (lexeme.len == 0 or lexeme[0] != '#') {
+        if (diagnostic) |diag| {
+            diag.* = .{
+                .kind = .unexpected_token,
+                .line = token.line,
+                .column = token.column,
+                .message = "invalid sharpsign literal",
+                .lexeme = lexeme,
+            };
+        }
+        return Error.ReadError;
+    }
+
+    // Check if it's a character literal (#\...)
+    if (lexeme.len >= 2 and lexeme[1] == '\\') {
+        return self.parseCharacter(token, diagnostic);
+    }
+
+    // Check if it's a boolean (#t, #f, #true, #false)
+    if (std.mem.eql(u8, lexeme, "#t") or std.mem.eql(u8, lexeme, "#true")) {
+        return ReadResult{ .atom = Val.initBool(true) };
+    }
+    if (std.mem.eql(u8, lexeme, "#f") or std.mem.eql(u8, lexeme, "#false")) {
+        return ReadResult{ .atom = Val.initBool(false) };
+    }
+
+    // If we get here, it's an invalid sharpsign literal
+    if (diagnostic) |diag| {
+        diag.* = .{
+            .kind = .unexpected_token,
+            .line = token.line,
+            .column = token.column,
+            .message = "invalid sharpsign literal",
+            .lexeme = lexeme,
+        };
+    }
+    return Error.ReadError;
+}
+
 fn parseNumber(_: Reader, token: Tokenizer.Token, diagnostic: ?*Diagnostic) Error!ReadResult {
     const lexeme = token.lexeme;
     if (lexeme.len == 0) {
@@ -530,28 +563,6 @@ fn parseSymbol(self: Reader, token: Tokenizer.Token) Error!ReadResult {
     return ReadResult{ .atom = symbol };
 }
 
-fn parseBoolean(_: Reader, token: Tokenizer.Token, diagnostic: ?*Diagnostic) Error!ReadResult {
-    const lexeme = token.lexeme;
-    const value = if (std.mem.eql(u8, lexeme, "#t") or std.mem.eql(u8, lexeme, "#true"))
-        true
-    else if (std.mem.eql(u8, lexeme, "#f") or std.mem.eql(u8, lexeme, "#false"))
-        false
-    else {
-        if (diagnostic) |diag| {
-            diag.* = .{
-                .kind = .unexpected_token,
-                .line = token.line,
-                .column = token.column,
-                .message = "invalid boolean literal",
-                .lexeme = lexeme,
-            };
-        }
-        return Error.ReadError;
-    };
-    const val = Val.initBool(value);
-    return ReadResult{ .atom = val };
-}
-
 fn parseString(self: Reader, token: Tokenizer.Token, diagnostic: ?*Diagnostic) Error!ReadResult {
     const lexeme = token.lexeme;
     // Token includes the quotes, so we need to strip them
@@ -614,6 +625,10 @@ fn parseCharacter(_: Reader, token: Tokenizer.Token, diagnostic: ?*Diagnostic) E
 
     const char_part = lexeme[2..];
 
+    // Handle single char
+    if (char_part.len == 1)
+        return ReadResult{ .atom = Val.initChar(char_part[0]) };
+
     // Handle named characters
     const named_characters = std.StaticStringMap(u21).initComptime(.{
         .{ "alarm", 0x0007 },
@@ -626,9 +641,11 @@ fn parseCharacter(_: Reader, token: Tokenizer.Token, diagnostic: ?*Diagnostic) E
         .{ "space", ' ' },
         .{ "tab", 0x0009 },
     });
-    const char_value: u21 = if (named_characters.get(char_part)) |value|
-        value
-    else if (char_part.len > 1 and char_part[0] == 'x') blk: {
+    if (named_characters.get(char_part)) |value|
+        return ReadResult{ .atom = Val.initChar(value) };
+
+    // Handle hex
+    if (char_part.len > 1 and char_part[0] == 'x') {
         // Hex escape: #\x3BB
         const hex_str = char_part[1..];
         if (hex_str.len == 0) {
@@ -642,7 +659,7 @@ fn parseCharacter(_: Reader, token: Tokenizer.Token, diagnostic: ?*Diagnostic) E
             }
             return Error.ReadError;
         }
-        break :blk std.fmt.parseInt(u21, hex_str, 16) catch {
+        const int_ch = std.fmt.parseInt(u21, hex_str, 16) catch {
             if (diagnostic) |diag| {
                 diag.* = .{
                     .kind = .invalid_character,
@@ -653,25 +670,20 @@ fn parseCharacter(_: Reader, token: Tokenizer.Token, diagnostic: ?*Diagnostic) E
             }
             return Error.ReadError;
         };
-    } else if (char_part.len == 1)
-        // Single character
-        char_part[0]
-    else {
-        // Unknown named character or invalid format
-        if (diagnostic) |diag| {
-            diag.* = .{
-                .kind = .invalid_character,
-                .line = token.line,
-                .column = token.column,
-                .message = "unknown named character",
-                .lexeme = lexeme,
-            };
-        }
-        return Error.ReadError;
-    };
+        return ReadResult{ .atom = Val.initChar(int_ch) };
+    }
 
-    const val = Val.initChar(char_value);
-    return ReadResult{ .atom = val };
+    // Unknown named character or invalid format
+    if (diagnostic) |diag| {
+        diag.* = .{
+            .kind = .invalid_character,
+            .line = token.line,
+            .column = token.column,
+            .message = "unknown named character",
+            .lexeme = lexeme,
+        };
+    }
+    return Error.ReadError;
 }
 
 fn expectReadNext(self: *Reader, expect: ?[]const u8, vm: *const Vm) !void {
@@ -960,4 +972,28 @@ test "error invalid bytevector" {
     const result = reader.readNext(&diag);
     try testing.expectError(Error.ReadError, result);
     try testing.expectEqual(Diagnostic.Kind.invalid_bytevector, diag.kind);
+}
+
+test "error invalid sharpsign literal" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var diag: Diagnostic = undefined;
+    var reader = Reader.init(&vm, "#invalid");
+    const result = reader.readNext(&diag);
+    try testing.expectError(Error.ReadError, result);
+    try testing.expectEqual(Diagnostic.Kind.unexpected_token, diag.kind);
+    try testing.expectEqualStrings("invalid sharpsign literal", diag.message);
+}
+
+test "error bare sharpsign" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var diag: Diagnostic = undefined;
+    var reader = Reader.init(&vm, "#");
+    const result = reader.readNext(&diag);
+    try testing.expectError(Error.ReadError, result);
+    try testing.expectEqual(Diagnostic.Kind.unexpected_token, diag.kind);
+    try testing.expectEqualStrings("invalid sharpsign literal", diag.message);
 }

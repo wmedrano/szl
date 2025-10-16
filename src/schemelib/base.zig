@@ -26,9 +26,19 @@ pub const import = NativeProc{
     .docstring = "Internal mechanism used to import.",
 };
 
-// TODO: This should support the full `import` syntax specified by r7rs.
-fn importImpl(vm: *Vm, _: ?*Diagnostics, arg_count: u32) Vm.Error!void {
-    if (arg_count != 1) return Vm.Error.NotImplemented;
+// TODO: This should support the full `import` syntax specified by r7rs. This
+// includes things like renames and skipping certain values.
+fn importImpl(vm: *Vm, diagnostics: ?*Diagnostics, arg_count: u32) Vm.Error!void {
+    if (arg_count != 1) {
+        if (diagnostics) |d| {
+            d.addDiagnostic(.{ .wrong_arg_count = .{
+                .expected = 1,
+                .got = arg_count,
+                .proc = Val.initNativeProc(&import),
+            } });
+        }
+        return Vm.Error.UncaughtException;
+    }
     const inspector = vm.inspector();
     const module_specifier = try inspector.listToSliceAlloc(vm.allocator(), vm.context.top() orelse
         return Vm.Error.UndefinedBehavior);
@@ -36,11 +46,27 @@ fn importImpl(vm: *Vm, _: ?*Diagnostics, arg_count: u32) Vm.Error!void {
     const module_symbols = try vm.allocator().alloc(Symbol, module_specifier.len);
     defer vm.allocator().free(module_symbols);
     for (module_specifier, module_symbols) |val, *sym| {
-        sym.* = val.asSymbol() orelse return Vm.Error.NotImplemented;
+        sym.* = val.asSymbol() orelse {
+            if (diagnostics) |d| {
+                d.addDiagnostic(.{ .wrong_arg_type = .{
+                    .expected = "symbol",
+                    .got = val,
+                    .proc = Val.initNativeProc(&import),
+                    .arg_name = "module-specifier",
+                    .arg_position = 0,
+                } });
+            }
+            return Vm.Error.UncaughtException;
+        };
     }
     // TODO: Import into the correct environment.
     const dst_module = try inspector.getReplEnv(null);
-    const src_module = inspector.findModule(module_symbols) orelse return Vm.Error.NotImplemented;
+    const src_module = inspector.findModule(module_symbols) orelse {
+        if (diagnostics) |d| {
+            d.addDiagnostic(.{ .other = "Module not found" });
+        }
+        return Vm.Error.UncaughtException;
+    };
     try (try inspector.handleToModule(dst_module)).import(
         vm.allocator(),
         (try inspector.handleToModule(src_module)).*,

@@ -124,7 +124,7 @@ pub const Instruction = union(enum) {
     }
 
     pub fn execute(self: Instruction, vm: *Vm, diagnostics: ?*Diagnostics) Vm.Error!void {
-        errdefer if (diagnostics) |d| d.setStackFrames(vm.context);
+        errdefer if (diagnostics) |d| d.setStackTrace(vm);
         switch (self) {
             .load_const => |idx| {
                 const val = vm.context.getConstant(@intCast(idx));
@@ -160,7 +160,7 @@ pub const Instruction = union(enum) {
             .squash => |n| try vm.context.stackSquash(n),
             .eval => |n| try eval(vm, n, diagnostics),
             .make_closure => |proc| try makeClosure(vm, proc),
-            .ret => _ = vm.context.popStackFrame(.place_on_top),
+            .ret => _ = vm.context.popStackFrame(.return_top),
         }
     }
 };
@@ -174,16 +174,19 @@ pub fn executeUntilEnd(vm: *Vm, diagnostics: ?*Diagnostics) Vm.Error!Val {
 
 fn moduleGet(vm: *Vm, symbol: Symbol, diagnostics: ?*Diagnostics) !void {
     const module = vm.context.module() orelse {
-        if (diagnostics) |d| d.appendUndefinedBehavior("Failed to get current environment");
+        if (diagnostics) |d| d.addDiagnostic(.{ .undefined_behavior = "Failed to get current environment" });
         return Vm.Error.UndefinedBehavior;
     };
     const m = vm.inspector().handleToModule(module) catch {
-        if (diagnostics) |d| d.appendUndefinedBehavior("Failed to resolve module handle");
+        if (diagnostics) |d| d.addDiagnostic(.{ .undefined_behavior = "Failed to resolve module handle" });
         return Vm.Error.UndefinedBehavior;
     };
     const val = m.getBySymbol(symbol) orelse {
-        if (diagnostics) |d| d.appendUndefinedVariable(.{ .module = module, .symbol = symbol });
-        return Vm.Error.UndefinedBehavior;
+        if (diagnostics) |d| d.addDiagnostic(.{ .undefined_variable = .{
+            .module = module,
+            .symbol = symbol,
+        } });
+        return Vm.Error.UncaughtException;
     };
     try vm.context.push(vm.allocator(), val);
 }
@@ -195,14 +198,14 @@ const EvalOptions = struct {
 
 fn eval(vm: *Vm, arg_count: u32, diagnostics: ?*Diagnostics) Vm.Error!void {
     const proc_val = vm.context.pop() orelse {
-        if (diagnostics) |d| d.appendUndefinedBehavior("VM.eval could not find any value to call");
+        if (diagnostics) |d| d.addDiagnostic(.{ .undefined_behavior = "VM.eval could not find any value to call" });
         return Vm.Error.UndefinedBehavior;
     };
     const start = vm.context.stackLen() - arg_count;
     switch (proc_val.data) {
         .empty_list, .boolean, .int, .float, .char, .module, .pair, .string, .symbol, .vector, .bytevector, .syntax_rules, .record, .record_descriptor => {
             if (diagnostics) |d| {
-                d.appendNotCallable(proc_val);
+                d.addDiagnostic(.{ .not_callable = proc_val });
             }
             return Vm.Error.UncaughtException;
         },
@@ -216,11 +219,15 @@ fn evalProc(vm: *Vm, h: Handle(Proc), arg_count: u32, start: usize, diagnostics:
     const proc = try vm.inspector().handleToProc(h);
     // 1. Check arguments.
     if (arg_count != proc.arg_count) {
-        if (diagnostics) |d| d.appendWrongArgCount(.{ .expected = proc.arg_count, .got = arg_count, .proc = Val.initProc(h) });
+        if (diagnostics) |d| d.addDiagnostic(.{ .wrong_arg_count = .{
+            .expected = proc.arg_count,
+            .got = arg_count,
+            .proc = Val.initProc(h),
+        } });
         return Vm.Error.UncaughtException;
     }
     // 2. Initialize locals.
-    try vm.context.pushMany(vm.allocator(), Val.initEmptyList(), proc.locals_count);
+    try vm.context.pushMany(vm.allocator(), Val.initBool(false), proc.locals_count);
     // 3. Set the context.
     try vm.context.pushStackFrame(vm.allocator(), .{
         .stack_start = @intCast(start),
@@ -252,13 +259,19 @@ fn evalContinuation(vm: *Vm, handle: Handle(Continuation), arg_count: u32, diagn
     const inspector = vm.inspector();
     if (arg_count != 1) {
         if (diagnostics) |d| {
-            d.appendWrongArgCount(.{ .expected = 1, .got = arg_count, .proc = Val.initContinuation(handle) });
+            d.addDiagnostic(.{ .wrong_arg_count = .{
+                .expected = 1,
+                .got = arg_count,
+                .proc = Val.initContinuation(handle),
+            } });
         }
-        return Vm.Error.NotImplemented;
+        return Vm.Error.UncaughtException;
     }
     const arg = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
-    const continuation = inspector.handleToContinuation(handle) catch
-        return Vm.Error.NotImplemented;
+    const continuation = inspector.handleToContinuation(handle) catch {
+        if (diagnostics) |d| d.addDiagnostic(.{ .undefined_behavior = "Failed to resolve continuation handle" });
+        return Vm.Error.UndefinedBehavior;
+    };
     std.mem.swap(Context, &continuation.context, &vm.context);
     try vm.context.push(vm.allocator(), arg);
 }

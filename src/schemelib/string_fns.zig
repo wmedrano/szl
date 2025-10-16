@@ -1,11 +1,12 @@
 const std = @import("std");
 const testing = std.testing;
 
+const Diagnostics = @import("../Diagnostics.zig");
 const NativeProc = @import("../types/NativeProc.zig");
 const Val = @import("../types/Val.zig");
 const Vm = @import("../Vm.zig");
 
-pub const string_length = NativeProc.withRawArgs(struct {
+pub const string_length = NativeProc.with1Arg(struct {
     pub const name = "string-length";
     pub const docstring =
         \\(string-length string)
@@ -14,12 +15,22 @@ pub const string_length = NativeProc.withRawArgs(struct {
         \\(string-length "")           =>  0
         \\(string-length "hello")      =>  5
     ;
-    pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
-        if (args.len != 1) return .{ .err = error.NotImplemented };
+    pub inline fn impl(vm: *Vm, diagnostics: ?*Diagnostics, arg: Val) Vm.Error!Val {
         const inspector = vm.inspector();
-        const string = inspector.asString(args[0]) catch return .{ .err = error.WrongType };
+        const string = inspector.asString(arg) catch {
+            if (diagnostics) |d| {
+                d.addDiagnostic(.{ .wrong_arg_type = .{
+                    .expected = "string",
+                    .got = arg,
+                    .proc = Val.initNativeProc(&string_length),
+                    .arg_name = "string",
+                    .arg_position = 0,
+                } });
+            }
+            return Vm.Error.UncaughtException;
+        };
         const len: i64 = @intCast(string.asSlice().len);
-        return .{ .val = Val.initInt(len) };
+        return Val.initInt(len);
     }
 });
 
@@ -51,11 +62,11 @@ test "string-length on non-string returns error" {
     defer vm.deinit();
 
     try testing.expectError(
-        Vm.Error.WrongType,
+        Vm.Error.UncaughtException,
         vm.evalStr("(string-length 42)", null, null),
     );
     try testing.expectError(
-        Vm.Error.WrongType,
+        Vm.Error.UncaughtException,
         vm.evalStr("(string-length #t)", null, null),
     );
 }

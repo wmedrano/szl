@@ -339,7 +339,7 @@ test "let bindings can't reference themselves" {
     defer vm.deinit();
 
     try testing.expectError(
-        error.UndefinedBehavior,
+        error.UncaughtException,
         vm.evalStr("(let ((x 1) (y x)) (+ x y))", null, null),
     );
 }

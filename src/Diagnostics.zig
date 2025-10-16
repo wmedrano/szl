@@ -1,4 +1,5 @@
 const std = @import("std");
+const testing = std.testing;
 
 const Reader = @import("compiler/Reader.zig");
 const Context = @import("Context.zig");
@@ -11,6 +12,34 @@ const Vm = @import("Vm.zig");
 
 const Diagnostics = @This();
 
+pub const SyntaxHighlighting = enum {
+    color,
+    nocolor,
+};
+
+pub const StackFrame = struct {
+    proc: Val,
+};
+
+pub const UndefinedVariableInfo = struct {
+    module: Handle(Module),
+    symbol: Symbol,
+};
+
+pub const WrongArgCountInfo = struct {
+    expected: u32,
+    got: u32,
+    proc: Val,
+};
+
+pub const WrongArgTypeInfo = struct {
+    expected: []const u8,
+    proc: Val,
+    got: Val,
+    arg_name: ?[]const u8,
+    arg_position: ?u32,
+};
+
 pub const Diagnostic = union(enum) {
     /// No diagnostic (placeholder)
     none,
@@ -19,23 +48,20 @@ pub const Diagnostic = union(enum) {
     /// Runtime undefined behavior detected
     undefined_behavior: []const u8,
     /// Variable not found in module during lookup
-    undefined_variable: struct { module: Handle(Module), symbol: Symbol },
+    undefined_variable: UndefinedVariableInfo,
     /// Attempted to call a non-procedure value
     not_callable: Val,
     /// Procedure called with incorrect number of arguments
-    wrong_arg_count: struct { expected: u32, got: u32, proc: Val },
+    wrong_arg_count: WrongArgCountInfo,
     /// Procedure called with incorrect argument type
-    wrong_arg_type: struct { expected: []const u8, proc: Val, got: Val, arg_name: ?[]const u8, arg_position: ?u32 },
-};
-
-pub const StackFrame = struct {
-    depth: usize,
-    proc: Val,
+    wrong_arg_type: WrongArgTypeInfo,
+    /// Some other custom message.
+    other: []const u8,
 };
 
 alloc: std.mem.Allocator,
 diagnostics: std.ArrayList(Diagnostic) = .{},
-stack_frames: std.ArrayList(StackFrame) = .{},
+stack_trace: std.ArrayList(StackFrame) = .{},
 oom: bool = false,
 
 pub fn init(alloc: std.mem.Allocator) Diagnostics {
@@ -44,195 +70,289 @@ pub fn init(alloc: std.mem.Allocator) Diagnostics {
 
 pub fn deinit(self: *Diagnostics) void {
     self.diagnostics.deinit(self.alloc);
-    self.stack_frames.deinit(self.alloc);
+    self.stack_trace.deinit(self.alloc);
     self.oom = false;
 }
 
 /// Clear all diagnostics while retaining allocated memory
 pub fn reset(self: *Diagnostics) void {
     self.diagnostics.clearRetainingCapacity();
-    self.stack_frames.clearRetainingCapacity();
+    self.stack_trace.clearRetainingCapacity();
     self.oom = false;
 }
 
-/// Append a reader diagnostic to the collection
-pub fn appendReader(self: *Diagnostics, diag: Reader.Diagnostic) void {
-    self.diagnostics.append(self.alloc, .{ .reader = diag }) catch {
+/// Add a diagnostic to the collection
+pub fn addDiagnostic(self: *Diagnostics, diag: Diagnostic) void {
+    self.diagnostics.append(self.alloc, diag) catch {
         self.oom = true;
     };
 }
 
-/// Append an undefined behavior diagnostic to the collection
-pub fn appendUndefinedBehavior(self: *Diagnostics, message: []const u8) void {
-    self.diagnostics.append(self.alloc, .{ .undefined_behavior = message }) catch {
+/// Capture the current stack trace from the VM, replacing any existing stack trace
+pub fn setStackTrace(self: *Diagnostics, vm: *const Vm) void {
+    // Clear existing stack trace
+    self.stack_trace.clearRetainingCapacity();
+
+    // Capture new stack trace
+    self.stack_trace.ensureTotalCapacity(self.alloc, vm.context.stack_frames.items.len) catch {
         self.oom = true;
+        return;
     };
-}
-
-/// Append an undefined variable diagnostic to the collection
-pub fn appendUndefinedVariable(self: *Diagnostics, info: struct {
-    module: Handle(Module),
-    symbol: Symbol,
-}) void {
-    self.diagnostics.append(
-        self.alloc,
-        .{ .undefined_variable = .{ .module = info.module, .symbol = info.symbol } },
-    ) catch {
-        self.oom = true;
-    };
-}
-
-/// Append a not callable diagnostic to the collection
-pub fn appendNotCallable(self: *Diagnostics, val: Val) void {
-    self.diagnostics.append(self.alloc, .{ .not_callable = val }) catch {
-        self.oom = true;
-    };
-}
-
-/// Append a wrong argument count diagnostic to the collection
-pub fn appendWrongArgCount(self: *Diagnostics, info: struct {
-    expected: u32,
-    got: u32,
-    proc: Val,
-}) void {
-    self.diagnostics.append(
-        self.alloc,
-        .{ .wrong_arg_count = .{ .expected = info.expected, .got = info.got, .proc = info.proc } },
-    ) catch {
-        self.oom = true;
-    };
-}
-
-/// Append a wrong argument type diagnostic to the collection
-pub fn appendWrongArgType(self: *Diagnostics, info: struct {
-    expected: []const u8,
-    proc: Val,
-    got: Val,
-    arg_name: ?[]const u8 = null,
-    arg_position: ?u32 = null,
-}) void {
-    self.diagnostics.append(
-        self.alloc,
-        .{ .wrong_arg_type = .{ .expected = info.expected, .proc = info.proc, .got = info.got, .arg_name = info.arg_name, .arg_position = info.arg_position } },
-    ) catch {
-        self.oom = true;
-    };
-}
-
-/// Set all stack frames from a Context to build a complete backtrace.
-/// This includes the current stack frame (idx 0) and all frames in the stack_frames history.
-/// Frames are appended in order from most recent (current) to oldest (bottom of stack).
-/// Clears any existing stack frames before appending.
-pub fn setStackFrames(self: *Diagnostics, ctx: Context) void {
-    self.stack_frames.clearRetainingCapacity();
-
-    // Append stack frames in reverse order (most recent first)
-    var depth: usize = 0;
-    while (depth < ctx.stack_frames.items.len) {
-        const frame_idx = ctx.stack_frames.items.len - depth - 1;
-        self.stack_frames.append(self.alloc, .{ .depth = depth, .proc = ctx.stack_frames.items[frame_idx].proc }) catch {
-            self.oom = true;
-        };
-        depth += 1;
+    for (vm.context.stack_frames.items) |ctx_frame| {
+        self.stack_trace.appendAssumeCapacity(StackFrame{ .proc = ctx_frame.proc });
     }
 }
 
 /// Create a pretty printer for diagnostics
-pub fn pretty(self: Diagnostics, vm: *const Vm) DiagnosticsPrettyPrinter {
-    return DiagnosticsPrettyPrinter{ .diagnostics = self, .vm = vm };
+pub fn pretty(self: Diagnostics, vm: *const Vm, syntax_highlighting: SyntaxHighlighting) DiagnosticsPrettyPrinter {
+    return DiagnosticsPrettyPrinter{ .diagnostics = self, .vm = vm, .syntax_highlighting = syntax_highlighting };
 }
 
 pub const DiagnosticsPrettyPrinter = struct {
     diagnostics: Diagnostics,
     vm: *const Vm,
+    syntax_highlighting: SyntaxHighlighting,
+
+    // ANSI color codes
+    const Color = struct {
+        const reset = "\x1b[0m";
+        const bold = "\x1b[1m";
+        const dim = "\x1b[2m";
+        const red = "\x1b[31m";
+        const green = "\x1b[32m";
+        const yellow = "\x1b[33m";
+    };
+
+    fn colorize(self: DiagnosticsPrettyPrinter, color: []const u8) []const u8 {
+        return if (self.syntax_highlighting == .color) color else "";
+    }
 
     pub fn format(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         if (self.diagnostics.oom) {
             try writer.writeAll("Warning: Diagnostics encountered OOM. Some information may be lost.");
         }
 
-        if (self.diagnostics.diagnostics.items.len == 0 and self.diagnostics.stack_frames.items.len == 0) {
+        if (self.diagnostics.diagnostics.items.len == 0 and self.diagnostics.stack_trace.items.len == 0) {
             return;
         }
 
         // Print diagnostics.
         for (self.diagnostics.diagnostics.items) |diag| {
-            try writer.writeAll("\n");
             try self.formatDiagnostic(writer, diag);
+            try writer.writeAll("\n");
         }
 
         // Print stack trace.
-        if (self.diagnostics.stack_frames.items.len > 0) {
-            try writer.writeAll("\n\nStack trace:");
-            for (self.diagnostics.stack_frames.items) |sf| {
-                // Skip frames with empty list as proc - they don't provide useful information
-                if (sf.proc.isNull()) continue;
+        if (self.diagnostics.stack_trace.items.len > 0) {
+            try writer.writeAll("\n");
+            try self.formatStackTrace(writer);
+        }
+        try writer.writeAll("\n");
+    }
 
-                try writer.writeAll("\n  ");
-                if (sf.depth == 0) {
-                    try writer.print("in {f}", .{self.vm.pretty(sf.proc)});
-                } else {
-                    try writer.print("called from {f}", .{self.vm.pretty(sf.proc)});
-                }
+    fn formatStackTrace(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        // Stack Trace Header - Yellow
+        try writer.writeAll(self.colorize(Color.yellow));
+        try writer.writeAll("Stack trace:");
+        try writer.writeAll(self.colorize(Color.reset));
+
+        // Iterate through stack frames in reverse order (most recent first)
+        var depth: usize = 0;
+        while (depth < self.diagnostics.stack_trace.items.len) {
+            const frame_idx = self.diagnostics.stack_trace.items.len - depth - 1;
+            const frame = self.diagnostics.stack_trace.items[frame_idx];
+
+            // Skip frames with empty list as proc - they don't provide useful information
+            if (frame.proc.isNull()) {
+                depth += 1;
+                continue;
             }
+
+            try writer.writeAll("\n  ");
+            // Stack entries - dim with procedure name in bold
+            try writer.writeAll(self.colorize(Color.dim));
+            if (depth == 0) {
+                try writer.writeAll("in ");
+            } else {
+                try writer.writeAll("called from ");
+            }
+            try writer.writeAll(self.colorize(Color.reset));
+            try writer.writeAll(self.colorize(Color.bold));
+            try writer.print("{f}", .{self.vm.pretty(frame.proc)});
+            try writer.writeAll(self.colorize(Color.reset));
+            depth += 1;
         }
     }
 
     fn formatDiagnostic(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer, diag: Diagnostic) std.Io.Writer.Error!void {
         switch (diag) {
             .none => try writer.writeAll("No diagnostic"),
-            .reader => |r| {
-                try writer.print("Reader error at line {}, col {}: {s}", .{
-                    r.line,
-                    r.column,
-                    r.message,
-                });
-            },
-            .undefined_behavior => |msg| {
-                try writer.print("Undefined behavior: {s}", .{msg});
-            },
-            .undefined_variable => |uv| {
-                try writer.print(
-                    "Undefined variable:\n  variable: {f}\n  module:   {f}",
-                    .{ self.vm.pretty(Val.initSymbol(uv.symbol)), self.vm.pretty(Val.initModule(uv.module)) },
-                );
-            },
-            .not_callable => |val| {
-                try writer.print("Not callable:\n  value: {f}\n  (expected a procedure)", .{self.vm.pretty(val)});
-            },
-            .wrong_arg_count => |wac| {
-                try writer.print(
-                    "Wrong argument count in call to {f}:\n  expected: {}\n  got:      {}",
-                    .{ self.vm.pretty(wac.proc), wac.expected, wac.got },
-                );
-            },
-            .wrong_arg_type => |wat| {
-                try writer.print("Wrong argument type in call to {f}:\n", .{self.vm.pretty(wat.proc)});
-
-                try writer.writeAll("  ");
-                if (wat.arg_position) |pos| {
-                    const display_pos = pos + 1; // Convert to 1-indexed for user display
-                    const suffix = switch (display_pos % 10) {
-                        1 => if (display_pos % 100 == 11) "th" else "st",
-                        2 => if (display_pos % 100 == 12) "th" else "nd",
-                        3 => if (display_pos % 100 == 13) "th" else "rd",
-                        else => "th",
-                    };
-                    try writer.print("{d}{s} argument", .{ display_pos, suffix });
-                } else {
-                    try writer.writeAll("an argument");
-                }
-
-                if (wat.arg_name) |name| {
-                    try writer.print(" ('{s}')", .{name});
-                }
-
-                try writer.print("\n  expected type: {s}\n  got type: {s}\n  value: {f}", .{
-                    wat.expected,
-                    self.vm.pretty(wat.got).typeName(),
-                    self.vm.pretty(wat.got),
-                });
-            },
+            .reader => |r| try formatReaderError(writer, r),
+            .undefined_behavior => |msg| try self.formatUndefinedBehavior(writer, msg),
+            .undefined_variable => |uv| try self.formatUndefinedVariable(writer, uv),
+            .not_callable => |val| try self.formatNotCallable(writer, val),
+            .wrong_arg_count => |wac| try self.formatWrongArgCount(writer, wac),
+            .wrong_arg_type => |wat| try self.formatWrongArgType(writer, wat),
+            .other => |msg| try self.formatOther(writer, msg),
         }
     }
+
+    fn formatReaderError(writer: *std.Io.Writer, r: Reader.Diagnostic) std.Io.Writer.Error!void {
+        try r.format(writer);
+    }
+
+    fn formatUndefinedBehavior(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer, msg: []const u8) std.Io.Writer.Error!void {
+        // Error message - Red
+        try writer.writeAll(self.colorize(Color.red));
+        try writer.writeAll("Undefined behavior: ");
+        try writer.writeAll(self.colorize(Color.reset));
+        try writer.print("{s}", .{msg});
+    }
+
+    fn formatUndefinedVariable(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer, uv: UndefinedVariableInfo) std.Io.Writer.Error!void {
+        // Error message - Red
+        try writer.writeAll(self.colorize(Color.red));
+        try writer.writeAll("Undefined variable:");
+        try writer.writeAll(self.colorize(Color.reset));
+        // Field labels - Dim
+        try writer.writeAll("\n  ");
+        try writer.writeAll(self.colorize(Color.dim));
+        try writer.writeAll("variable: ");
+        try writer.writeAll(self.colorize(Color.reset));
+        try writer.print("{f}", .{self.vm.pretty(Val.initSymbol(uv.symbol))});
+        try writer.writeAll("\n  ");
+        try writer.writeAll(self.colorize(Color.dim));
+        try writer.writeAll("module:   ");
+        try writer.writeAll(self.colorize(Color.reset));
+        try writer.print("{f}", .{self.vm.pretty(Val.initModule(uv.module))});
+    }
+
+    fn formatNotCallable(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer, val: Val) std.Io.Writer.Error!void {
+        // Error message - Red
+        try writer.writeAll(self.colorize(Color.red));
+        try writer.writeAll("Not callable:");
+        try writer.writeAll(self.colorize(Color.reset));
+        // Field label - Dim
+        try writer.writeAll("\n  ");
+        try writer.writeAll(self.colorize(Color.dim));
+        try writer.writeAll("value: ");
+        try writer.writeAll(self.colorize(Color.reset));
+        try writer.print("{f}", .{self.vm.pretty(val)});
+        try writer.writeAll("\n  ");
+        try writer.writeAll("(expected a procedure)");
+    }
+
+    fn formatWrongArgCount(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer, wac: WrongArgCountInfo) std.Io.Writer.Error!void {
+        // Error message - Red
+        try writer.writeAll(self.colorize(Color.red));
+        try writer.writeAll("Wrong argument count");
+        try writer.writeAll(self.colorize(Color.reset));
+        try writer.writeAll(" in call to ");
+        try writer.writeAll(self.colorize(Color.bold));
+        try writer.print("{f}", .{self.vm.pretty(wac.proc)});
+        try writer.writeAll(self.colorize(Color.reset));
+        try writer.writeAll(":");
+        // Field labels - Dim
+        try writer.writeAll("\n  ");
+        try writer.writeAll(self.colorize(Color.dim));
+        try writer.writeAll("expected: ");
+        try writer.writeAll(self.colorize(Color.reset));
+        try writer.writeAll(self.colorize(Color.green));
+        try writer.print("{}", .{wac.expected});
+        try writer.writeAll(self.colorize(Color.reset));
+        try writer.writeAll("\n  ");
+        try writer.writeAll(self.colorize(Color.dim));
+        try writer.writeAll("got:      ");
+        try writer.writeAll(self.colorize(Color.reset));
+        try writer.writeAll(self.colorize(Color.red));
+        try writer.print("{}", .{wac.got});
+        try writer.writeAll(self.colorize(Color.reset));
+    }
+
+    fn formatWrongArgType(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer, wat: WrongArgTypeInfo) std.Io.Writer.Error!void {
+        // Error message - Red
+        try writer.writeAll(self.colorize(Color.red));
+        try writer.writeAll("Wrong argument type");
+        try writer.writeAll(self.colorize(Color.reset));
+        try writer.writeAll(" for ");
+        if (wat.arg_position) |pos| {
+            try self.formatArgPosition(writer, pos);
+        } else {
+            try writer.writeAll("an argument");
+        }
+
+        if (wat.arg_name) |name| {
+            try writer.writeAll(" (");
+            try writer.print("'{s}'", .{name});
+            try writer.writeAll(")");
+        }
+
+        try writer.writeAll(" in call to ");
+        try writer.writeAll(self.colorize(Color.bold));
+        try writer.print("{f}", .{self.vm.pretty(wat.proc)});
+        try writer.writeAll(self.colorize(Color.reset));
+        try writer.writeAll(":");
+        // Field labels - Dim, values colored appropriately
+        try writer.writeAll("\n  ");
+        try writer.writeAll(self.colorize(Color.dim));
+        try writer.writeAll("expected type: ");
+        try writer.writeAll(self.colorize(Color.reset));
+        try writer.writeAll(self.colorize(Color.green));
+        try writer.print("{s}", .{wat.expected});
+        try writer.writeAll(self.colorize(Color.reset));
+        try writer.writeAll("\n  ");
+        try writer.writeAll(self.colorize(Color.dim));
+        try writer.writeAll("got type:      ");
+        try writer.writeAll(self.colorize(Color.reset));
+        try writer.writeAll(self.colorize(Color.red));
+        try writer.print("{s}", .{self.vm.pretty(wat.got).typeName()});
+        try writer.writeAll(self.colorize(Color.reset));
+        try writer.writeAll("\n  ");
+        try writer.writeAll(self.colorize(Color.dim));
+        try writer.writeAll("value:         ");
+        try writer.writeAll(self.colorize(Color.reset));
+        try writer.writeAll(self.colorize(Color.bold));
+        try writer.print("{f}", .{self.vm.pretty(wat.got)});
+        try writer.writeAll(self.colorize(Color.reset));
+    }
+
+    fn formatArgPosition(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer, pos: u32) std.Io.Writer.Error!void {
+        _ = self;
+        const display_pos = pos + 1; // Convert to 1-indexed for user display
+        const suffix = switch (display_pos % 10) {
+            1 => if (display_pos % 100 == 11) "th" else "st",
+            2 => if (display_pos % 100 == 12) "th" else "nd",
+            3 => if (display_pos % 100 == 13) "th" else "rd",
+            else => "th",
+        };
+        try writer.print("{d}{s}", .{ display_pos, suffix });
+        try writer.writeAll(" argument");
+    }
+
+    fn formatOther(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer, msg: []const u8) std.Io.Writer.Error!void {
+        // Error message - Red
+        try writer.writeAll(self.colorize(Color.red));
+        try writer.writeAll("Error: ");
+        try writer.writeAll(self.colorize(Color.reset));
+        try writer.print("{s}", .{msg});
+    }
 };
+
+// Test helpers
+fn expectStringContains(actual: []const u8, expected_substring: []const u8) !void {
+    if (std.mem.indexOf(u8, actual, expected_substring) == null) {
+        std.debug.print("\n====== expected to contain: ======\n{s}\n", .{expected_substring});
+        std.debug.print("====== actual string: ============\n{s}\n", .{actual});
+        std.debug.print("==================================\n", .{});
+        return error.TestExpectedStringToContain;
+    }
+}
+
+fn expectStringDoesNotContain(actual: []const u8, unexpected_substring: []const u8) !void {
+    if (std.mem.indexOf(u8, actual, unexpected_substring) != null) {
+        std.debug.print("\n====== expected NOT to contain: ==\n{s}\n", .{unexpected_substring});
+        std.debug.print("====== actual string: ============\n{s}\n", .{actual});
+        std.debug.print("==================================\n", .{});
+        return error.TestExpectedStringNotToContain;
+    }
+}

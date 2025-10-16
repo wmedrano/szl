@@ -98,7 +98,7 @@ pub fn isTruthy(self: Val) bool {
 
 pub fn isProc(self: Val) bool {
     return switch (self.data) {
-        .proc, .native_proc => true,
+        .proc, .native_proc, .continuation => true,
         else => false,
     };
 }

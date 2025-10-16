@@ -25,28 +25,28 @@ pub fn init(vm: *Vm) Inspector {
 pub inline fn asModule(_: Inspector, val: Val) Vm.Error!*Module {
     return switch (val.data) {
         .module => |env| env,
-        else => Vm.Error.WrongType,
+        else => Vm.Error.UncaughtException,
     };
 }
 
 pub inline fn asPair(self: Inspector, val: Val) Vm.Error!*Pair {
     return switch (val.data) {
         .pair => |h| self.vm.objects.pairs.get(h) orelse return Vm.Error.UndefinedBehavior,
-        else => Vm.Error.WrongType,
+        else => Vm.Error.UncaughtException,
     };
 }
 
 pub inline fn asSymbol(_: Inspector, val: Val) Vm.Error!Symbol {
     return switch (val.data) {
         .symbol => |sym| sym,
-        else => Vm.Error.WrongType,
+        else => Vm.Error.UncaughtException,
     };
 }
 
 pub inline fn asString(self: Inspector, val: Val) Vm.Error!*String {
     return switch (val.data) {
         .string => |h| self.vm.objects.strings.get(h) orelse return Vm.Error.UndefinedBehavior,
-        else => Vm.Error.WrongType,
+        else => Vm.Error.UncaughtException,
     };
 }
 
@@ -61,7 +61,7 @@ pub inline fn handleToPair(self: Inspector, h: Handle(Pair)) Vm.Error!*Pair {
 const AsListError = error{
     OutOfMemory,
     UndefinedBehavior,
-    WrongType,
+    UncaughtException,
 };
 
 pub fn listToSliceAlloc(self: Inspector, allocator: std.mem.Allocator, val: Val) AsListError![]Val {
@@ -78,7 +78,7 @@ pub fn listToSliceAlloc(self: Inspector, allocator: std.mem.Allocator, val: Val)
                 try items.append(allocator, pair.car);
                 current = pair.cdr;
             },
-            else => return Vm.Error.WrongType,
+            else => return Vm.Error.UncaughtException,
         }
     }
 
@@ -89,7 +89,7 @@ pub fn listToSliceExact(
     self: Inspector,
     val: Val,
     len: comptime_int,
-) error{ WrongType, BadLength, UndefinedBehavior }![len]Val {
+) error{ UncaughtException, BadLength, UndefinedBehavior }![len]Val {
     var items: [len]Val = undefined;
     var actual_len: usize = 0;
 
@@ -105,7 +105,7 @@ pub fn listToSliceExact(
                 actual_len += 1;
                 current = pair.cdr;
             },
-            else => return Vm.Error.WrongType,
+            else => return Vm.Error.UncaughtException,
         }
     }
 
@@ -165,7 +165,7 @@ pub fn getReplEnv(self: Inspector, diagnostics: ?*Diagnostics) Vm.Error!Handle(M
         try b.makeStaticSymbolHandle("repl"),
     });
     if (module) |m| return m;
-    if (diagnostics) |d| d.appendUndefinedBehavior("Could not find (user repl) module");
+    if (diagnostics) |d| d.addDiagnostic(.{ .undefined_behavior = "Could not find (user repl) module" });
     return Vm.Error.UndefinedBehavior;
 }
 
@@ -177,8 +177,8 @@ pub const PairIterator = struct {
 
     /// Returns the car of the current pair and advances to the cdr.
     /// Returns null when reaching an empty list.
-    /// Returns WrongType error if current value is not a pair or empty list.
-    pub fn next(self: *PairIterator) Vm.Error!?Val {
+    /// Returns UncaughtException error if current value is not a pair or empty list.
+    pub fn next(self: *PairIterator) error{ UndefinedBehavior, UncaughtException }!?Val {
         return switch (self.current.data) {
             .empty_list => null,
             .pair => |h| {
@@ -188,7 +188,7 @@ pub const PairIterator = struct {
                 self.current = pair.cdr;
                 return result;
             },
-            else => Vm.Error.WrongType,
+            else => Vm.Error.UncaughtException,
         };
     }
 };

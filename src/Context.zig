@@ -1,4 +1,5 @@
 const std = @import("std");
+const testing = std.testing;
 
 const Instruction = @import("instruction.zig").Instruction;
 const Module = @import("types/Module.zig");
@@ -69,14 +70,6 @@ pub fn pushStackFrame(self: *Context, allocator: std.mem.Allocator, stack_frame:
     try self.stack_frames.append(allocator, stack_frame);
 }
 
-/// Describes what to do with the item on top.
-pub const TopDestination = enum {
-    /// Place it on top of the new stack frame.
-    place_on_top,
-    /// Do nothing with the top item.
-    discard,
-};
-
 pub fn setExceptionHandler(self: *Context, handler: Val) error{UndefinedBehavior}!void {
     if (self.stack_frames.items.len == 0) return error.UndefinedBehavior;
     const stack_frame_idx = self.stack_frames.items.len - 1;
@@ -106,17 +99,38 @@ pub fn unwindToNextExceptionHandler(self: *Context) void {
     }
 }
 
-pub fn popStackFrame(self: *Context, comptime dest: TopDestination) bool {
+/// Describes what to do with the stack when popping a stack frame.
+pub const PopReturnVal = enum {
+    /// Place the top value on top of the new stack frame.
+    /// Use this when returning a value from a function call.
+    /// Stack effect: [caller_args... | callee_result] -> [caller_args... result]
+    return_top,
+
+    /// Discard all values from the popped frame, including the top.
+    /// Use this when you don't need any return value.
+    /// Stack effect: [caller_args... | callee_values...] -> [caller_args...]
+    discard,
+
+    /// Leave exactly one value on the stack after popping the frame.
+    /// Use this when you want to preserve the first value pushed in the frame.
+    /// Stack effect: [caller_args... | first_value other_values...] -> [caller_args... first_value]
+    return_first,
+};
+
+pub fn popStackFrame(self: *Context, comptime dest: PopReturnVal) bool {
     if (self.stack_frames.items.len == 0) return false;
     const stack_frame = self.stack_frames.items[self.stack_frames.items.len - 1];
     switch (dest) {
-        .place_on_top => {
+        .return_top => {
             const top_val = self.stack.items[self.stack.items.len - 1];
             self.stack.items[stack_frame.stack_start] = top_val;
             self.stack.shrinkRetainingCapacity(stack_frame.stack_start + 1);
         },
         .discard => {
             self.stack.shrinkRetainingCapacity(stack_frame.stack_start);
+        },
+        .return_first => {
+            self.stack.shrinkRetainingCapacity(stack_frame.stack_start + 1);
         },
     }
     self.stack_frames.items.len -= 1;
@@ -168,7 +182,7 @@ pub fn getConstant(self: Context, idx: u32) Val {
     return self.stack_frames.items[self.stack_frames.items.len - 1].constants[@intCast(idx)];
 }
 
-pub fn stackTopN(self: Context, n: u32) []const Val {
+pub fn stackTopN(self: Context, n: u32) []Val {
     const start = self.stackLen() - n;
     const start_idx: usize = @intCast(start);
     return self.stack.items[start_idx..];
@@ -225,4 +239,8 @@ pub fn stackSquash(self: *Context, n: u32) Vm.Error!void {
     const bottom_idx = self.stack.items.len - @as(usize, @intCast(n));
     self.stack.items[bottom_idx] = self.stack.items[top_idx];
     self.stack.items.len = bottom_idx + 1;
+}
+
+test "stack frame is relatively small" {
+    try testing.expectEqual(88, @sizeOf(StackFrame));
 }

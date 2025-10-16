@@ -23,10 +23,27 @@ pub const call_cc = NativeProc{
 fn callCcImpl(vm: *Vm, diagnostics: ?*Diagnostics, arg_count: u32) Vm.Error!void {
     if (arg_count != 1) {
         if (diagnostics) |d| {
-            d.appendWrongArgCount(.{ .expected = 1, .got = arg_count, .proc = Val.initNativeProc(&call_cc) });
+            d.addDiagnostic(.{ .wrong_arg_count = .{
+                .expected = 1,
+                .got = arg_count,
+                .proc = Val.initNativeProc(&call_cc),
+            } });
         }
+        return Vm.Error.UncaughtException;
     }
-    const proc = vm.context.pop() orelse return Vm.Error.NotImplemented;
+    const proc = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
+    if (!proc.isProc()) {
+        if (diagnostics) |d| {
+            d.addDiagnostic(.{ .wrong_arg_type = .{
+                .expected = "procedure",
+                .got = proc,
+                .proc = Val.initNativeProc(&call_cc),
+                .arg_name = "proc",
+                .arg_position = 0,
+            } });
+        }
+        return Vm.Error.UncaughtException;
+    }
     const cont = try vm.builder().makeContinuation(vm.context);
     try vm.context.pushSlice(vm.allocator(), &.{ cont, proc });
     try (Instruction{ .eval = 1 }).execute(vm, null);
@@ -44,8 +61,17 @@ pub const apply = NativeProc{
     ,
 };
 
-fn applyImpl(vm: *Vm, _: ?*Diagnostics, arg_count: u32) Vm.Error!void {
-    if (arg_count < 2) return Vm.Error.NotImplemented;
+fn applyImpl(vm: *Vm, diagnostics: ?*Diagnostics, arg_count: u32) Vm.Error!void {
+    if (arg_count < 2) {
+        if (diagnostics) |d| {
+            d.addDiagnostic(.{ .wrong_arg_count = .{
+                .expected = 2,
+                .got = arg_count,
+                .proc = Val.initNativeProc(&apply),
+            } });
+        }
+        return Vm.Error.UncaughtException;
+    }
     const args = vm.context.stackTopNUnstable(arg_count);
     const proc = args[0];
     @memmove(args[0 .. args.len - 1], args[1..]);
@@ -53,9 +79,33 @@ fn applyImpl(vm: *Vm, _: ?*Diagnostics, arg_count: u32) Vm.Error!void {
     const proc_args = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
     var rest_iter = vm.inspector().iteratePairs(proc_args);
     var proc_args_count = arg_count - 2;
-    while (try rest_iter.next()) |next| {
-        proc_args_count += 1;
-        try vm.context.push(vm.allocator(), next);
+    while (rest_iter.next()) |maybe_next| {
+        if (maybe_next) |next| {
+            proc_args_count += 1;
+            try vm.context.push(vm.allocator(), next);
+        } else break;
+    } else |err| {
+        @branchHint(.cold);
+        switch (err) {
+            error.UncaughtException => {
+                if (diagnostics) |d| {
+                    d.addDiagnostic(.{ .wrong_arg_type = .{
+                        .expected = "list",
+                        .got = proc_args,
+                        .proc = Val.initNativeProc(&apply),
+                        .arg_name = "args",
+                        .arg_position = arg_count - 1,
+                    } });
+                }
+                return Vm.Error.UncaughtException;
+            },
+            error.UndefinedBehavior => {
+                if (diagnostics) |d| {
+                    d.addDiagnostic(.{ .undefined_behavior = "Invalid list structure in apply" });
+                }
+                return Vm.Error.UndefinedBehavior;
+            },
+        }
     }
     try vm.context.push(vm.allocator(), proc);
     try (Instruction{ .eval = proc_args_count }).execute(vm, null);

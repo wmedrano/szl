@@ -27,8 +27,8 @@ pub fn main() !void {
 
 fn runScript(allocator: std.mem.Allocator) !void {
     // Read source
-    const source = try readInput(allocator);
-    defer allocator.free(source);
+    var source = try readInput(allocator);
+    defer source.deinit(allocator);
 
     // Evaluate each expression
     var vm = try szl.Vm.init(.{ .allocator = allocator });
@@ -37,23 +37,35 @@ fn runScript(allocator: std.mem.Allocator) !void {
     var diagnostics = szl.Diagnostics.init(allocator);
     defer diagnostics.deinit();
 
-    _ = vm.evalStr(source, null, &diagnostics) catch |err| {
+    _ = vm.evalStr(source.items, null, &diagnostics) catch |err| {
         const stderr = std.fs.File.stderr();
-        var buf: [4096]u8 = undefined;
-        var msg = try std.fmt.bufPrint(&buf, "{s}Error: {}\n", .{ COLOR_RED, err });
-        try stderr.writeAll(msg);
-        msg = try std.fmt.bufPrint(&buf, "{f}{s}\n", .{ diagnostics.pretty(&vm), COLOR_RESET });
-        try stderr.writeAll(msg);
+        // Detect if stderr is a TTY to enable/disable color output
+        const use_color = stderr.isTty();
+        const syntax_highlighting: szl.Diagnostics.SyntaxHighlighting = if (use_color) .color else .nocolor;
+
+        var temp = std.io.Writer.Allocating.init(allocator);
+        defer temp.deinit();
+        if (use_color) {
+            try temp.writer.print("{s}Error: {}\n", .{ COLOR_RED, err });
+            try temp.writer.print("{f}{s}\n", .{ diagnostics.pretty(&vm, syntax_highlighting), COLOR_RESET });
+        } else {
+            try temp.writer.print("Error: {}\n", .{err});
+            try temp.writer.print("{f}\n", .{diagnostics.pretty(&vm, syntax_highlighting)});
+        }
+        try stderr.writeAll(temp.writer.buffered());
         return err;
     };
 }
 
-fn readInput(allocator: std.mem.Allocator) ![]const u8 {
-    const stdin = std.fs.File.stdin();
-    defer stdin.close();
-    var input_buffer: [1024]u8 = undefined;
-    var reader = stdin.reader(&input_buffer);
-    return reader.interface.readAlloc(allocator, 0);
+fn readInput(allocator: std.mem.Allocator) !std.ArrayList(u8) {
+    var buf: [1024 * 1024]u8 = undefined;
+    var reader = std.fs.File.stdin().reader(&buf);
+
+    var writer = std.Io.Writer.Allocating.init(allocator);
+    defer writer.deinit();
+
+    _ = try reader.interface.streamRemaining(&writer.writer);
+    return writer.toArrayList();
 }
 
 fn runRepl(allocator: std.mem.Allocator) !void {
@@ -84,7 +96,7 @@ fn runRepl(allocator: std.mem.Allocator) !void {
         switch (Tokenizer.isComplete(input_buffer.items)) {
             .complete => {
                 defer input_buffer.clearRetainingCapacity();
-                try evaluateAndPrint(allocator, &vm, input_buffer.items, &expr_count);
+                try replEval(allocator, &vm, input_buffer.items, &expr_count);
             },
             .missing_close_paren => {},
             .malformed => {
@@ -99,38 +111,55 @@ fn runRepl(allocator: std.mem.Allocator) !void {
     }
 }
 
-fn evaluateAndPrint(allocator: std.mem.Allocator, vm: *szl.Vm, source: []const u8, expr_count: *usize) !void {
+fn replEval(allocator: std.mem.Allocator, vm: *szl.Vm, source: []const u8, expr_count: *usize) !void {
     var diagnostics = szl.Diagnostics.init(allocator);
     defer diagnostics.deinit();
 
     var reader = szl.Reader.init(vm, source);
     var diagnostic = szl.Reader.Diagnostic{};
     const stdout = std.fs.File.stdout();
-    var buf: [4096]u8 = undefined;
+    // Detect if stdout is a TTY to enable/disable color output
+    const use_color = stdout.isTty();
+    const syntax_highlighting: szl.Diagnostics.SyntaxHighlighting = if (use_color) .color else .nocolor;
+
+    var temp = std.io.Writer.Allocating.init(allocator);
+    defer temp.deinit();
 
     while (true) {
         const expr = reader.readNext(&diagnostic) catch |err| switch (err) {
             szl.Reader.Error.OutOfMemory => return err,
             szl.Reader.Error.NotImplemented, szl.Reader.Error.ReadError => {
-                const msg = try std.fmt.bufPrint(&buf, COLOR_RED ++ "{f}\n\n\n" ++ COLOR_RESET, .{diagnostic});
-                try stdout.writeAll(msg);
+                if (use_color) {
+                    try temp.writer.print(COLOR_RED ++ "{f}\n" ++ COLOR_RESET, .{diagnostic});
+                } else {
+                    try temp.writer.print("{f}\n", .{diagnostic});
+                }
+                try stdout.writeAll(temp.writer.buffered());
                 return;
             },
         } orelse return;
 
         const result = vm.evalExpr(expr, null, &diagnostics) catch |err| {
-            var msg = try std.fmt.bufPrint(&buf, COLOR_RED ++ "Error: {}\n\n" ++ COLOR_RESET, .{err});
-            try stdout.writeAll(msg);
-            msg = try std.fmt.bufPrint(&buf, "{f}\n\n\n", .{diagnostics.pretty(vm)});
-            try stdout.writeAll(msg);
+            if (use_color) {
+                try temp.writer.print(COLOR_RED ++ "{}\n" ++ COLOR_RESET, .{err});
+            } else {
+                try temp.writer.print("{}\n", .{err});
+            }
+            try temp.writer.print("{f}\n", .{diagnostics.pretty(vm, syntax_highlighting)});
+            try stdout.writeAll(temp.writer.buffered());
+            temp.clearRetainingCapacity();
             continue;
         };
         expr_count.* += 1;
-        const msg = try std.fmt.bufPrint(
-            &buf,
-            COLOR_CYAN ++ "${}" ++ COLOR_RESET ++ " => " ++ COLOR_GREEN ++ "{f}" ++ COLOR_RESET ++ "\n",
-            .{ expr_count.*, vm.pretty(result) },
-        );
-        try stdout.writeAll(msg);
+        if (use_color) {
+            try temp.writer.print(
+                COLOR_CYAN ++ "${}" ++ COLOR_RESET ++ " => " ++ COLOR_GREEN ++ "{f}" ++ COLOR_RESET ++ "\n",
+                .{ expr_count.*, vm.pretty(result) },
+            );
+        } else {
+            try temp.writer.print("${} => {f}\n", .{ expr_count.*, vm.pretty(result) });
+        }
+        try stdout.writeAll(temp.writer.buffered());
+        temp.clearRetainingCapacity();
     }
 }

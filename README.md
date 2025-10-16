@@ -47,6 +47,25 @@ Use `define` to create variables and functions:
 (double 7)  ; => 14
 ```
 
+### Local Bindings
+
+Use `let` to create temporary variables:
+
+```scheme
+(let ((x 5)
+      (y 10))
+  (+ x y))  ; => 15
+```
+
+In `let`, bindings happen simultaneously, so they can't reference each other. Use `let*` for sequential bindings:
+
+```scheme
+; let* allows each binding to use previous ones
+(let* ((x 5)
+       (y (* x 2)))  ; y can reference x
+  (+ x y))  ; => 15
+```
+
 ### Data Types
 
 ```scheme
@@ -63,7 +82,7 @@ Use `define` to create variables and functions:
 "hello"
 (string-append "hello" " " "world")  ; => "hello world"
 
-; Lists (immutable linked lists)
+; Lists
 '(1 2 3)                    ; literal list
 (list 1 2 3)                ; constructed list
 (cons 1 '(2 3))             ; prepend: => (1 2 3)

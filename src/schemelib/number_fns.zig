@@ -1,6 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 
+const Diagnostics = @import("../Diagnostics.zig");
 const Instruction = @import("../instruction.zig").Instruction;
 const Module = @import("../types/Module.zig");
 const NativeProc = @import("../types/NativeProc.zig");
@@ -74,29 +75,51 @@ fn isEqual(a: Number, b: Number) bool {
     return a_val == b_val;
 }
 
+/// Helper function to validate all arguments are numbers and populate diagnostics on error
+/// Reports diagnostics for ALL invalid arguments, not just the first one
+fn validateNumberArgs(args: []const Val, diagnostics: ?*Diagnostics, proc: Val) !void {
+    var has_error = false;
+    for (args, 0..) |v, i| {
+        if (v.asNumber() == null) {
+            has_error = true;
+            if (diagnostics) |d| {
+                d.addDiagnostic(.{ .wrong_arg_type = .{
+                    .expected = "number",
+                    .got = v,
+                    .proc = proc,
+                    .arg_name = null,
+                    .arg_position = @intCast(i),
+                } });
+            }
+        }
+    }
+    if (has_error) {
+        return Vm.Error.UncaughtException;
+    }
+}
+
 /// Generic comparison helper that checks if all arguments are ordered according to compareFn
-fn checkOrdered(args: []const Val, comptime compare_fn: fn (Number, Number) bool) NativeProc.Result {
+fn checkOrdered(args: []const Val, diagnostics: ?*Diagnostics, proc: Val, comptime compare_fn: fn (Number, Number) bool) Vm.Error!Val {
+    // Validate all arguments are numbers first
+    try validateNumberArgs(args, diagnostics, proc);
+
     const is_ordered = switch (args.len) {
         0 => true,
-        1 => blk: {
-            // Validate single argument is a number
-            _ = args[0].asNumber() orelse return .{ .err = error.NotImplemented };
-            break :blk true;
-        },
+        1 => true,
         else => blk: {
-            var prev = args[0].asNumber() orelse return .{ .err = error.NotImplemented };
+            var prev = args[0].asNumber().?; // Safe because we validated above
             for (args[1..]) |v| {
-                const curr = v.asNumber() orelse return .{ .err = error.NotImplemented };
+                const curr = v.asNumber().?; // Safe because we validated above
                 if (!compare_fn(prev, curr)) break :blk false;
                 prev = curr;
             }
             break :blk true;
         },
     };
-    return .{ .val = Val.initBool(is_ordered) };
+    return Val.initBool(is_ordered);
 }
 
-const Add = struct {
+pub const add = NativeProc.withRawArgs(struct {
     pub const name = "+";
     pub const docstring =
         \\(+ z1 ...)
@@ -107,19 +130,15 @@ const Add = struct {
         \\(+)     =>  0
     ;
 
-    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
+    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
+        // Validate all arguments are numbers first
+        try validateNumberArgs(args, diagnostics, Val.initNativeProc(&add));
+
         var int_sum: i64 = 0;
         var float_sum: f64 = 0.0;
         var has_float = false;
-        for (args, 0..) |v, i| {
-            const num = v.asNumber() orelse return NativeProc.Result{
-                .wrong_type = .{
-                    .expected = "number",
-                    .got = v,
-                    .arg_name = null,
-                    .arg_position = @intCast(i),
-                },
-            };
+        for (args) |v| {
+            const num = v.asNumber().?; // Safe because we validated above
             switch (num) {
                 .int => |x| int_sum += x,
                 .float => |x| {
@@ -130,15 +149,13 @@ const Add = struct {
         }
         if (has_float) {
             float_sum += @floatFromInt(int_sum);
-            return NativeProc.Result{ .val = Val.initFloat(float_sum) };
+            return Val.initFloat(float_sum);
         }
-        return NativeProc.Result{ .val = Val.initInt(int_sum) };
+        return Val.initInt(int_sum);
     }
-};
+});
 
-pub const add = NativeProc.withRawArgs(Add);
-
-const Sub = struct {
+pub const sub = NativeProc.withRawArgs(struct {
     pub const name = "-";
     pub const docstring =
         \\(- z1 z2 ...)
@@ -149,21 +166,34 @@ const Sub = struct {
         \\(- 3 4 5)   =>  -6
         \\(- 3)       =>  -3
     ;
-    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
-        switch (args.len) {
-            0 => return .{ .err = error.NotImplemented },
-            1 => switch (args[0].asNumber() orelse return .{ .err = error.NotImplemented }) {
-                .float => |x| return .{ .val = Val.initFloat(-x) },
-                .int => |x| return .{ .val = Val.initInt(-x) },
-            },
-            else => {},
+    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
+        if (args.len == 0) {
+            if (diagnostics) |d| {
+                d.addDiagnostic(.{ .wrong_arg_count = .{
+                    .expected = 1,
+                    .got = 0,
+                    .proc = Val.initNativeProc(&sub),
+                } });
+            }
+            return Vm.Error.UncaughtException;
+        }
+
+        // Validate all arguments are numbers first
+        try validateNumberArgs(args, diagnostics, Val.initNativeProc(&sub));
+
+        // Single argument: return negation
+        if (args.len == 1) {
+            switch (args[0].asNumber().?) { // Safe because we validated above
+                .float => |x| return Val.initFloat(-x),
+                .int => |x| return Val.initInt(-x),
+            }
         }
 
         // Get the first value and check if we have floats
         var has_float = false;
         var int_result: i64 = 0;
         var float_result: f64 = 0.0;
-        const first_num = args[0].asNumber() orelse return .{ .err = error.NotImplemented };
+        const first_num = args[0].asNumber().?; // Safe because we validated above
         switch (first_num) {
             .int => |x| int_result = x,
             .float => |x| {
@@ -174,7 +204,7 @@ const Sub = struct {
 
         // Multiple arguments: subtract sequentially
         for (args[1..]) |v| {
-            const num = v.asNumber() orelse return .{ .err = error.NotImplemented };
+            const num = v.asNumber().?; // Safe because we validated above
             switch (num) {
                 .int => |x| int_result -= x,
                 .float => |x| {
@@ -186,15 +216,13 @@ const Sub = struct {
 
         if (has_float) {
             float_result += @floatFromInt(int_result);
-            return .{ .val = Val.initFloat(float_result) };
+            return Val.initFloat(float_result);
         }
-        return .{ .val = Val.initInt(int_result) };
+        return Val.initInt(int_result);
     }
-};
+});
 
-pub const sub = NativeProc.withRawArgs(Sub);
-
-const Lt = struct {
+pub const lt = NativeProc.withRawArgs(struct {
     pub const name = "<";
     pub const docstring =
         \\(< x1 x2 x3 ...)
@@ -203,14 +231,12 @@ const Lt = struct {
         \\(< 1 2 3)  =>  #t
         \\(< 1 1 2)  =>  #f
     ;
-    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
-        return checkOrdered(args, isLessThan);
+    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
+        return checkOrdered(args, diagnostics, Val.initNativeProc(&lt), isLessThan);
     }
-};
+});
 
-pub const lt = NativeProc.withRawArgs(Lt);
-
-const Lte = struct {
+pub const lte = NativeProc.withRawArgs(struct {
     pub const name = "<=";
     pub const docstring =
         \\(<= x1 x2 x3 ...)
@@ -219,14 +245,12 @@ const Lte = struct {
         \\(<= 1 2 2 3)  =>  #t
         \\(<= 1 2 1)    =>  #f
     ;
-    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
-        return checkOrdered(args, isLessThanOrEqual);
+    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
+        return checkOrdered(args, diagnostics, Val.initNativeProc(&lte), isLessThanOrEqual);
     }
-};
+});
 
-pub const lte = NativeProc.withRawArgs(Lte);
-
-const Gt = struct {
+pub const gt = NativeProc.withRawArgs(struct {
     pub const name = ">";
     pub const docstring =
         \\(> x1 x2 x3 ...)
@@ -235,12 +259,10 @@ const Gt = struct {
         \\(> 3 2 1)  =>  #t
         \\(> 3 3 1)  =>  #f
     ;
-    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
-        return checkOrdered(args, isGreaterThan);
+    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
+        return checkOrdered(args, diagnostics, Val.initNativeProc(&gt), isGreaterThan);
     }
-};
-
-pub const gt = NativeProc.withRawArgs(Gt);
+});
 
 pub const gte = NativeProc.withRawArgs(struct {
     pub const name = ">=";
@@ -251,12 +273,12 @@ pub const gte = NativeProc.withRawArgs(struct {
         \\(>= 3 2 2 1)  =>  #t
         \\(>= 3 2 3)    =>  #f
     ;
-    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
-        return checkOrdered(args, isGreaterThanOrEqual);
+    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
+        return checkOrdered(args, diagnostics, Val.initNativeProc(&gte), isGreaterThanOrEqual);
     }
 });
 
-const Eq = struct {
+pub const eq = NativeProc.withRawArgs(struct {
     pub const name = "=";
     pub const docstring =
         \\(= z1 z2 z3 ...)
@@ -266,22 +288,20 @@ const Eq = struct {
         \\(= 1 1 2)    =>  #f
         \\(= 5.0 5)    =>  #t
     ;
-    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
+    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
+        // Validate all arguments are numbers first
+        try validateNumberArgs(args, diagnostics, Val.initNativeProc(&eq));
+
         const is_equal = switch (args.len) {
-            0 => true,
-            1 => blk: {
-                // Validate single argument is a number
-                _ = args[0].asNumber() orelse return .{ .err = error.NotImplemented };
-                break :blk true;
-            },
+            0, 1 => true,
             else => blk: {
-                const first = args[0].asNumber() orelse return .{ .err = error.NotImplemented };
+                const first = args[0].asNumber().?; // Safe because we validated above
                 const first_val: f64 = switch (first) {
                     .int => |x| @floatFromInt(x),
                     .float => |x| x,
                 };
                 for (args[1..]) |v| {
-                    const curr = v.asNumber() orelse return .{ .err = error.NotImplemented };
+                    const curr = v.asNumber().?; // Safe because we validated above
                     const curr_val: f64 = switch (curr) {
                         .int => |x| @floatFromInt(x),
                         .float => |x| x,
@@ -291,13 +311,11 @@ const Eq = struct {
                 break :blk true;
             },
         };
-        return .{ .val = Val.initBool(is_equal) };
+        return Val.initBool(is_equal);
     }
-};
+});
 
-pub const eq = NativeProc.withRawArgs(Eq);
-
-pub const number_p = NativeProc.withRawArgs(struct {
+pub const number_p = NativeProc.with1Arg(struct {
     pub const name = "number?";
     pub const docstring =
         \\(number? obj)
@@ -307,15 +325,12 @@ pub const number_p = NativeProc.withRawArgs(struct {
         \\(number? 5.0)    =>  #t
         \\(number? "5")    =>  #f
     ;
-    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
-        return switch (args.len) {
-            1 => NativeProc.Result{ .val = Val.initBool(args[0].asNumber() != null) },
-            else => NativeProc.Result{ .wrong_arg_count = .{ .expected = 1, .got = @intCast(args.len) } },
-        };
+    pub inline fn impl(_: *Vm, _: ?*Diagnostics, arg: Val) Vm.Error!Val {
+        return Val.initBool(arg.asNumber() != null);
     }
 });
 
-pub const integer_p = NativeProc.withRawArgs(struct {
+pub const integer_p = NativeProc.with1Arg(struct {
     pub const name = "integer?";
     pub const docstring =
         \\(integer? obj)
@@ -325,11 +340,8 @@ pub const integer_p = NativeProc.withRawArgs(struct {
         \\(integer? 5.0)   =>  #f
         \\(integer? 5.5)   =>  #f
     ;
-    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
-        return switch (args.len) {
-            1 => NativeProc.Result{ .val = Val.initBool(args[0].data == .int) },
-            else => NativeProc.Result{ .wrong_arg_count = .{ .expected = 1, .got = @intCast(args.len) } },
-        };
+    pub inline fn impl(_: *Vm, _: ?*Diagnostics, arg: Val) Vm.Error!Val {
+        return Val.initBool(arg.data == .int);
     }
 });
 
@@ -397,15 +409,15 @@ test "- with no args returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.NotImplemented, vm.evalStr("(-)", null, null));
+    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(-)", null, null));
 }
 
 test "- on non-ints returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.NotImplemented, vm.evalStr("(- #t)", null, null));
-    try testing.expectError(Vm.Error.NotImplemented, vm.evalStr("(- 5 #f)", null, null));
+    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(- #t)", null, null));
+    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(- 5 #f)", null, null));
 }
 
 test "- on floats subtracts floats" {
@@ -462,7 +474,7 @@ test "<= on non-ints returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.NotImplemented, vm.evalStr("(<= #t)", null, null));
+    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(<= #t)", null, null));
 }
 
 test "<= on floats returns correct result" {
@@ -517,7 +529,7 @@ test "< on non-ints returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.NotImplemented, vm.evalStr("(< #t)", null, null));
+    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(< #t)", null, null));
 }
 
 test "< on floats returns correct result" {
@@ -572,7 +584,7 @@ test "> on non-ints returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.NotImplemented, vm.evalStr("(> #t)", null, null));
+    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(> #t)", null, null));
 }
 
 test "> on floats returns correct result" {
@@ -627,7 +639,7 @@ test ">= on non-ints returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.NotImplemented, vm.evalStr("(>= #t)", null, null));
+    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(>= #t)", null, null));
 }
 
 test ">= on floats returns correct result" {
@@ -678,7 +690,7 @@ test "= on non-ints returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.NotImplemented, vm.evalStr("(= #t)", null, null));
+    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(= #t)", null, null));
 }
 
 test "= on floats returns correct result" {

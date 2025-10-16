@@ -45,7 +45,6 @@ pub const Error = error{
     ReadError,
     UndefinedBehavior,
     Unreachable,
-    WrongType,
     UncaughtException,
 };
 
@@ -178,7 +177,7 @@ pub fn evalStr(
             if (diagnostics == null) null else &reader_diag,
         );
         const raw_expr = (maybe_raw_expr catch |err| {
-            if (diagnostics) |d| d.appendReader(reader_diag);
+            if (diagnostics) |d| d.addDiagnostic(.{ .reader = reader_diag });
             return err;
         }) orelse break;
 

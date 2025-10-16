@@ -1,6 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 
+const Diagnostics = @import("../Diagnostics.zig");
 const NativeProc = @import("../types/NativeProc.zig");
 const Val = @import("../types/Val.zig");
 const Vm = @import("../Vm.zig");
@@ -15,13 +16,18 @@ pub const eq_p = NativeProc.withRawArgs(struct {
         \\(eq? 42 42)     =>  #t
         \\(eq? '() '())   =>  #t
     ;
-    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
-        return switch (args.len) {
-            2 => NativeProc.Result{ .val = Val.initBool(args[0].eq(args[1])) },
-            else => NativeProc.Result{
-                .wrong_arg_count = .{ .expected = 2, .got = @intCast(args.len) },
-            },
-        };
+    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
+        if (args.len != 2) {
+            if (diagnostics) |d| {
+                d.addDiagnostic(.{ .wrong_arg_count = .{
+                    .expected = 2,
+                    .got = @intCast(args.len),
+                    .proc = Val.initNativeProc(&eq_p),
+                } });
+            }
+            return Vm.Error.UncaughtException;
+        }
+        return Val.initBool(args[0].eq(args[1]));
     }
 });
 
@@ -35,13 +41,18 @@ pub const eqv_p = NativeProc.withRawArgs(struct {
         \\(eq? 42 42)     =>  #t
         \\(eq? '() '())   =>  #t
     ;
-    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
-        return switch (args.len) {
-            2 => NativeProc.Result{ .val = Val.initBool(args[0].eq(args[1])) },
-            else => NativeProc.Result{
-                .wrong_arg_count = .{ .expected = 2, .got = @intCast(args.len) },
-            },
-        };
+    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
+        if (args.len != 2) {
+            if (diagnostics) |d| {
+                d.addDiagnostic(.{ .wrong_arg_count = .{
+                    .expected = 2,
+                    .got = @intCast(args.len),
+                    .proc = Val.initNativeProc(&eqv_p),
+                } });
+            }
+            return Vm.Error.UncaughtException;
+        }
+        return Val.initBool(args[0].eq(args[1]));
     }
 });
 
@@ -55,18 +66,19 @@ pub const equal_p = NativeProc.withRawArgs(struct {
         \\(equal? '(1 2 3) '(1 2 3))  =>  #t
         \\(equal? "hello" "hello")    =>  #t
     ;
-    pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
-        return switch (args.len) {
-            2 => {
-                const result = vm.inspector().isEqual(args[0], args[1]) catch |err| {
-                    return NativeProc.Result{ .err = err };
-                };
-                return NativeProc.Result{ .val = Val.initBool(result) };
-            },
-            else => NativeProc.Result{
-                .wrong_arg_count = .{ .expected = 2, .got = @intCast(args.len) },
-            },
-        };
+    pub inline fn impl(vm: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
+        if (args.len != 2) {
+            if (diagnostics) |d| {
+                d.addDiagnostic(.{ .wrong_arg_count = .{
+                    .expected = 2,
+                    .got = @intCast(args.len),
+                    .proc = Val.initNativeProc(&equal_p),
+                } });
+            }
+            return Vm.Error.UncaughtException;
+        }
+        const result = try vm.inspector().isEqual(args[0], args[1]);
+        return Val.initBool(result);
     }
 });
 

@@ -1,11 +1,12 @@
 const std = @import("std");
 const testing = std.testing;
 
+const Diagnostics = @import("../Diagnostics.zig");
 const NativeProc = @import("../types/NativeProc.zig");
 const Val = @import("../types/Val.zig");
 const Vm = @import("../Vm.zig");
 
-pub const not = NativeProc.withRawArgs(struct {
+pub const not = NativeProc.with1Arg(struct {
     pub const name = "not";
     pub const docstring =
         \\(not obj)
@@ -15,15 +16,12 @@ pub const not = NativeProc.withRawArgs(struct {
         \\(not #f)    =>  #t
         \\(not 'foo)  =>  #f
     ;
-    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
-        return switch (args.len) {
-            1 => NativeProc.Result{ .val = Val.initBool(!args[0].isTruthy()) },
-            else => NativeProc.Result{ .wrong_arg_count = .{ .expected = 1, .got = @intCast(args.len) } },
-        };
+    pub inline fn impl(_: *Vm, _: ?*Diagnostics, arg: Val) Vm.Error!Val {
+        return Val.initBool(!arg.isTruthy());
     }
 });
 
-pub const boolean_p = NativeProc.withRawArgs(struct {
+pub const boolean_p = NativeProc.with1Arg(struct {
     pub const name = "boolean?";
     pub const docstring =
         \\(boolean? obj)
@@ -33,11 +31,8 @@ pub const boolean_p = NativeProc.withRawArgs(struct {
         \\(boolean? #f)    =>  #t
         \\(boolean? 0)     =>  #f
     ;
-    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
-        return switch (args.len) {
-            1 => NativeProc.Result{ .val = Val.initBool(args[0].asBool() != null) },
-            else => NativeProc.Result{ .wrong_arg_count = .{ .expected = 1, .got = @intCast(args.len) } },
-        };
+    pub inline fn impl(_: *Vm, _: ?*Diagnostics, arg: Val) Vm.Error!Val {
+        return Val.initBool(arg.asBool() != null);
     }
 });
 

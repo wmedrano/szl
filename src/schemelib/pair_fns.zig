@@ -1,12 +1,13 @@
 const std = @import("std");
 const testing = std.testing;
 
+const Diagnostics = @import("../Diagnostics.zig");
 const NativeProc = @import("../types/NativeProc.zig");
 const Pair = @import("../types/Pair.zig");
 const Val = @import("../types/Val.zig");
 const Vm = @import("../Vm.zig");
 
-pub const car = NativeProc.withRawArgs(struct {
+pub const car = NativeProc.with1Arg(struct {
     pub const name = "car";
     pub const docstring =
         \\(car pair)
@@ -15,15 +16,25 @@ pub const car = NativeProc.withRawArgs(struct {
         \\(car '(a . b))  =>  a
         \\(car '(a b c))  =>  a
     ;
-    pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
-        if (args.len != 1) return .{ .err = error.NotImplemented };
+    pub inline fn impl(vm: *Vm, diagnostics: ?*Diagnostics, arg: Val) Vm.Error!Val {
         const inspector = vm.inspector();
-        const pair = inspector.asPair(args[0]) catch return .{ .err = error.WrongType };
-        return .{ .val = pair.car };
+        const pair = inspector.asPair(arg) catch {
+            if (diagnostics) |d| {
+                d.addDiagnostic(.{ .wrong_arg_type = .{
+                    .expected = "pair",
+                    .got = arg,
+                    .proc = Val.initNativeProc(&car),
+                    .arg_name = "pair",
+                    .arg_position = 0,
+                } });
+            }
+            return Vm.Error.UncaughtException;
+        };
+        return pair.car;
     }
 });
 
-pub const cdr = NativeProc.withRawArgs(struct {
+pub const cdr = NativeProc.with1Arg(struct {
     pub const name = "cdr";
     pub const docstring =
         \\(cdr pair)
@@ -32,15 +43,25 @@ pub const cdr = NativeProc.withRawArgs(struct {
         \\(cdr '(a . b))  =>  b
         \\(cdr '(a b c))  =>  (b c)
     ;
-    pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
-        if (args.len != 1) return .{ .err = error.NotImplemented };
+    pub inline fn impl(vm: *Vm, diagnostics: ?*Diagnostics, arg: Val) Vm.Error!Val {
         const inspector = vm.inspector();
-        const pair = inspector.asPair(args[0]) catch return .{ .err = error.WrongType };
-        return .{ .val = pair.cdr };
+        const pair = inspector.asPair(arg) catch {
+            if (diagnostics) |d| {
+                d.addDiagnostic(.{ .wrong_arg_type = .{
+                    .expected = "pair",
+                    .got = arg,
+                    .proc = Val.initNativeProc(&cdr),
+                    .arg_name = "pair",
+                    .arg_position = 0,
+                } });
+            }
+            return Vm.Error.UncaughtException;
+        };
+        return pair.cdr;
     }
 });
 
-pub const cons = NativeProc.withRawArgs(struct {
+pub const cons = NativeProc.with2Args(struct {
     pub const name = "cons";
     pub const docstring =
         \\(cons obj1 obj2)
@@ -49,15 +70,14 @@ pub const cons = NativeProc.withRawArgs(struct {
         \\(cons 'a 'b)      =>  (a . b)
         \\(cons 'a '(b c))  =>  (a b c)
     ;
-    pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
-        if (args.len != 2) return .{ .err = error.NotImplemented };
+    pub inline fn impl(vm: *Vm, _: ?*Diagnostics, arg1: Val, arg2: Val) Vm.Error!Val {
         const builder = vm.builder();
-        const pair = builder.makePair(args[0], args[1]) catch return .{ .err = error.OutOfMemory };
-        return .{ .val = pair };
+        const pair = builder.makePair(arg1, arg2) catch return error.OutOfMemory;
+        return pair;
     }
 });
 
-pub const pair_p = NativeProc.withRawArgs(struct {
+pub const pair_p = NativeProc.with1Arg(struct {
     pub const name = "pair?";
     pub const docstring =
         \\(pair? obj)
@@ -66,17 +86,16 @@ pub const pair_p = NativeProc.withRawArgs(struct {
         \\(pair? '(a . b))  =>  #t
         \\(pair? '())       =>  #f
     ;
-    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
-        if (args.len != 1) return .{ .err = error.NotImplemented };
-        const is_pair = switch (args[0].data) {
+    pub inline fn impl(_: *Vm, _: ?*Diagnostics, arg: Val) Vm.Error!Val {
+        const is_pair = switch (arg.data) {
             .pair => true,
             else => false,
         };
-        return .{ .val = Val.initBool(is_pair) };
+        return Val.initBool(is_pair);
     }
 });
 
-pub const null_p = NativeProc.withRawArgs(struct {
+pub const null_p = NativeProc.with1Arg(struct {
     pub const name = "null?";
     pub const docstring =
         \\(null? obj)
@@ -85,17 +104,16 @@ pub const null_p = NativeProc.withRawArgs(struct {
         \\(null? '())       =>  #t
         \\(null? '(a b c))  =>  #f
     ;
-    pub inline fn impl(_: *Vm, args: []const Val) NativeProc.Result {
-        if (args.len != 1) return .{ .err = error.NotImplemented };
-        const is_null = switch (args[0].data) {
+    pub inline fn impl(_: *Vm, _: ?*Diagnostics, arg: Val) Vm.Error!Val {
+        const is_null = switch (arg.data) {
             .empty_list => true,
             else => false,
         };
-        return .{ .val = Val.initBool(is_null) };
+        return Val.initBool(is_null);
     }
 });
 
-pub const set_car_b = NativeProc.withRawArgs(struct {
+pub const set_car_b = NativeProc.with2Args(struct {
     pub const name = "set-car!";
     pub const docstring =
         \\(set-car! pair obj)
@@ -103,16 +121,26 @@ pub const set_car_b = NativeProc.withRawArgs(struct {
         \\Mutates the car field of a pair.
         \\Returns an unspecified value.
     ;
-    pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
-        if (args.len != 2) return .{ .err = error.NotImplemented };
+    pub inline fn impl(vm: *Vm, diagnostics: ?*Diagnostics, pair_val: Val, new_car: Val) Vm.Error!Val {
         const inspector = vm.inspector();
-        const pair = inspector.asPair(args[0]) catch return .{ .err = error.WrongType };
-        pair.car = args[1];
-        return .{ .val = Val.initEmptyList() };
+        const pair = inspector.asPair(pair_val) catch {
+            if (diagnostics) |d| {
+                d.addDiagnostic(.{ .wrong_arg_type = .{
+                    .expected = "pair",
+                    .got = pair_val,
+                    .proc = Val.initNativeProc(&set_car_b),
+                    .arg_name = "pair",
+                    .arg_position = 0,
+                } });
+            }
+            return Vm.Error.UncaughtException;
+        };
+        pair.car = new_car;
+        return Val.initEmptyList();
     }
 });
 
-pub const set_cdr_b = NativeProc.withRawArgs(struct {
+pub const set_cdr_b = NativeProc.with2Args(struct {
     pub const name = "set-cdr!";
     pub const docstring =
         \\(set-cdr! pair obj)
@@ -120,16 +148,26 @@ pub const set_cdr_b = NativeProc.withRawArgs(struct {
         \\Mutates the cdr field of a pair.
         \\Returns an unspecified value.
     ;
-    pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
-        if (args.len != 2) return .{ .err = error.NotImplemented };
+    pub inline fn impl(vm: *Vm, diagnostics: ?*Diagnostics, pair_val: Val, new_cdr: Val) Vm.Error!Val {
         const inspector = vm.inspector();
-        const pair = inspector.asPair(args[0]) catch return .{ .err = error.WrongType };
-        pair.cdr = args[1];
-        return .{ .val = Val.initEmptyList() };
+        const pair = inspector.asPair(pair_val) catch {
+            if (diagnostics) |d| {
+                d.addDiagnostic(.{ .wrong_arg_type = .{
+                    .expected = "pair",
+                    .got = pair_val,
+                    .proc = Val.initNativeProc(&set_cdr_b),
+                    .arg_name = "pair",
+                    .arg_position = 0,
+                } });
+            }
+            return Vm.Error.UncaughtException;
+        };
+        pair.cdr = new_cdr;
+        return Val.initEmptyList();
     }
 });
 
-pub const list_p = NativeProc.withRawArgs(struct {
+pub const list_p = NativeProc.with1Arg(struct {
     pub const name = "list?";
     pub const docstring =
         \\(list? obj)
@@ -139,19 +177,18 @@ pub const list_p = NativeProc.withRawArgs(struct {
         \\(list? '())       =>  #t
         \\(list? '(a . b))  =>  #f
     ;
-    pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
-        if (args.len != 1) return .{ .err = error.NotImplemented };
+    pub inline fn impl(vm: *Vm, _: ?*Diagnostics, arg: Val) Vm.Error!Val {
         const inspector = vm.inspector();
 
-        var current = args[0];
+        var current = arg;
         while (true) {
             switch (current.data) {
-                .empty_list => return .{ .val = Val.initBool(true) },
+                .empty_list => return Val.initBool(true),
                 .pair => |h| {
-                    const pair = inspector.handleToPair(h) catch return .{ .err = error.UndefinedBehavior };
+                    const pair = inspector.handleToPair(h) catch return error.UndefinedBehavior;
                     current = pair.cdr;
                 },
-                else => return .{ .val = Val.initBool(false) },
+                else => return Val.initBool(false),
             }
         }
     }
@@ -169,11 +206,36 @@ pub const make_list = NativeProc.withRawArgs(struct {
         \\(make-list 3)       =>  list of 3 unspecified values
         \\(make-list 3 'x)    =>  (x x x)
     ;
-    pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
-        if (args.len < 1 or args.len > 2) return .{ .err = error.NotImplemented };
+    pub inline fn impl(vm: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
+        if (args.len < 1 or args.len > 2) {
+            if (diagnostics) |d| {
+                d.addDiagnostic(.{ .wrong_arg_count = .{
+                    .expected = 1,
+                    .got = @intCast(args.len),
+                    .proc = Val.initNativeProc(&make_list),
+                } });
+            }
+            return Vm.Error.UncaughtException;
+        }
 
-        const k = args[0].asInt() orelse return .{ .err = error.WrongType };
-        if (k < 0) return .{ .err = error.NotImplemented };
+        const k = args[0].asInt() orelse {
+            if (diagnostics) |d| {
+                d.addDiagnostic(.{ .wrong_arg_type = .{
+                    .expected = "integer",
+                    .got = args[0],
+                    .proc = Val.initNativeProc(&make_list),
+                    .arg_name = "k",
+                    .arg_position = 0,
+                } });
+            }
+            return Vm.Error.UncaughtException;
+        };
+        if (k < 0) {
+            if (diagnostics) |d| {
+                d.addDiagnostic(.{ .other = "make-list: k must be non-negative" });
+            }
+            return Vm.Error.UncaughtException;
+        }
 
         const fill = if (args.len == 2) args[1] else Val.initEmptyList();
         const builder = vm.builder();
@@ -181,10 +243,10 @@ pub const make_list = NativeProc.withRawArgs(struct {
         var result = Val.initEmptyList();
         var i: i64 = 0;
         while (i < k) : (i += 1) {
-            result = builder.makePair(fill, result) catch return .{ .err = error.OutOfMemory };
+            result = builder.makePair(fill, result) catch return error.OutOfMemory;
         }
 
-        return .{ .val = result };
+        return result;
     }
 });
 
@@ -197,14 +259,15 @@ pub const list = NativeProc.withRawArgs(struct {
         \\(list 'a 'b 'c)  =>  (a b c)
         \\(list)           =>  ()
     ;
-    pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
+    pub inline fn impl(vm: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
+        _ = diagnostics;
         const builder = vm.builder();
-        const result = builder.makeList(args) catch return .{ .err = error.OutOfMemory };
-        return .{ .val = result };
+        const result = builder.makeList(args) catch return error.OutOfMemory;
+        return result;
     }
 });
 
-pub const length = NativeProc.withRawArgs(struct {
+pub const length = NativeProc.with1Arg(struct {
     pub const name = "length";
     pub const docstring =
         \\(length list)
@@ -213,21 +276,31 @@ pub const length = NativeProc.withRawArgs(struct {
         \\(length '(a b c))  =>  3
         \\(length '())       =>  0
     ;
-    pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
-        if (args.len != 1) return .{ .err = error.NotImplemented };
+    pub inline fn impl(vm: *Vm, diagnostics: ?*Diagnostics, arg: Val) Vm.Error!Val {
         const inspector = vm.inspector();
 
         var len: i64 = 0;
-        var current = args[0];
+        var current = arg;
         while (true) {
             switch (current.data) {
-                .empty_list => return .{ .val = Val.initInt(len) },
+                .empty_list => return Val.initInt(len),
                 .pair => |h| {
-                    const pair = inspector.handleToPair(h) catch return .{ .err = error.UndefinedBehavior };
+                    const pair = inspector.handleToPair(h) catch return error.UndefinedBehavior;
                     len += 1;
                     current = pair.cdr;
                 },
-                else => return .{ .err = error.WrongType },
+                else => {
+                    if (diagnostics) |d| {
+                        d.addDiagnostic(.{ .wrong_arg_type = .{
+                            .expected = "list",
+                            .got = arg,
+                            .proc = Val.initNativeProc(&length),
+                            .arg_name = "list",
+                            .arg_position = 0,
+                        } });
+                    }
+                    return Vm.Error.UncaughtException;
+                },
             }
         }
     }
@@ -243,9 +316,9 @@ pub const append = NativeProc.withRawArgs(struct {
         \\(append '(a b) '(c d))  =>  (a b c d)
         \\(append)                =>  ()
     ;
-    pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
-        if (args.len == 0) return .{ .val = Val.initEmptyList() };
-        if (args.len == 1) return .{ .val = args[0] };
+    pub inline fn impl(vm: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
+        if (args.len == 0) return Val.initEmptyList();
+        if (args.len == 1) return args[0];
 
         const builder = vm.builder();
         const inspector = vm.inspector();
@@ -269,11 +342,22 @@ pub const append = NativeProc.withRawArgs(struct {
                 switch (current.data) {
                     .empty_list => break,
                     .pair => |h| {
-                        const pair = inspector.handleToPair(h) catch return .{ .err = error.UndefinedBehavior };
-                        items.append(vm.allocator(), pair.car) catch return .{ .err = error.OutOfMemory };
+                        const pair = inspector.handleToPair(h) catch return error.UndefinedBehavior;
+                        items.append(vm.allocator(), pair.car) catch return error.OutOfMemory;
                         current = pair.cdr;
                     },
-                    else => return .{ .err = error.WrongType },
+                    else => {
+                        if (diagnostics) |d| {
+                            d.addDiagnostic(.{ .wrong_arg_type = .{
+                                .expected = "list",
+                                .got = current_list,
+                                .proc = Val.initNativeProc(&append),
+                                .arg_name = null,
+                                .arg_position = @intCast(list_idx),
+                            } });
+                        }
+                        return Vm.Error.UncaughtException;
+                    },
                 }
             }
 
@@ -282,15 +366,15 @@ pub const append = NativeProc.withRawArgs(struct {
             var i = items_slice.len;
             while (i > 0) {
                 i -= 1;
-                result = builder.makePair(items_slice[i], result) catch return .{ .err = error.OutOfMemory };
+                result = builder.makePair(items_slice[i], result) catch return error.OutOfMemory;
             }
         }
 
-        return .{ .val = result };
+        return result;
     }
 });
 
-pub const reverse = NativeProc.withRawArgs(struct {
+pub const reverse = NativeProc.with1Arg(struct {
     pub const name = "reverse";
     pub const docstring =
         \\(reverse list)
@@ -299,23 +383,32 @@ pub const reverse = NativeProc.withRawArgs(struct {
         \\(reverse '(a b c))  =>  (c b a)
         \\(reverse '())       =>  ()
     ;
-    pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
-        if (args.len != 1) return .{ .err = error.NotImplemented };
-
+    pub inline fn impl(vm: *Vm, diagnostics: ?*Diagnostics, arg: Val) Vm.Error!Val {
         const inspector = vm.inspector();
         const builder = vm.builder();
 
         var result = Val.initEmptyList();
-        var current = args[0];
+        var current = arg;
         while (true) {
             switch (current.data) {
-                .empty_list => return .{ .val = result },
+                .empty_list => return result,
                 .pair => |h| {
-                    const pair = inspector.handleToPair(h) catch return .{ .err = error.UndefinedBehavior };
-                    result = builder.makePair(pair.car, result) catch return .{ .err = error.OutOfMemory };
+                    const pair = inspector.handleToPair(h) catch return error.UndefinedBehavior;
+                    result = builder.makePair(pair.car, result) catch return error.OutOfMemory;
                     current = pair.cdr;
                 },
-                else => return .{ .err = error.WrongType },
+                else => {
+                    if (diagnostics) |d| {
+                        d.addDiagnostic(.{ .wrong_arg_type = .{
+                            .expected = "list",
+                            .got = arg,
+                            .proc = Val.initNativeProc(&reverse),
+                            .arg_name = "list",
+                            .arg_position = 0,
+                        } });
+                    }
+                    return Vm.Error.UncaughtException;
+                },
             }
         }
     }
@@ -330,27 +423,68 @@ pub const list_tail = NativeProc.withRawArgs(struct {
         \\(list-tail '(a b c d) 2)  =>  (c d)
         \\(list-tail list 0)        =>  list
     ;
-    pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
-        if (args.len != 2) return .{ .err = error.NotImplemented };
+    pub inline fn impl(vm: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
+        if (args.len != 2) {
+            if (diagnostics) |d| {
+                d.addDiagnostic(.{ .wrong_arg_count = .{
+                    .expected = 2,
+                    .got = @intCast(args.len),
+                    .proc = Val.initNativeProc(&list_tail),
+                } });
+            }
+            return Vm.Error.UncaughtException;
+        }
 
-        const k = args[1].asInt() orelse return .{ .err = error.WrongType };
-        if (k < 0) return .{ .err = error.NotImplemented };
+        const k = args[1].asInt() orelse {
+            if (diagnostics) |d| {
+                d.addDiagnostic(.{ .wrong_arg_type = .{
+                    .expected = "integer",
+                    .got = args[1],
+                    .proc = Val.initNativeProc(&list_tail),
+                    .arg_name = "k",
+                    .arg_position = 1,
+                } });
+            }
+            return Vm.Error.UncaughtException;
+        };
+        if (k < 0) {
+            if (diagnostics) |d| {
+                d.addDiagnostic(.{ .other = "list-tail: k must be non-negative" });
+            }
+            return Vm.Error.UncaughtException;
+        }
 
         const inspector = vm.inspector();
         var current = args[0];
         var i: i64 = 0;
         while (i < k) : (i += 1) {
             switch (current.data) {
-                .empty_list => return .{ .err = error.NotImplemented },
+                .empty_list => {
+                    if (diagnostics) |d| {
+                        d.addDiagnostic(.{ .other = "list-tail: list is too short" });
+                    }
+                    return Vm.Error.UncaughtException;
+                },
                 .pair => |h| {
-                    const pair = inspector.handleToPair(h) catch return .{ .err = error.UndefinedBehavior };
+                    const pair = inspector.handleToPair(h) catch return error.UndefinedBehavior;
                     current = pair.cdr;
                 },
-                else => return .{ .err = error.WrongType },
+                else => {
+                    if (diagnostics) |d| {
+                        d.addDiagnostic(.{ .wrong_arg_type = .{
+                            .expected = "list",
+                            .got = args[0],
+                            .proc = Val.initNativeProc(&list_tail),
+                            .arg_name = "list",
+                            .arg_position = 0,
+                        } });
+                    }
+                    return Vm.Error.UncaughtException;
+                },
             }
         }
 
-        return .{ .val = current };
+        return current;
     }
 });
 
@@ -362,25 +496,66 @@ pub const list_ref = NativeProc.withRawArgs(struct {
         \\Returns the kth element of list (0-indexed).
         \\(list-ref '(a b c d) 2)  =>  c
     ;
-    pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
-        if (args.len != 2) return .{ .err = error.NotImplemented };
+    pub inline fn impl(vm: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
+        if (args.len != 2) {
+            if (diagnostics) |d| {
+                d.addDiagnostic(.{ .wrong_arg_count = .{
+                    .expected = 2,
+                    .got = @intCast(args.len),
+                    .proc = Val.initNativeProc(&list_ref),
+                } });
+            }
+            return Vm.Error.UncaughtException;
+        }
 
-        const k = args[1].asInt() orelse return .{ .err = error.WrongType };
-        if (k < 0) return .{ .err = error.NotImplemented };
+        const k = args[1].asInt() orelse {
+            if (diagnostics) |d| {
+                d.addDiagnostic(.{ .wrong_arg_type = .{
+                    .expected = "integer",
+                    .got = args[1],
+                    .proc = Val.initNativeProc(&list_ref),
+                    .arg_name = "k",
+                    .arg_position = 1,
+                } });
+            }
+            return Vm.Error.UncaughtException;
+        };
+        if (k < 0) {
+            if (diagnostics) |d| {
+                d.addDiagnostic(.{ .other = "list-ref: k must be non-negative" });
+            }
+            return Vm.Error.UncaughtException;
+        }
 
         const inspector = vm.inspector();
         var current = args[0];
         var i: i64 = 0;
         while (true) {
             switch (current.data) {
-                .empty_list => return .{ .err = error.NotImplemented },
+                .empty_list => {
+                    if (diagnostics) |d| {
+                        d.addDiagnostic(.{ .other = "list-ref: index out of bounds" });
+                    }
+                    return Vm.Error.UncaughtException;
+                },
                 .pair => |h| {
-                    const pair = inspector.handleToPair(h) catch return .{ .err = error.UndefinedBehavior };
-                    if (i == k) return .{ .val = pair.car };
+                    const pair = inspector.handleToPair(h) catch return error.UndefinedBehavior;
+                    if (i == k) return pair.car;
                     i += 1;
                     current = pair.cdr;
                 },
-                else => return .{ .err = error.WrongType },
+                else => {
+                    if (diagnostics) |d| {
+                        d.addDiagnostic(.{ .wrong_arg_type = .{
+                            .expected = "list",
+                            .got = args[0],
+                            .proc = Val.initNativeProc(&list_ref),
+                            .arg_name = "list",
+                            .arg_position = 0,
+                        } });
+                    }
+                    return Vm.Error.UncaughtException;
+                },
             }
         }
     }
@@ -395,11 +570,36 @@ pub const list_set_b = NativeProc.withRawArgs(struct {
         \\Returns an unspecified value.
         \\(list-set! '(a b c d) 2 'x)  mutates list to (a b x d)
     ;
-    pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
-        if (args.len != 3) return .{ .err = error.NotImplemented };
+    pub inline fn impl(vm: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
+        if (args.len != 3) {
+            if (diagnostics) |d| {
+                d.addDiagnostic(.{ .wrong_arg_count = .{
+                    .expected = 3,
+                    .got = @intCast(args.len),
+                    .proc = Val.initNativeProc(&list_set_b),
+                } });
+            }
+            return Vm.Error.UncaughtException;
+        }
 
-        const k = args[1].asInt() orelse return .{ .err = error.WrongType };
-        if (k < 0) return .{ .err = error.NotImplemented };
+        const k = args[1].asInt() orelse {
+            if (diagnostics) |d| {
+                d.addDiagnostic(.{ .wrong_arg_type = .{
+                    .expected = "integer",
+                    .got = args[1],
+                    .proc = Val.initNativeProc(&list_set_b),
+                    .arg_name = "k",
+                    .arg_position = 1,
+                } });
+            }
+            return Vm.Error.UncaughtException;
+        };
+        if (k < 0) {
+            if (diagnostics) |d| {
+                d.addDiagnostic(.{ .other = "list-set!: k must be non-negative" });
+            }
+            return Vm.Error.UncaughtException;
+        }
         const new_val = args[2];
 
         const inspector = vm.inspector();
@@ -407,17 +607,33 @@ pub const list_set_b = NativeProc.withRawArgs(struct {
         var i: i64 = 0;
         while (true) {
             switch (current.data) {
-                .empty_list => return .{ .err = error.NotImplemented },
+                .empty_list => {
+                    if (diagnostics) |d| {
+                        d.addDiagnostic(.{ .other = "list-set!: index out of bounds" });
+                    }
+                    return Vm.Error.UncaughtException;
+                },
                 .pair => |h| {
-                    const pair = inspector.handleToPair(h) catch return .{ .err = error.UndefinedBehavior };
+                    const pair = inspector.handleToPair(h) catch return error.UndefinedBehavior;
                     if (i == k) {
                         pair.car = new_val;
-                        return .{ .val = Val.initEmptyList() };
+                        return Val.initEmptyList();
                     }
                     i += 1;
                     current = pair.cdr;
                 },
-                else => return .{ .err = error.WrongType },
+                else => {
+                    if (diagnostics) |d| {
+                        d.addDiagnostic(.{ .wrong_arg_type = .{
+                            .expected = "list",
+                            .got = args[0],
+                            .proc = Val.initNativeProc(&list_set_b),
+                            .arg_name = "list",
+                            .arg_position = 0,
+                        } });
+                    }
+                    return Vm.Error.UncaughtException;
+                },
             }
         }
     }

@@ -279,7 +279,7 @@ const Builder = struct {
         for (bindings_slice, bindings) |src, *dst| {
             const parts = self.vm.inspector().listToSliceExact(src, 2) catch |e| switch (e) {
                 error.UndefinedBehavior => return error.UndefinedBehavior,
-                error.WrongType, error.BadLength => return error.InvalidExpression,
+                error.UncaughtException, error.BadLength => return error.InvalidExpression,
             };
             dst.* = Ir.LetBinding{
                 .name = parts[0].asSymbol() orelse return Error.InvalidExpression,
@@ -313,7 +313,7 @@ const Builder = struct {
         const inspector = self.vm.inspector();
         const list = inspector.listToSliceAlloc(self.arena.allocator(), val) catch |e| switch (e) {
             error.OutOfMemory => return error.OutOfMemory,
-            error.WrongType, error.UndefinedBehavior => return Error.UndefinedBehavior,
+            error.UncaughtException, error.UndefinedBehavior => return Error.UndefinedBehavior,
         };
         return list;
     }
@@ -493,7 +493,10 @@ const Builder = struct {
                         error.NotImplemented => return Error.NotImplemented,
                         error.OutOfMemory => return Error.OutOfMemory,
                         error.UndefinedBehavior => return Error.UndefinedBehavior,
-                        error.ReadError, error.Unreachable, error.WrongType, error.UncaughtException => return Error.UndefinedBehavior,
+                        error.ReadError,
+                        error.Unreachable,
+                        error.UncaughtException,
+                        => return Error.UndefinedBehavior,
                     };
                     if (maybe_expanded) |expanded| {
                         // Recursively expand the result

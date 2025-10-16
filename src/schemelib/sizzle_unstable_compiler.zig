@@ -1,6 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 
+const Diagnostics = @import("../Diagnostics.zig");
 const Instruction = @import("../instruction.zig").Instruction;
 const Module = @import("../types/Module.zig");
 const NativeProc = @import("../types/NativeProc.zig");
@@ -29,26 +30,47 @@ pub fn init(vm: *Vm) Vm.Error!Handle(Module) {
 
 const proc_instructions = NativeProc.withRawArgs(struct {
     pub const name = "proc-instructions";
-    pub inline fn impl(vm: *Vm, args: []const Val) NativeProc.Result {
+    pub inline fn impl(vm: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
         if (args.len != 1) {
-            return NativeProc.Result{
-                .wrong_arg_count = .{ .expected = 1, .got = @intCast(args.len) },
-            };
+            if (diagnostics) |d| {
+                d.addDiagnostic(.{ .wrong_arg_count = .{
+                    .expected = 1,
+                    .got = @intCast(args.len),
+                    .proc = Val.initNativeProc(&proc_instructions),
+                } });
+            }
+            return Vm.Error.UncaughtException;
         }
         const raw_instructions = switch (args[0].data) {
             .proc => |h| blk: {
-                const proc = vm.objects.procs.get(h) orelse return .{ .err = error.UndefinedBehavior };
+                const proc = vm.objects.procs.get(h) orelse {
+                    if (diagnostics) |d| {
+                        d.addDiagnostic(.{ .undefined_behavior = "Invalid procedure handle in proc-instructions" });
+                    }
+                    return error.UndefinedBehavior;
+                };
                 break :blk proc.instructions;
             },
-            else => return .{ .err = error.NotImplemented },
+            else => {
+                if (diagnostics) |d| {
+                    d.addDiagnostic(.{ .wrong_arg_type = .{
+                        .expected = "procedure",
+                        .got = args[0],
+                        .proc = Val.initNativeProc(&proc_instructions),
+                        .arg_name = "proc",
+                        .arg_position = 0,
+                    } });
+                }
+                return Vm.Error.UncaughtException;
+            },
         };
-        const instructions = vm.allocator().alloc(Val, raw_instructions.len) catch |e| return .{ .err = e };
+        const instructions = try vm.allocator().alloc(Val, raw_instructions.len);
         defer vm.allocator().free(instructions);
         for (instructions, raw_instructions) |*dst, src| {
-            dst.* = src.toVal(vm) catch |e| return .{ .err = e };
+            dst.* = try src.toVal(vm);
         }
-        const list = vm.builder().makeList(instructions) catch |e| return .{ .err = e };
-        return .{ .val = list };
+        const list = try vm.builder().makeList(instructions);
+        return list;
     }
 });
 

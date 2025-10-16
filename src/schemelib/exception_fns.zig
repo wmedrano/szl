@@ -23,7 +23,11 @@ fn withExceptionHandlerImpl(vm: *Vm, diagnostics: ?*Diagnostics, arg_count: u32)
     // TODO: Add diagnostics
     if (arg_count != 2) {
         if (diagnostics) |d| {
-            d.appendWrongArgCount(.{ .expected = 2, .got = arg_count, .proc = Val.initNativeProc(&with_exception_handler) });
+            d.addDiagnostic(.{ .wrong_arg_count = .{
+                .expected = 2,
+                .got = arg_count,
+                .proc = Val.initNativeProc(&with_exception_handler),
+            } });
         }
         return Vm.Error.UncaughtException;
     }
@@ -47,7 +51,11 @@ pub const raise_continuable = NativeProc{
 fn raiseContinuableImpl(vm: *Vm, diagnostics: ?*Diagnostics, arg_count: u32) Vm.Error!void {
     if (arg_count != 1) {
         if (diagnostics) |d| {
-            d.appendWrongArgCount(.{ .expected = 1, .got = arg_count, .proc = Val.initNativeProc(&raise_continuable) });
+            d.addDiagnostic(.{ .wrong_arg_count = .{
+                .expected = 1,
+                .got = arg_count,
+                .proc = Val.initNativeProc(&raise_continuable),
+            } });
         }
         return Vm.Error.UncaughtException;
     }
