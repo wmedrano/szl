@@ -40,11 +40,42 @@ pub const WrongArgTypeInfo = struct {
     arg_position: ?u32,
 };
 
+/// Diagnostic information for reader errors
+pub const ReadErrorInfo = struct {
+    /// The type of error that occurred
+    kind: Kind = .unexpected_token,
+    /// Line number where the error occurred (1-indexed)
+    line: u32 = 0,
+    /// Column number where the error occurred (1-indexed)
+    column: u32 = 0,
+    /// Optional context information about the error
+    message: []const u8 = "",
+    /// Optional lexeme that caused the error
+    lexeme: ?[]const u8 = null,
+    /// Optional suggested fix for the error
+    suggested_fix: ?[]const u8 = null,
+
+    pub const Kind = enum {
+        unexpected_eof,
+        unexpected_token,
+        invalid_number,
+        invalid_string,
+        invalid_character,
+        invalid_bytevector,
+        unexpected_dot,
+        unexpected_close_paren,
+        empty_dot_list,
+        multiple_values,
+        no_values,
+        unsupported_sharpsign_expr,
+    };
+};
+
 pub const Diagnostic = union(enum) {
     /// No diagnostic (placeholder)
     none,
     /// Error from the reader/parser (syntax error, invalid tokens, etc.)
-    reader: Reader.Diagnostic,
+    reader: ReadErrorInfo,
     /// Runtime undefined behavior detected
     undefined_behavior: []const u8,
     /// Variable not found in module during lookup
@@ -187,7 +218,7 @@ pub const DiagnosticsPrettyPrinter = struct {
     fn formatDiagnostic(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer, diag: Diagnostic) std.Io.Writer.Error!void {
         switch (diag) {
             .none => try writer.writeAll("No diagnostic"),
-            .reader => |r| try formatReaderError(writer, r),
+            .reader => |r| try self.formatReaderError(writer, r),
             .undefined_behavior => |msg| try self.formatUndefinedBehavior(writer, msg),
             .undefined_variable => |uv| try self.formatUndefinedVariable(writer, uv),
             .not_callable => |val| try self.formatNotCallable(writer, val),
@@ -197,8 +228,49 @@ pub const DiagnosticsPrettyPrinter = struct {
         }
     }
 
-    fn formatReaderError(writer: *std.Io.Writer, r: Reader.Diagnostic) std.Io.Writer.Error!void {
-        try r.format(writer);
+    fn formatReaderError(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer, r: ReadErrorInfo) std.Io.Writer.Error!void {
+        // Location (line:column) - Dim
+        try writer.writeAll(self.colorize(Color.dim));
+        try writer.print("{}:{}: ", .{ r.line, r.column });
+        try writer.writeAll(self.colorize(Color.reset));
+
+        // "error:" label - Red + Bold
+        try writer.writeAll(self.colorize(Color.red));
+        try writer.writeAll(self.colorize(Color.bold));
+        try writer.writeAll(self.colorize(Color.reset));
+
+        // Error message
+        try writer.print(" {s}", .{r.message});
+
+        // Include lexeme if present
+        if (r.lexeme) |lex| {
+            try writer.writeAll("\n  ");
+            try writer.writeAll(self.colorize(Color.dim));
+            try writer.writeAll("-->");
+            try writer.writeAll(self.colorize(Color.reset));
+            try writer.writeAll(" ");
+            try writer.writeAll(self.colorize(Color.bold));
+            try writer.print("'{s}'", .{lex});
+            try writer.writeAll(self.colorize(Color.reset));
+
+            // Include suggestion on same line if present
+            if (r.suggested_fix) |fix| {
+                try writer.writeAll(" ");
+                try writer.writeAll(self.colorize(Color.green));
+                try writer.print("{s}", .{fix});
+                try writer.writeAll(self.colorize(Color.reset));
+            }
+        } else if (r.suggested_fix) |fix| {
+            // Include suggestion on new line if no lexeme
+            try writer.writeAll("\n  ");
+            try writer.writeAll(self.colorize(Color.dim));
+            try writer.writeAll("suggestion:");
+            try writer.writeAll(self.colorize(Color.reset));
+            try writer.writeAll(" ");
+            try writer.writeAll(self.colorize(Color.green));
+            try writer.print("{s}", .{fix});
+            try writer.writeAll(self.colorize(Color.reset));
+        }
     }
 
     fn formatUndefinedBehavior(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer, msg: []const u8) std.Io.Writer.Error!void {

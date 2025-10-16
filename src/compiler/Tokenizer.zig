@@ -11,8 +11,7 @@ pub const TokenType = enum {
     // Literals
     identifier,
     string,
-    vector_start,
-    bytevector_start,
+    sharpsign_expr_start,
     // Special
     quote,
     quasiquote,
@@ -129,9 +128,9 @@ fn scanHashPrefix(self: *Tokenizer, start_column: u32) Token {
     }
 
     if (self.peek() == '(') {
-        // Vector literal
+        // Vector literal: #(
         _ = self.advance(); // consume '('
-        return self.makeTokenAt(.vector_start, start_column);
+        return self.makeTokenAt(.sharpsign_expr_start, start_column);
     } else if (self.peek() == 'u') {
         // Could be bytevector (#u8() or other identifier
         const next_pos = self.current + 1;
@@ -141,7 +140,7 @@ fn scanHashPrefix(self: *Tokenizer, start_column: u32) Token {
                 _ = self.advance(); // consume 'u'
                 _ = self.advance(); // consume '8'
                 _ = self.advance(); // consume '('
-                return self.makeTokenAt(.bytevector_start, start_column);
+                return self.makeTokenAt(.sharpsign_expr_start, start_column);
             }
         }
         // Not a bytevector, treat as identifier
@@ -237,7 +236,7 @@ pub fn isComplete(source: []const u8) CompletionStatus {
 
     while (tokenizer.nextToken()) |token| {
         switch (token.type) {
-            .left_paren, .vector_start, .bytevector_start => depth += 1,
+            .left_paren, .sharpsign_expr_start => depth += 1,
             .right_paren => {
                 depth -= 1;
                 if (depth < 0) {
@@ -482,7 +481,7 @@ test "isComplete: just symbols is complete" {
 test "tokenize vectors" {
     var tokenizer = Tokenizer.init("#() #(1 2 3)");
     try testing.expectEqualDeep(
-        Token{ .type = TokenType.vector_start, .lexeme = "#(", .line = 1, .column = 1 },
+        Token{ .type = TokenType.sharpsign_expr_start, .lexeme = "#(", .line = 1, .column = 1 },
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(
@@ -490,7 +489,7 @@ test "tokenize vectors" {
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(
-        Token{ .type = TokenType.vector_start, .lexeme = "#(", .line = 1, .column = 5 },
+        Token{ .type = TokenType.sharpsign_expr_start, .lexeme = "#(", .line = 1, .column = 5 },
         tokenizer.nextToken(),
     );
     try testing.expectEqualDeep(

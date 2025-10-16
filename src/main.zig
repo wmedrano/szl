@@ -116,7 +116,6 @@ fn replEval(allocator: std.mem.Allocator, vm: *szl.Vm, source: []const u8, expr_
     defer diagnostics.deinit();
 
     var reader = szl.Reader.init(vm, source);
-    var diagnostic = szl.Reader.Diagnostic{};
     const stdout = std.fs.File.stdout();
     // Detect if stdout is a TTY to enable/disable color output
     const use_color = stdout.isTty();
@@ -126,15 +125,12 @@ fn replEval(allocator: std.mem.Allocator, vm: *szl.Vm, source: []const u8, expr_
     defer temp.deinit();
 
     while (true) {
-        const expr = reader.readNext(&diagnostic) catch |err| switch (err) {
+        const expr = reader.readNext(&diagnostics) catch |err| switch (err) {
             szl.Reader.Error.OutOfMemory => return err,
             szl.Reader.Error.NotImplemented, szl.Reader.Error.ReadError => {
-                if (use_color) {
-                    try temp.writer.print(COLOR_RED ++ "{f}\n" ++ COLOR_RESET, .{diagnostic});
-                } else {
-                    try temp.writer.print("{f}\n", .{diagnostic});
-                }
+                try temp.writer.print("{f}\n", .{diagnostics.pretty(vm, syntax_highlighting)});
                 try stdout.writeAll(temp.writer.buffered());
+                temp.clearRetainingCapacity();
                 return;
             },
         } orelse return;

@@ -171,13 +171,9 @@ pub fn evalStr(
     var reader = Reader.init(self, source);
     var return_val = Val.initEmptyList();
 
-    var reader_diag: Reader.Diagnostic = undefined;
     while (true) {
-        const maybe_raw_expr = reader.readNext(
-            if (diagnostics == null) null else &reader_diag,
-        );
+        const maybe_raw_expr = reader.readNext(diagnostics);
         const raw_expr = (maybe_raw_expr catch |err| {
-            if (diagnostics) |d| d.addDiagnostic(.{ .reader = reader_diag });
             return err;
         }) orelse break;
 
