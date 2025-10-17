@@ -16,7 +16,7 @@ zig build -Doptimize=ReleaseSafe -Dcpu=x86_64_v3
 echo ""
 echo -e "${BLUE}Running benchmark: examples/fib.scm${NC}"
 echo -e "${BLUE}======================================${NC}"
-valgrind --tool=callgrind --callgrind-out-file=/tmp/fib.callgrind zig-out/bin/szl <examples/fib.scm
+valgrind --tool=callgrind --dump-instr=yes --collect-jumps=yes --cache-sim=yes --callgrind-out-file=/tmp/fib.callgrind zig-out/bin/szl <examples/fib.scm
 echo ""
 echo -e "${CYAN}Profile data saved to /tmp/fib.callgrind${NC}"
 echo -e "${CYAN}View with: kcachegrind /tmp/fib.callgrind${NC}"

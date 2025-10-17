@@ -124,14 +124,26 @@ fn replEval(allocator: std.mem.Allocator, vm: *szl.Vm, source: []const u8, expr_
     defer temp.deinit();
 
     const result = vm.evalStr(source, null, &diagnostics) catch |err| {
-        if (use_color) {
-            try temp.writer.print(COLOR_RED ++ "{}\n" ++ COLOR_RESET, .{err});
-        } else {
-            try temp.writer.print("{}\n", .{err});
-        }
+        const fatal = blk: switch (err) {
+            error.OutOfMemory,
+            error.UndefinedBehavior,
+            => {
+                if (use_color) {
+                    _ = temp.writer.print(COLOR_RED ++ "{}\n" ++ COLOR_RESET, .{err}) catch {};
+                } else {
+                    _ = temp.writer.print("{}\n", .{err}) catch {};
+                }
+                break :blk true;
+            },
+            error.ReadError,
+            error.InvalidExpression,
+            error.NotImplemented,
+            error.UncaughtException,
+            => false,
+        };
         try temp.writer.print("{f}\n", .{diagnostics.pretty(vm, syntax_highlighting)});
         try stdout.writeAll(temp.writer.buffered());
-        return;
+        if (fatal) return err else return;
     };
     expr_count.* += 1;
     if (use_color) {

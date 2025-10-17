@@ -117,19 +117,19 @@ pub inline fn handleToProc(self: Inspector, h: Handle(Proc)) Vm.Error!*Proc {
     return self.vm.objects.procs.get(h) orelse return Vm.Error.UndefinedBehavior;
 }
 
-pub inline fn handleToContinuation(self: Inspector, h: Handle(Continuation)) Vm.Error!*Continuation {
+pub inline fn handleToContinuation(self: Inspector, h: Handle(Continuation)) error{UndefinedBehavior}!*Continuation {
     return self.vm.objects.continuations.get(h) orelse return Vm.Error.UndefinedBehavior;
 }
 
-pub inline fn handleToVector(self: Inspector, h: Handle(Vector)) Vm.Error!*Vector {
+pub inline fn handleToVector(self: Inspector, h: Handle(Vector)) error{UndefinedBehavior}!*Vector {
     return self.vm.objects.vectors.get(h) orelse return Vm.Error.UndefinedBehavior;
 }
 
-pub inline fn handleToBytevector(self: Inspector, h: Handle(ByteVector)) Vm.Error!*ByteVector {
+pub inline fn handleToBytevector(self: Inspector, h: Handle(ByteVector)) error{UndefinedBehavior}!*ByteVector {
     return self.vm.objects.bytevectors.get(h) orelse return Vm.Error.UndefinedBehavior;
 }
 
-pub inline fn handleToModule(self: Inspector, h: Handle(Module)) Vm.Error!*Module {
+pub inline fn handleToModule(self: Inspector, h: Handle(Module)) error{UndefinedBehavior}!*Module {
     return self.vm.objects.modules.get(h) orelse return Vm.Error.UndefinedBehavior;
 }
 

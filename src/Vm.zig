@@ -43,9 +43,8 @@ pub const Error = error{
     NotImplemented,
     OutOfMemory,
     ReadError,
-    UndefinedBehavior,
-    Unreachable,
     UncaughtException,
+    UndefinedBehavior,
 };
 
 pub const Objects = struct {
@@ -178,8 +177,21 @@ pub fn evalStr(
 }
 
 pub fn expectEval(self: *Vm, expect: []const u8, source: []const u8) !void {
-    const actual = try self.evalStr(source, null, null);
+    var diag = Diagnostics.init(testing.allocator);
+    defer diag.deinit();
+    errdefer std.debug.print("Diagnostics:\n{f}\n", .{diag.pretty(self, .nocolor)});
+
+    const actual = try self.evalStr(source, null, &diag);
     try testing.expectFmt(expect, "{f}", .{self.pretty(actual, .{})});
+}
+
+pub fn expectError(self: *Vm, expected_error: anyerror, source: []const u8) !void {
+    var diag = Diagnostics.init(testing.allocator);
+    defer diag.deinit();
+    errdefer std.debug.print("Diagnostics:\n{f}\n", .{diag.pretty(self, .nocolor)});
+
+    const actual_error = self.evalStr(source, null, &diag);
+    try testing.expectError(expected_error, actual_error);
 }
 
 pub fn evalExpr(
@@ -189,18 +201,18 @@ pub fn evalExpr(
     diagnostics: ?*Diagnostics,
 ) Error!Val {
     const env = maybe_env orelse try self.inspector().getReplEnv(diagnostics);
-    const proc = try self.compile(expr, env);
+    const proc = try self.compile(expr, env, diagnostics);
     self.context.reset();
     try self.context.push(self.allocator(), proc);
     try (Instruction{ .eval = 0 }).execute(self, diagnostics);
     return try instruction.executeUntilEnd(self, diagnostics);
 }
 
-fn compile(self: *Vm, expr: Val, env: Handle(Module)) !Val {
+fn compile(self: *Vm, expr: Val, env: Handle(Module), diagnostics: ?*Diagnostics) !Val {
     var arena = std.heap.ArenaAllocator.init(self.allocator());
     defer arena.deinit();
     var compiler = Compiler.init(&arena, self, env);
-    const proc = try compiler.compile(expr);
+    const proc = try compiler.compile(expr, diagnostics);
     return proc;
 }
 

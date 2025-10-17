@@ -21,6 +21,10 @@ pub const Ir = union(enum) {
         symbol: Symbol,
         expr: *Ir,
     },
+    set: struct {
+        symbol: Symbol,
+        expr: *Ir,
+    },
     if_expr: IfExpr,
     let_expr: struct {
         bindings: []LetBinding,
@@ -116,6 +120,7 @@ const Builder = struct {
     fn buildList(self: *Builder, list: []const Val) Error!Ir {
         if (list.len == 0) return Error.InvalidExpression;
         const define = try self.vm.builder().makeStaticSymbolHandle("define");
+        const set_b = try self.vm.builder().makeStaticSymbolHandle("set!");
         const define_syntax = try self.vm.builder().makeStaticSymbolHandle("define-syntax");
         const if_sym = try self.vm.builder().makeStaticSymbolHandle("if");
         const when = try self.vm.builder().makeStaticSymbolHandle("when");
@@ -129,6 +134,15 @@ const Builder = struct {
                 switch (list.len) {
                     0, 1, 2 => return Error.InvalidExpression,
                     else => return self.buildDefine(list[1], list[2..]),
+                }
+            }
+            if (sym.eq(set_b)) {
+                switch (list.len) {
+                    3 => {
+                        const set_sym = list[1].asSymbol() orelse return Error.InvalidExpression;
+                        return self.buildSet(set_sym, list[2]);
+                    },
+                    else => return Error.InvalidExpression,
                 }
             }
             if (sym.eq(define_syntax)) {
@@ -202,6 +216,17 @@ const Builder = struct {
         expr_ir.* = try self.build(expr);
         return Ir{
             .define = .{
+                .symbol = symbol,
+                .expr = expr_ir,
+            },
+        };
+    }
+
+    fn buildSet(self: *Builder, symbol: Symbol, expr: Val) Error!Ir {
+        const expr_ir = try self.arena.allocator().create(Ir);
+        expr_ir.* = try self.build(expr);
+        return Ir{
+            .set = .{
                 .symbol = symbol,
                 .expr = expr_ir,
             },
@@ -488,16 +513,7 @@ const Builder = struct {
                     const macro_ptr = self.vm.objects.syntax_rules.get(macro_handle) orelse return Error.UndefinedBehavior;
 
                     // Try to expand the macro
-                    const maybe_expanded = macro_ptr.expand(self.vm, expr) catch |err| switch (err) {
-                        error.InvalidExpression => return Error.InvalidExpression,
-                        error.NotImplemented => return Error.NotImplemented,
-                        error.OutOfMemory => return Error.OutOfMemory,
-                        error.UndefinedBehavior => return Error.UndefinedBehavior,
-                        error.ReadError,
-                        error.Unreachable,
-                        error.UncaughtException,
-                        => return Error.UndefinedBehavior,
-                    };
+                    const maybe_expanded = try macro_ptr.expand(self.vm, expr);
                     if (maybe_expanded) |expanded| {
                         // Recursively expand the result
                         return self.expandMacros(expanded);

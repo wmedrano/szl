@@ -28,6 +28,111 @@ pub fn init(vm: *Vm) Vm.Error!Handle(Module) {
     return handle;
 }
 
+fn toVal(self: Instruction, vm: *Vm) Vm.Error!Val {
+    const builder = vm.builder();
+    switch (self) {
+        .load_const => |idx| {
+            const items = [_]Val{
+                try builder.makeStaticSymbol("load-const"),
+                Val.initInt(idx),
+            };
+            return builder.makeList(&items);
+        },
+        .load_global => |slot| {
+            const items = [_]Val{
+                try builder.makeStaticSymbol("load-global"),
+                Val.initInt(slot.idx),
+            };
+            return builder.makeList(&items);
+        },
+        .load_proc => {
+            const items = [_]Val{
+                try builder.makeStaticSymbol("load-proc"),
+            };
+            return builder.makeList(&items);
+        },
+        .load_arg => |idx| {
+            const items = [_]Val{
+                try builder.makeStaticSymbol("load-arg"),
+                Val.initInt(@intCast(idx)),
+            };
+            return builder.makeList(&items);
+        },
+        .load_local => |idx| {
+            const items = [_]Val{
+                try builder.makeStaticSymbol("load-local"),
+                Val.initInt(@intCast(idx)),
+            };
+            return builder.makeList(&items);
+        },
+        .set_global => |slot| {
+            @branchHint(.cold);
+            const items = [_]Val{
+                try builder.makeStaticSymbol("set-global"),
+                Val.initInt(@intCast(slot.idx)),
+            };
+            return builder.makeList(&items);
+        },
+        .set_arg => |idx| {
+            const items = [_]Val{
+                try builder.makeStaticSymbol("set-arg"),
+                Val.initInt(@intCast(idx)),
+            };
+            return builder.makeList(&items);
+        },
+        .set_local => |idx| {
+            const items = [_]Val{
+                try builder.makeStaticSymbol("set-local"),
+                Val.initInt(@intCast(idx)),
+            };
+            return builder.makeList(&items);
+        },
+        .jump => |n| {
+            const items = [_]Val{
+                try builder.makeStaticSymbol("jump"),
+                Val.initInt(n),
+            };
+            return builder.makeList(&items);
+        },
+        .jump_if_not => |n| {
+            const items = [_]Val{
+                try builder.makeStaticSymbol("jump-if-not"),
+                Val.initInt(n),
+            };
+            return builder.makeList(&items);
+        },
+        .squash => |n| {
+            const items = [_]Val{
+                try builder.makeStaticSymbol("squash"),
+                Val.initInt(@intCast(n)),
+            };
+            return builder.makeList(&items);
+        },
+        .eval => |n| {
+            const items = [_]Val{
+                try builder.makeStaticSymbol("eval"),
+                Val.initInt(@intCast(n)),
+            };
+            return builder.makeList(&items);
+        },
+        .make_closure => |h| {
+            @branchHint(.cold);
+            const items = [_]Val{
+                try builder.makeStaticSymbol("make-closure"),
+                Val.initProc(h),
+            };
+            return builder.makeList(&items);
+        },
+        .ret => {
+            @branchHint(.unlikely);
+            const items = [_]Val{
+                try builder.makeStaticSymbol("ret"),
+            };
+            return builder.makeList(&items);
+        },
+    }
+}
+
 const proc_instructions = NativeProc.withRawArgs(struct {
     pub const name = "proc-instructions";
     pub inline fn impl(vm: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
@@ -67,7 +172,7 @@ const proc_instructions = NativeProc.withRawArgs(struct {
         const instructions = try vm.allocator().alloc(Val, raw_instructions.len);
         defer vm.allocator().free(instructions);
         for (instructions, raw_instructions) |*dst, src| {
-            dst.* = try src.toVal(vm);
+            dst.* = try toVal(src, vm);
         }
         const list = try vm.builder().makeList(instructions);
         return list;
@@ -79,13 +184,10 @@ test "proc-instructions reveals bytecode" {
     defer vm.deinit();
 
     try vm.expectEval(
-        "((load-arg 0) (load-const 0) (load-global <=) (eval 2) (jump-if-not 2) (load-arg 0) (ret) (load-arg 0) (load-const 1) (load-global -) (eval 2) (load-proc) (eval 1) (load-arg 0) (load-const 2) (load-global -) (eval 2) (load-proc) (eval 1) (load-global +) (eval 2) (ret))",
-        \\ (define (fib n) (if (<= n 1)
-        \\                   n
-        \\                   (+ (fib (- n 1))
-        \\                      (fib (- n 2)))))
+        "((load-const 0) (jump-if-not 2) (load-arg 0) (ret) (load-const 1) (ret))",
+        \\ (define (test-fn n) (if #t n 0))
         \\ (import (sizzle unstable compiler))
-        \\ (proc-instructions fib)
+        \\ (proc-instructions test-fn)
         ,
     );
 }

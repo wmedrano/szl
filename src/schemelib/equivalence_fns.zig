@@ -150,21 +150,21 @@ test "eq? with no arguments returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(eq?)", null, null));
+    try vm.expectError(Vm.Error.UncaughtException, "(eq?)");
 }
 
 test "eq? with one argument returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(eq? #t)", null, null));
+    try vm.expectError(Vm.Error.UncaughtException, "(eq? #t)");
 }
 
 test "eq? with three arguments returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(eq? #t #f #t)", null, null));
+    try vm.expectError(Vm.Error.UncaughtException, "(eq? #t #f #t)");
 }
 
 test "equal? with identical primitives returns true" {
@@ -238,19 +238,19 @@ test "equal? with no arguments returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(equal?)", null, null));
+    try vm.expectError(Vm.Error.UncaughtException, "(equal?)");
 }
 
 test "equal? with one argument returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(equal? #t)", null, null));
+    try vm.expectError(Vm.Error.UncaughtException, "(equal? #t)");
 }
 
 test "equal? with three arguments returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(equal? #t #f #t)", null, null));
+    try vm.expectError(Vm.Error.UncaughtException, "(equal? #t #f #t)");
 }

@@ -120,7 +120,7 @@ test "raise calls all exceptions" {
         \\     (with-exception-handler set-two!
         \\       (lambda () (raise 'exception)))))
     ;
-    try testing.expectError(error.UncaughtException, vm.evalStr(source, null, null));
+    try vm.expectError(error.UncaughtException, source);
     try vm.expectEval("1", "one");
     try vm.expectEval("2", "two");
 }

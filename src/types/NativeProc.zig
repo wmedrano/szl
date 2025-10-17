@@ -55,7 +55,7 @@ pub fn withRawArgs(T: type) NativeProc {
         fn wrapped(vm: *Vm, diagnostics: ?*Diagnostics, arg_count: u32) Vm.Error!void {
             const args = vm.context.stackTopN(arg_count);
             const val = try T.impl(vm, diagnostics, args);
-            _ = vm.context.popStackFrame(.discard);
+            vm.context.stack.items.len -= @intCast(arg_count);
             try vm.context.push(vm.allocator(), val);
         }
     }.def;
@@ -96,9 +96,9 @@ pub fn with1Arg(T: type) NativeProc {
                 }
                 return Vm.Error.UncaughtException;
             }
-            const val = try T.impl(vm, diagnostics, vm.context.top().?);
-            _ = vm.context.popStackFrame(.discard);
-            try vm.context.push(vm.allocator(), val);
+            const top = &vm.context.stack.items[vm.context.stack.items.len - 1];
+            const val = try T.impl(vm, diagnostics, top.*);
+            top.* = val;
         }
     }.def;
 }
@@ -123,10 +123,11 @@ pub fn with2Args(T: type) NativeProc {
                 }
                 return Vm.Error.UncaughtException;
             }
+            const dst_idx = vm.context.stack.items.len - 2;
             const args = vm.context.stackTopN(2);
             const val = try T.impl(vm, diagnostics, args[0], args[1]);
-            _ = vm.context.popStackFrame(.discard);
-            try vm.context.push(vm.allocator(), val);
+            vm.context.stack.items[dst_idx] = val;
+            vm.context.stack.items.len -= 1;
         }
     }.def;
 }

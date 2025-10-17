@@ -63,14 +63,14 @@ test "not with no arguments returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(not)", null, null));
+    try vm.expectError(Vm.Error.UncaughtException, "(not)");
 }
 
 test "not with multiple arguments returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(not #t #f)", null, null));
+    try vm.expectError(Vm.Error.UncaughtException, "(not #t #f)");
 }
 
 test "boolean? with true returns true" {
@@ -102,12 +102,12 @@ test "boolean? with no arguments returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(boolean?)", null, null));
+    try vm.expectError(Vm.Error.UncaughtException, "(boolean?)");
 }
 
 test "boolean? with multiple arguments returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(boolean? #t #f)", null, null));
+    try vm.expectError(Vm.Error.UncaughtException, "(boolean? #t #f)");
 }

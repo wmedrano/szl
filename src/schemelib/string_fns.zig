@@ -61,12 +61,6 @@ test "string-length on non-string returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(
-        Vm.Error.UncaughtException,
-        vm.evalStr("(string-length 42)", null, null),
-    );
-    try testing.expectError(
-        Vm.Error.UncaughtException,
-        vm.evalStr("(string-length #t)", null, null),
-    );
+    try vm.expectError(Vm.Error.UncaughtException, "(string-length 42)");
+    try vm.expectError(Vm.Error.UncaughtException, "(string-length #t)");
 }

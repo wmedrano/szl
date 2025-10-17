@@ -8,9 +8,13 @@ const Val = @import("Val.zig");
 
 const Module = @This();
 
+pub const Slot = packed struct {
+    idx: u32,
+};
+
 namespace: []const Symbol = &.{},
 slots: std.ArrayList(Val) = .{},
-symbol_to_slot: std.AutoHashMapUnmanaged(Symbol, u32) = .{},
+symbol_to_slot: std.AutoHashMapUnmanaged(Symbol, Slot) = .{},
 
 pub fn deinit(self: *Module, allocator: std.mem.Allocator) void {
     allocator.free(self.namespace);
@@ -18,31 +22,43 @@ pub fn deinit(self: *Module, allocator: std.mem.Allocator) void {
     self.symbol_to_slot.deinit(allocator);
 }
 
-pub fn getBySlot(self: Module, slot: u32) ?Val {
-    return self.slots.items[@intCast(slot)];
+pub fn getOrCreateSlot(self: *Module, allocator: std.mem.Allocator, sym: Symbol, default_value: Val) !Slot {
+    if (self.getSlot(sym)) |slot| return slot;
+    const slot = Slot{ .idx = @intCast(self.slots.items.len) };
+    try self.slots.append(allocator, default_value);
+    try self.symbol_to_slot.put(allocator, sym, slot);
+    return slot;
+}
+
+pub fn getSlot(self: *Module, sym: Symbol) ?Slot {
+    return self.symbol_to_slot.get(sym);
+}
+
+pub fn get(self: Module, slot: Slot) ?Val {
+    return self.slots.items[@intCast(slot.idx)];
 }
 
 pub fn getBySymbol(self: Module, sym: Symbol) ?Val {
     const slot = self.symbol_to_slot.get(sym) orelse return null;
-    const idx: usize = @intCast(slot);
+    const idx: usize = @intCast(slot.idx);
     return self.slots.items[idx];
 }
 
 pub fn setBySymbol(self: *Module, allocator: std.mem.Allocator, sym: Symbol, val: Val) Vm.Error!void {
     if (self.symbol_to_slot.get(sym)) |slot| {
-        const idx: usize = @intCast(slot);
+        const idx: usize = @intCast(slot.idx);
         if (idx < self.slots.items.len)
             self.slots.items[idx] = val
         else
             return Vm.Error.UndefinedBehavior;
     }
-    const slot: u32 = @intCast(self.slots.items.len);
+    const slot = Slot{ .idx = @intCast(self.slots.items.len) };
     try self.slots.append(allocator, val);
     try self.symbol_to_slot.put(allocator, sym, slot);
 }
 
-fn set(self: *Module, slot: u32, val: Val) Vm.Error!void {
-    const idx: usize = @intCast(slot);
+pub fn set(self: *Module, slot: Slot, val: Val) Vm.Error!void {
+    const idx: usize = @intCast(slot.idx);
     if (idx < self.slots.items.len)
         self.slots.items[idx] = val
     else
@@ -52,7 +68,7 @@ fn set(self: *Module, slot: u32, val: Val) Vm.Error!void {
 pub fn import(self: *Module, allocator: std.mem.Allocator, other: Module) Vm.Error!void {
     var symbol_slots_iter = other.symbol_to_slot.iterator();
     while (symbol_slots_iter.next()) |symbol_slot| {
-        const val = other.getBySlot(symbol_slot.value_ptr.*) orelse
+        const val = other.get(symbol_slot.value_ptr.*) orelse
             return Vm.Error.UndefinedBehavior;
         try self.setBySymbol(allocator, symbol_slot.key_ptr.*, val);
     }

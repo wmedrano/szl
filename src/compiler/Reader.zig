@@ -708,18 +708,50 @@ fn parseCharacter(_: Reader, token: Tokenizer.Token, diagnostics: ?*Diagnostics)
 }
 
 fn expectReadNext(self: *Reader, expect: ?[]const u8, vm: *const Vm) !void {
-    const end_of_read = "end_of_read";
-    const expect_normalized = expect orelse end_of_read;
-    if (try self.readNext(null)) |next| {
-        const pretty = vm.pretty(next, .{});
-        try testing.expectFmt(
-            expect_normalized,
-            "{f}",
-            .{pretty},
-        );
-    } else {
-        try testing.expectEqualStrings(expect_normalized, end_of_read);
+    var diagnostics = Diagnostics.init(testing.allocator);
+    defer diagnostics.deinit();
+    errdefer std.debug.print("Diagnostics:\n{f}\n", .{diagnostics.pretty(vm, .nocolor)});
+
+    const next = try self.readNext(&diagnostics);
+    if (expect) |expected_str| {
+        const val = next orelse {
+            std.debug.print("Expected value '{s}' but got end of input\n", .{expected_str});
+            return error.TestUnexpectedResult;
+        };
+        return testing.expectFmt(expected_str, "{f}", .{vm.pretty(val, .{})});
+    } else if (next) |val| {
+        std.debug.print("Expected end of input but got: {f}\n", .{vm.pretty(val, .{})});
+        return error.TestUnexpectedResult;
     }
+}
+
+fn expectReadError(
+    self: *Reader,
+    expected_error: anyerror,
+    expected_kind: Diagnostics.ReadErrorInfo.Kind,
+) !void {
+    var diagnostics = Diagnostics.init(testing.allocator);
+    defer diagnostics.deinit();
+    errdefer std.debug.print("Diagnostics:\n{f}\n", .{diagnostics.pretty(self.vm, .nocolor)});
+
+    const actual_error = self.readNext(&diagnostics);
+    try testing.expectError(expected_error, actual_error);
+    try testing.expectEqual(expected_kind, diagnostics.diagnostics.items[0].reader.kind);
+}
+
+fn expectReadOneError(
+    vm: *Vm,
+    source: []const u8,
+    expected_error: anyerror,
+    expected_kind: Diagnostics.ReadErrorInfo.Kind,
+) !void {
+    var diagnostics = Diagnostics.init(testing.allocator);
+    defer diagnostics.deinit();
+    errdefer std.debug.print("Diagnostics:\n{f}\n", .{diagnostics.pretty(vm, .nocolor)});
+
+    const actual_error = Reader.readOne(vm, source, &diagnostics);
+    try testing.expectError(expected_error, actual_error);
+    try testing.expectEqual(expected_kind, diagnostics.diagnostics.items[0].reader.kind);
 }
 
 test "read int" {
@@ -923,83 +955,55 @@ test "error unclosed list" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    var diagnostics = Diagnostics.init(testing.allocator);
-    defer diagnostics.deinit();
     var reader = Reader.init(&vm, "(1 2 3");
-    const result = reader.readNext(&diagnostics);
-    try testing.expectError(Error.ReadError, result);
-    try testing.expectEqual(Diagnostics.ReadErrorInfo.Kind.unexpected_eof, diagnostics.diagnostics.items[0].reader.kind);
+    try reader.expectReadError(Error.ReadError, .unexpected_eof);
 }
 
 test "error unexpected close paren" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    var diagnostics = Diagnostics.init(testing.allocator);
-    defer diagnostics.deinit();
     var reader = Reader.init(&vm, "1)");
     _ = try reader.readNext(null);
-    const result = reader.readNext(&diagnostics);
-    try testing.expectError(Error.ReadError, result);
-    try testing.expectEqual(Diagnostics.ReadErrorInfo.Kind.unexpected_close_paren, diagnostics.diagnostics.items[0].reader.kind);
+    try reader.expectReadError(Error.ReadError, .unexpected_close_paren);
 }
 
 test "error empty dot list" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    var diagnostics = Diagnostics.init(testing.allocator);
-    defer diagnostics.deinit();
     var reader = Reader.init(&vm, "(. 1)");
-    const result = reader.readNext(&diagnostics);
-    try testing.expectError(Error.ReadError, result);
-    try testing.expectEqual(Diagnostics.ReadErrorInfo.Kind.empty_dot_list, diagnostics.diagnostics.items[0].reader.kind);
+    try reader.expectReadError(Error.ReadError, .empty_dot_list);
 }
 
 test "error unexpected dot" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    var diagnostics = Diagnostics.init(testing.allocator);
-    defer diagnostics.deinit();
     var reader = Reader.init(&vm, ".");
-    const result = reader.readNext(&diagnostics);
-    try testing.expectError(Error.ReadError, result);
-    try testing.expectEqual(Diagnostics.ReadErrorInfo.Kind.unexpected_dot, diagnostics.diagnostics.items[0].reader.kind);
+    try reader.expectReadError(Error.ReadError, .unexpected_dot);
 }
 
 test "error readOne no values" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    var diagnostics = Diagnostics.init(testing.allocator);
-    defer diagnostics.deinit();
-    const result = Reader.readOne(&vm, "", &diagnostics);
-    try testing.expectError(ReadOneError.NoValue, result);
-    try testing.expectEqual(Diagnostics.ReadErrorInfo.Kind.no_values, diagnostics.diagnostics.items[0].reader.kind);
+    try expectReadOneError(&vm, "", ReadOneError.NoValue, .no_values);
 }
 
 test "error readOne multiple values" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    var diagnostics = Diagnostics.init(testing.allocator);
-    defer diagnostics.deinit();
-    const result = Reader.readOne(&vm, "1 2", &diagnostics);
-    try testing.expectError(ReadOneError.TooManyValues, result);
-    try testing.expectEqual(Diagnostics.ReadErrorInfo.Kind.multiple_values, diagnostics.diagnostics.items[0].reader.kind);
+    try expectReadOneError(&vm, "1 2", ReadOneError.TooManyValues, .multiple_values);
 }
 
 test "error invalid bytevector" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    var diagnostics = Diagnostics.init(testing.allocator);
-    defer diagnostics.deinit();
     var reader = Reader.init(&vm, "#u8(256)");
-    const result = reader.readNext(&diagnostics);
-    try testing.expectError(Error.ReadError, result);
-    try testing.expectEqual(Diagnostics.ReadErrorInfo.Kind.invalid_bytevector, diagnostics.diagnostics.items[0].reader.kind);
+    try reader.expectReadError(Error.ReadError, .invalid_bytevector);
 }
 
 test "error invalid sharpsign literal" {
@@ -1008,6 +1012,8 @@ test "error invalid sharpsign literal" {
 
     var diagnostics = Diagnostics.init(testing.allocator);
     defer diagnostics.deinit();
+    errdefer std.debug.print("Diagnostics:\n{f}\n", .{diagnostics.pretty(&vm, .nocolor)});
+
     var reader = Reader.init(&vm, "#invalid");
     const result = reader.readNext(&diagnostics);
     try testing.expectError(Error.ReadError, result);
@@ -1021,6 +1027,8 @@ test "error bare sharpsign" {
 
     var diagnostics = Diagnostics.init(testing.allocator);
     defer diagnostics.deinit();
+    errdefer std.debug.print("Diagnostics:\n{f}\n", .{diagnostics.pretty(&vm, .nocolor)});
+
     var reader = Reader.init(&vm, "#");
     const result = reader.readNext(&diagnostics);
     try testing.expectError(Error.ReadError, result);
@@ -1038,6 +1046,8 @@ test "lexeme information in diagnostics" {
     {
         var diagnostics = Diagnostics.init(testing.allocator);
         defer diagnostics.deinit();
+        errdefer std.debug.print("Diagnostics:\n{f}\n", .{diagnostics.pretty(&vm, .nocolor)});
+
         var reader = Reader.init(&vm, ".");
         _ = reader.readNext(&diagnostics) catch {};
         try testing.expectEqual(Diagnostics.ReadErrorInfo.Kind.unexpected_dot, diagnostics.diagnostics.items[0].reader.kind);
@@ -1049,6 +1059,8 @@ test "lexeme information in diagnostics" {
     {
         var diagnostics = Diagnostics.init(testing.allocator);
         defer diagnostics.deinit();
+        errdefer std.debug.print("Diagnostics:\n{f}\n", .{diagnostics.pretty(&vm, .nocolor)});
+
         var reader = Reader.init(&vm, "1 )");
         _ = try reader.readNext(null);
         _ = reader.readNext(&diagnostics) catch {};
@@ -1061,6 +1073,8 @@ test "lexeme information in diagnostics" {
     {
         var diagnostics = Diagnostics.init(testing.allocator);
         defer diagnostics.deinit();
+        errdefer std.debug.print("Diagnostics:\n{f}\n", .{diagnostics.pretty(&vm, .nocolor)});
+
         var reader = Reader.init(&vm, "#u8(256)");
         _ = reader.readNext(&diagnostics) catch {};
         try testing.expectEqual(Diagnostics.ReadErrorInfo.Kind.invalid_bytevector, diagnostics.diagnostics.items[0].reader.kind);

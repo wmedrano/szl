@@ -86,15 +86,15 @@ pub inline fn makeEnvironment(
     self: Builder,
     namespace: []const Symbol,
     definitions: []const Definition,
-) Vm.Error!Handle(Module) {
-    // Create
+) error{OutOfMemory}!Handle(Module) {
     const h = try self.vm.objects.modules.put(self.vm.allocator(), Module{});
-    const module = self.vm.objects.modules.get(h) orelse return Vm.Error.Unreachable;
+    // We just made the object so it sholud be reachable.
+    const module = self.vm.objects.modules.get(h) orelse unreachable;
 
     // Initialize
     module.namespace = try self.vm.allocator().dupe(Symbol, namespace);
     for (definitions, 0..definitions.len) |def, idx| {
-        const slot: u32 = @intCast(idx);
+        const slot = Module.Slot{ .idx = @intCast(idx) };
         try module.slots.append(self.vm.allocator(), def.value);
         try module.symbol_to_slot.put(self.vm.allocator(), def.symbol, slot);
     }

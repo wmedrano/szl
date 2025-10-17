@@ -1,6 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 
+const Diagnostics = @import("../Diagnostics.zig");
 const Instruction = @import("../instruction.zig").Instruction;
 const Module = @import("../types/Module.zig");
 const Handle = @import("../types/object_pool.zig").Handle;
@@ -29,6 +30,7 @@ pub const Error = error{
     OutOfMemory,
     NotImplemented,
     UndefinedBehavior,
+    UncaughtException,
 };
 
 pub const Scope = struct {
@@ -112,36 +114,37 @@ pub fn init(arena: *std.heap.ArenaAllocator, vm: *Vm, module: Handle(Module)) Co
     };
 }
 
-pub fn compile(self: *Compiler, expr: Val) Error!Val {
+pub fn compile(self: *Compiler, expr: Val, diagnostics: ?*Diagnostics) Error!Val {
     // Val -> Ir
     const ir = try Ir.init(self.arena, self.vm, self.scope.module, expr);
-    try self.addIr(ir, true);
+    try self.addIr(ir, true, diagnostics);
     // Ir -> Val(Proc)
     const proc = try self.makeProc(null);
     if (proc.captures.len > 0) return Error.UndefinedBehavior;
     return Val.initProc(proc.handle);
 }
 
-fn addIr(self: *Compiler, ir: Ir, return_value: bool) Error!void {
+fn addIr(self: *Compiler, ir: Ir, return_value: bool, diagnostics: ?*Diagnostics) Error!void {
     switch (ir) {
         .push_const => |v| try self.addConst(v),
-        .get => |sym| try self.addGet(sym),
-        .define => |d| try self.addDefine(d.symbol, d.expr.*),
-        .if_expr => |expr| return self.addIf(expr.test_expr.*, expr.true_expr.*, expr.false_expr.*, return_value),
-        .let_expr => |expr| return self.addLet(expr.bindings, expr.body, return_value),
-        .eval => |e| try self.addEval(e),
-        .lambda => |l| try self.addLambda(l),
+        .get => |sym| try self.addGet(sym, diagnostics),
+        .define => |d| try self.addDefine(d.symbol, d.expr.*, diagnostics),
+        .set => |d| try self.addSet(d.symbol, d.expr.*, diagnostics),
+        .if_expr => |expr| return self.addIf(expr.test_expr.*, expr.true_expr.*, expr.false_expr.*, return_value, diagnostics),
+        .let_expr => |expr| return self.addLet(expr.bindings, expr.body, return_value, diagnostics),
+        .eval => |e| try self.addEval(e, diagnostics),
+        .lambda => |l| try self.addLambda(l, diagnostics),
     }
     if (return_value) try self.addInstruction(.{ .ret = {} });
 }
 
-fn addIrs(self: *Compiler, irs: []const Ir, return_value: bool) Error!void {
+fn addIrs(self: *Compiler, irs: []const Ir, return_value: bool, diagnostics: ?*Diagnostics) Error!void {
     switch (irs.len) {
-        0 => return self.addIr(Ir{ .push_const = Val.initEmptyList() }, return_value),
-        1 => return self.addIr(irs[0], return_value),
+        0 => return self.addIr(Ir{ .push_const = Val.initEmptyList() }, return_value, diagnostics),
+        1 => return self.addIr(irs[0], return_value, diagnostics),
         else => {
-            for (irs[0 .. irs.len - 1]) |ir| try self.addIr(ir, false);
-            try self.addIr(irs[irs.len - 1], return_value);
+            for (irs[0 .. irs.len - 1]) |ir| try self.addIr(ir, false, diagnostics);
+            try self.addIr(irs[irs.len - 1], return_value, diagnostics);
             if (!return_value) {
                 try self.addInstruction(.{ .squash = @intCast(irs.len) });
             }
@@ -155,7 +158,7 @@ fn addConst(self: *Compiler, val: Val) Error!void {
     try self.addInstruction(.{ .load_const = @intCast(idx) });
 }
 
-fn addGet(self: *Compiler, sym: Symbol) Error!void {
+fn addGet(self: *Compiler, sym: Symbol, diagnostics: ?*Diagnostics) Error!void {
     const instruction = switch (self.scope.resolve(sym)) {
         .proc => Instruction{ .load_proc = {} },
         .arg => |idx| Instruction{ .load_arg = idx },
@@ -170,14 +173,29 @@ fn addGet(self: *Compiler, sym: Symbol) Error!void {
             const signed_idx: i32 = @intCast(idx);
             break :blk Instruction{ .load_const = -signed_idx - 1 };
         },
-        .module => |mod_sym| Instruction{ .load_global = mod_sym },
+        .module => |mod_sym| blk: {
+            const module = try self.vm.inspector().handleToModule(self.scope.module);
+            const slot = module.getSlot(mod_sym) orelse {
+                @branchHint(.cold);
+                if (diagnostics) |d| {
+                    d.addDiagnostic(.{
+                        .undefined_variable = .{
+                            .module = self.scope.module,
+                            .symbol = mod_sym,
+                        },
+                    });
+                }
+                return Error.UncaughtException;
+            };
+            break :blk Instruction{ .load_global = slot };
+        },
     };
     try self.addInstruction(instruction);
 }
 
-fn addEval(self: *Compiler, e: anytype) Error!void {
-    for (e.args) |arg| try self.addIr(arg, false);
-    try self.addIr(e.proc.*, false);
+fn addEval(self: *Compiler, e: anytype, diagnostics: ?*Diagnostics) Error!void {
+    for (e.args) |arg| try self.addIr(arg, false, diagnostics);
+    try self.addIr(e.proc.*, false, diagnostics);
     try self.addInstruction(.{ .eval = @intCast(e.args.len) });
 }
 
@@ -185,7 +203,7 @@ fn addInstruction(self: *Compiler, instruction: Instruction) !void {
     try self.instructions.append(self.arena.allocator(), instruction);
 }
 
-fn addLambda(self: *Compiler, lambda: Ir.Lambda) Error!void {
+fn addLambda(self: *Compiler, lambda: Ir.Lambda, diagnostics: ?*Diagnostics) Error!void {
     var sub_compiler = Compiler{
         .vm = self.vm,
         .arena = self.arena,
@@ -196,12 +214,12 @@ fn addLambda(self: *Compiler, lambda: Ir.Lambda) Error!void {
             .captures = try self.scope.toCaptureCandidates(self.arena.allocator()),
         },
     };
-    try sub_compiler.addIrs(lambda.body, true);
+    try sub_compiler.addIrs(lambda.body, true, diagnostics);
     const proc = try sub_compiler.makeProc(lambda.name);
     if (proc.captures.len == 0) {
         return self.addConst(Val.initProc(proc.handle));
     }
-    for (proc.captures) |capture| try self.addGet(capture);
+    for (proc.captures) |capture| try self.addGet(capture, diagnostics);
     try self.addInstruction(.{ .make_closure = proc.handle });
 }
 
@@ -211,22 +229,66 @@ fn jumpDistance(src: usize, dst: usize) i32 {
     return dst_i32 - src_i32;
 }
 
-fn addDefine(self: *Compiler, symbol: Symbol, expr: Ir) Error!void {
-    try self.addIr(expr, false);
-    try self.addInstruction(.{ .set_global = symbol });
+fn addDefine(self: *Compiler, symbol: Symbol, expr: Ir, diagnostics: ?*Diagnostics) Error!void {
+    try self.addIr(expr, false, diagnostics);
+    const module = try self.vm.inspector().handleToModule(self.scope.module);
+    const slot = try module.getOrCreateSlot(self.vm.allocator(), symbol, Val.initBool(false));
+    try self.addInstruction(.{ .set_global = slot });
 }
 
-fn addIf(self: *Compiler, test_expr: Ir, true_expr: Ir, false_expr: Ir, return_value: bool) !void {
+fn addSet(self: *Compiler, symbol: Symbol, expr: Ir, diagnostics: ?*Diagnostics) Error!void {
+    try self.addIr(expr, false, diagnostics);
+    switch (self.scope.resolve(symbol)) {
+        .proc => return Error.UncaughtException,
+        .arg => |idx| {
+            // Set arg does not return anything so we make it an expression by
+            // returning the empty list.
+            try self.addInstruction(.{ .set_arg = idx });
+            try self.addConst(Val.initEmptyList());
+        },
+        .local => |idx| {
+            try self.addInstruction(.{ .set_local = idx });
+            // Set local does not return anything so we make it an expression by
+            // returning the empty list.
+            try self.addConst(Val.initEmptyList());
+        },
+        .capture => |_| {
+            if (diagnostics) |d| {
+                @branchHint(.cold);
+                d.addDiagnostic(.{ .other = "set! on captured variables is not yet supported" });
+            }
+            return Error.NotImplemented;
+        },
+        .module => |mod_sym| {
+            const module = try self.vm.inspector().handleToModule(self.scope.module);
+            const slot = module.getSlot(mod_sym) orelse {
+                @branchHint(.cold);
+                if (diagnostics) |d| {
+                    d.addDiagnostic(.{
+                        .undefined_variable = .{
+                            .module = self.scope.module,
+                            .symbol = mod_sym,
+                        },
+                    });
+                }
+                return Error.UncaughtException;
+            };
+            try self.addInstruction(.{ .set_global = slot });
+        },
+    }
+}
+
+fn addIf(self: *Compiler, test_expr: Ir, true_expr: Ir, false_expr: Ir, return_value: bool, diagnostics: ?*Diagnostics) !void {
     // 1. Add expressions.
-    try self.addIr(test_expr, false);
+    try self.addIr(test_expr, false, diagnostics);
     const test_jump_idx = self.instructions.items.len;
     try self.addInstruction(.{ .jump_if_not = 0 });
-    try self.addIr(true_expr, return_value);
+    try self.addIr(true_expr, return_value, diagnostics);
     const true_jump_idx: ?usize = if (return_value) null else self.instructions.items.len;
     if (!return_value)
         try self.addInstruction(.{ .jump = 0 });
     const false_start_idx = self.instructions.items.len;
-    try self.addIr(false_expr, return_value);
+    try self.addIr(false_expr, return_value, diagnostics);
     const end_idx = self.instructions.items.len;
     // 2. Fix jump indices. The start index is after the start of the jump since
     //    the counter is always advanced once the instruction is fetched, but
@@ -239,7 +301,7 @@ fn addIf(self: *Compiler, test_expr: Ir, true_expr: Ir, false_expr: Ir, return_v
     }
 }
 
-fn addLet(self: *Compiler, bindings: []const Ir.LetBinding, body: []Ir, return_value: bool) !void {
+fn addLet(self: *Compiler, bindings: []const Ir.LetBinding, body: []Ir, return_value: bool, diagnostics: ?*Diagnostics) !void {
     // 1. Reserve bindings.
     const start_idx = self.scope.locals.items.len;
     const end_idx = self.scope.locals.items.len + bindings.len;
@@ -249,7 +311,7 @@ fn addLet(self: *Compiler, bindings: []const Ir.LetBinding, body: []Ir, return_v
     }
     // 2. Compute values.
     for (bindings, 0..bindings.len) |b, idx| {
-        try self.addIr(b.expr, false);
+        try self.addIr(b.expr, false, diagnostics);
         const local_idx = start_idx + idx;
         try self.addInstruction(Instruction{ .set_local = @intCast(local_idx) });
     }
@@ -260,7 +322,7 @@ fn addLet(self: *Compiler, bindings: []const Ir.LetBinding, body: []Ir, return_v
         l.available = false;
     };
     // 4. Evaluate body.
-    try self.addIrs(body, return_value);
+    try self.addIrs(body, return_value, diagnostics);
 }
 
 fn makeProc(self: Compiler, name: ?Symbol) Error!struct {
@@ -327,6 +389,13 @@ test "if statement picks correct branch" {
     try vm.expectEval("20", "(if #f 10 20)");
 }
 
+test "let defines variable" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("1", "(let ((y 1)) y)");
+}
+
 test "let is evaluated" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
@@ -338,10 +407,7 @@ test "let bindings can't reference themselves" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(
-        error.UncaughtException,
-        vm.evalStr("(let ((x 1) (y x)) (+ x y))", null, null),
-    );
+    try vm.expectError(error.UncaughtException, "(let ((x 1) (y x)) (+ x y))");
 }
 
 test "let variable shadows global" {
@@ -376,10 +442,7 @@ test "lambda with wrong number of args is error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(
-        error.UncaughtException,
-        vm.evalStr("((lambda (a b c d) (+ a b c d)) 1 2 3)", null, null),
-    );
+    try vm.expectError(error.UncaughtException, "((lambda (a b c d) (+ a b c d)) 1 2 3)");
 }
 
 test "lambda can capture environment" {
@@ -420,6 +483,79 @@ test "define can call recursively" {
         \\ (fib 10)
     ;
     try vm.expectEval("55", source);
+}
+
+test "set! can set global variable" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const source =
+        \\ (define x 1)
+        \\ (let ((y (+ x x)))
+        \\   (set! x y))
+        \\ x
+    ;
+    try vm.expectEval("2", source);
+}
+
+test "set! can set local variable" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const source =
+        \\ (define x 1)
+        \\ (let ((y 10))
+        \\   (set! y 100)
+        \\   y)
+    ;
+    try vm.expectEval("100", source);
+}
+
+test "set! can set argument" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const source =
+        \\ (define (add-100 x)
+        \\   (set! x (+ 100 x))
+        \\   x)
+        \\ (add-100 1)
+    ;
+    try vm.expectEval("101", source);
+}
+
+test "set! on local doesn't affect original binding" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const source =
+        \\ (define (do-not-add-100 x)
+        \\   (let ((binding x))
+        \\     (set! binding (+ binding x))
+        \\     x))
+        \\ (do-not-add-100 42)
+    ;
+    try vm.expectEval("42", source);
+}
+
+test "set! not available on captured binding" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const source =
+        \\ (let ((x 10))
+        \\   (lambda (y) (set! x 10) (+ x y)))
+    ;
+    try vm.expectError(error.NotImplemented, source);
+}
+
+test "set! requires symbol as first argument" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectError(error.InvalidExpression, "(set! 1 2)");
+    try vm.expectError(error.InvalidExpression, "(set! \"x\" 2)");
+    try vm.expectError(error.InvalidExpression, "(set! (quote x) 2)");
 }
 
 test "call/cc that doesn't call continuation returns as normal" {

@@ -8,6 +8,11 @@ const Val = @import("Val.zig");
 
 const SyntaxRules = @This();
 
+const Error = error{
+    InvalidExpression,
+    OutOfMemory,
+};
+
 /// Symbols that must match literally (not treated as pattern variables)
 literals: std.ArrayList(Symbol),
 /// List of pattern/template transformation rules
@@ -61,7 +66,7 @@ pub const Pattern = union(enum) {
         expr: Val,
         bindings: *Template.Bindings,
         vm: *Vm,
-    ) Vm.Error!bool {
+    ) Error!bool {
         switch (self) {
             .any => return true,
             .literal => |lit_sym| {
@@ -143,7 +148,7 @@ pub const Pattern = union(enum) {
 
             .ellipsis => {
                 // Ellipsis patterns should only appear inside lists
-                return Vm.Error.InvalidExpression;
+                return Error.InvalidExpression;
             },
         }
     }
@@ -225,7 +230,7 @@ pub const Template = union(enum) {
         self: Template,
         bindings: Bindings,
         vm: *Vm,
-    ) Vm.Error!Val {
+    ) Error!Val {
         const builder = vm.builder();
 
         switch (self) {
@@ -240,7 +245,7 @@ pub const Template = union(enum) {
                     .single => |val| return val,
                     .multiple => {
                         // Shouldn't reference ellipsis binding outside ellipsis template
-                        return Vm.Error.InvalidExpression;
+                        return Error.InvalidExpression;
                     },
                 }
             },
@@ -279,7 +284,7 @@ pub const Template = union(enum) {
 
             .ellipsis => {
                 // Ellipsis templates should only appear inside lists
-                return Vm.Error.InvalidExpression;
+                return Error.InvalidExpression;
             },
         }
     }
@@ -384,7 +389,7 @@ pub fn deinit(self: *SyntaxRules, allocator: std.mem.Allocator) void {
 }
 
 /// Attempt to match a usage form against this macro's rules and expand
-pub fn expand(self: SyntaxRules, vm: *Vm, usage: Val) Vm.Error!?Val {
+pub fn expand(self: SyntaxRules, vm: *Vm, usage: Val) Error!?Val {
     const inspector = vm.inspector();
 
     // Usage form should be a list (macro-name arg1 arg2 ...)

@@ -363,7 +363,7 @@ test "+ on non-ints returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(+ #t)", null, null));
+    try vm.expectError(Vm.Error.UncaughtException, "(+ #t)");
 }
 
 test "+ on floats sums floats" {
@@ -409,15 +409,15 @@ test "- with no args returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(-)", null, null));
+    try vm.expectError(Vm.Error.UncaughtException, "(-)");
 }
 
 test "- on non-ints returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(- #t)", null, null));
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(- 5 #f)", null, null));
+    try vm.expectError(Vm.Error.UncaughtException, "(- #t)");
+    try vm.expectError(Vm.Error.UncaughtException, "(- 5 #f)");
 }
 
 test "- on floats subtracts floats" {
@@ -474,7 +474,7 @@ test "<= on non-ints returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(<= #t)", null, null));
+    try vm.expectError(Vm.Error.UncaughtException, "(<= #t)");
 }
 
 test "<= on floats returns correct result" {
@@ -529,7 +529,7 @@ test "< on non-ints returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(< #t)", null, null));
+    try vm.expectError(Vm.Error.UncaughtException, "(< #t)");
 }
 
 test "< on floats returns correct result" {
@@ -584,7 +584,7 @@ test "> on non-ints returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(> #t)", null, null));
+    try vm.expectError(Vm.Error.UncaughtException, "(> #t)");
 }
 
 test "> on floats returns correct result" {
@@ -639,7 +639,7 @@ test ">= on non-ints returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(>= #t)", null, null));
+    try vm.expectError(Vm.Error.UncaughtException, "(>= #t)");
 }
 
 test ">= on floats returns correct result" {
@@ -690,7 +690,7 @@ test "= on non-ints returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(= #t)", null, null));
+    try vm.expectError(Vm.Error.UncaughtException, "(= #t)");
 }
 
 test "= on floats returns correct result" {
@@ -737,14 +737,14 @@ test "number? with no arguments returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(number?)", null, null));
+    try vm.expectError(Vm.Error.UncaughtException, "(number?)");
 }
 
 test "number? with multiple arguments returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(Vm.Error.UncaughtException, vm.evalStr("(number? 1 2)", null, null));
+    try vm.expectError(Vm.Error.UncaughtException, "(number? 1 2)");
 }
 
 test "number? with float returns true" {
@@ -780,20 +780,14 @@ test "integer? with no arguments returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(
-        Vm.Error.UncaughtException,
-        vm.evalStr("(integer?)", null, null),
-    );
+    try vm.expectError(Vm.Error.UncaughtException, "(integer?)");
 }
 
 test "integer? with multiple arguments returns error" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try testing.expectError(
-        Vm.Error.UncaughtException,
-        vm.evalStr("(integer? 1 2)", null, null),
-    );
+    try vm.expectError(Vm.Error.UncaughtException, "(integer? 1 2)");
 }
 
 test "integer? with float returns false" {

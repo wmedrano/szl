@@ -171,6 +171,11 @@ pub fn getLocal(self: *Context, idx: u32) Val {
     return self.stack.items[@intCast(abs_idx)];
 }
 
+pub fn setArg(self: *Context, idx: u32, val: Val) void {
+    const local_stack = self.stackLocal();
+    local_stack[@intCast(idx)] = val;
+}
+
 pub fn setLocal(self: *Context, idx: u32, val: Val) void {
     const local_stack = self.stackLocal();
     const stack_idx = self.argCount() + idx;
