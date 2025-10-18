@@ -125,7 +125,7 @@ fn eval(vm: *Vm, arg_count: u32, diagnostics: ?*Diagnostics) Vm.Error!void {
     };
     const start = vm.context.stackLen() - arg_count;
     switch (proc_val.data) {
-        .empty_list, .boolean, .int, .float, .char, .module, .pair, .string, .symbol, .vector, .bytevector, .syntax_rules, .record, .record_descriptor => {
+        .empty_list, .boolean, .int, .float, .char, .module, .pair, .string, .symbol, .vector, .bytevector, .box, .syntax_rules, .record, .record_descriptor => {
             @branchHint(.cold);
             if (diagnostics) |d| {
                 d.addDiagnostic(.{ .not_callable = proc_val });

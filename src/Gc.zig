@@ -2,6 +2,7 @@ const std = @import("std");
 
 const Context = @import("Context.zig");
 const Instruction = @import("instruction.zig").Instruction;
+const Box = @import("types/Box.zig");
 const Continuation = @import("types/Continuation.zig");
 const Module = @import("types/Module.zig");
 const Handle = @import("types/object_pool.zig").Handle;
@@ -27,6 +28,7 @@ const GcObject = union(enum) {
     string: Handle(String),
     vector: Handle(Vector),
     bytevector: Handle(ByteVector),
+    box: Handle(Box),
     continuation: Handle(Continuation),
     syntax_rules: Handle(SyntaxRules),
     record: Handle(Record),
@@ -42,6 +44,7 @@ const GcObject = union(enum) {
             .string => |s| .{ .string = s },
             .vector => |v| .{ .vector = v },
             .bytevector => |bv| .{ .bytevector = bv },
+            .box => |b| .{ .box = b },
             .continuation => |c| .{ .continuation = c },
             .syntax_rules => |sr| .{ .syntax_rules = sr },
             .record => |r| .{ .record = r },
@@ -70,6 +73,10 @@ pub fn markOne(self: *Gc, vm: *Vm, val: Val) Vm.Error!void {
             try self.markMany(vm, vec.items);
         },
         .bytevector => {},
+        .box => |h| {
+            const box = try vm.inspector().handleToBox(h);
+            try self.markOne(vm, box.value);
+        },
         .continuation => |h| {
             const continuation = try vm.inspector().handleToContinuation(h);
             try self.markContext(vm, continuation.context);
@@ -193,6 +200,20 @@ pub fn sweep(self: Gc, vm: *Vm) Vm.Error!usize {
     try vm.objects.bytevectors.removeAll(
         vm.allocator(),
         RemoveBytevector{ .gc = self, .allocator = vm.allocator(), .count = &removed_count },
+    );
+
+    const RemoveBox = struct {
+        gc: Gc,
+        count: *usize,
+        pub fn remove(this: @This(), h: Handle(Box), _: *Box) bool {
+            const should_remove = !this.gc.marked.contains(GcObject{ .box = h });
+            if (should_remove) this.count.* += 1;
+            return should_remove;
+        }
+    };
+    try vm.objects.boxes.removeAll(
+        vm.allocator(),
+        RemoveBox{ .gc = self, .count = &removed_count },
     );
 
     const RemoveContinuation = struct {

@@ -1,6 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 
+const Box = @import("../types/Box.zig");
 const Continuation = @import("../types/Continuation.zig");
 const Module = @import("../types/Module.zig");
 const Handle = @import("../types/object_pool.zig").Handle;
@@ -67,6 +68,7 @@ pub fn format(self: PrettyPrinter, writer: *std.Io.Writer) std.Io.Writer.Error!v
         },
         .vector => |h| try self.formatVector(writer, h),
         .bytevector => |h| try self.formatBytevector(writer, h),
+        .box => |h| try self.formatBox(writer, h),
         .continuation => if (self.options.repr == .display)
             try writer.writeAll("#<continuation>")
         else
@@ -216,6 +218,15 @@ fn formatBytevector(self: PrettyPrinter, writer: *std.Io.Writer, h: Handle(ByteV
     try writer.writeAll(")");
 }
 
+fn formatBox(self: PrettyPrinter, writer: *std.Io.Writer, h: Handle(Box)) std.Io.Writer.Error!void {
+    const box = self.vm.objects.boxes.get(h) orelse {
+        return try writer.writeAll("#<box:invalid>");
+    };
+    try writer.writeAll("#<box:");
+    try self.vm.pretty(box.value, .{}).format(writer);
+    try writer.writeAll(">");
+}
+
 fn formatSyntaxRules(self: PrettyPrinter, writer: *std.Io.Writer, h: Handle(SyntaxRules)) std.Io.Writer.Error!void {
     _ = self.vm.objects.syntax_rules.get(h) orelse {
         return try writer.print("#<syntax-rules:invalid-{}>", .{h.id});
@@ -278,6 +289,7 @@ pub fn typeName(self: PrettyPrinter) []const u8 {
         .pair => "pair",
         .vector => "vector",
         .bytevector => "bytevector",
+        .box => "box",
         .module => "module",
         .proc, .native_proc => "procedure",
         .continuation => "continuation",

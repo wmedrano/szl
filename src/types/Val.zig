@@ -3,6 +3,7 @@ const testing = std.testing;
 
 const PrettyPrinter = @import("../utils/PrettyPrinter.zig");
 const Vm = @import("../Vm.zig");
+const Box = @import("Box.zig");
 const Continuation = @import("Continuation.zig");
 const Handle = @import("object_pool.zig").Handle;
 const Module = @import("Module.zig");
@@ -35,6 +36,7 @@ pub const Data = union(enum) {
     native_proc: *const NativeProc,
     vector: Handle(Vector),
     bytevector: Handle(ByteVector),
+    box: Handle(Box),
     continuation: Handle(Continuation),
     syntax_rules: Handle(SyntaxRules),
     record: Handle(Record),

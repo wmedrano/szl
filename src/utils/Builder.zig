@@ -2,6 +2,7 @@ const std = @import("std");
 
 const Context = @import("../Context.zig");
 const Instruction = @import("../instruction.zig").Instruction;
+const Box = @import("../types/Box.zig");
 const Continuation = @import("../types/Continuation.zig");
 const Module = @import("../types/Module.zig");
 const Handle = @import("../types/object_pool.zig").Handle;
@@ -125,6 +126,15 @@ pub inline fn makeBytevectorHandle(self: Builder, bytes: []const u8) error{OutOf
     errdefer self.vm.allocator().free(copy);
     const bv = ByteVector.fromOwnedSlice(copy);
     return try self.vm.objects.bytevectors.put(self.vm.allocator(), bv);
+}
+
+pub inline fn makeBox(self: Builder, value: Val) error{OutOfMemory}!Val {
+    const h = try self.makeBoxHandle(value);
+    return Val{ .data = .{ .box = h } };
+}
+
+pub inline fn makeBoxHandle(self: Builder, value: Val) error{OutOfMemory}!Handle(Box) {
+    return try self.vm.objects.boxes.put(self.vm.allocator(), Box{ .value = value });
 }
 
 pub inline fn makeContinuationHandle(self: Builder, context: Context) error{OutOfMemory}!Handle(Continuation) {

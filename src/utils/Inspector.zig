@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const Diagnostics = @import("../Diagnostics.zig");
+const Box = @import("../types/Box.zig");
 const Continuation = @import("../types/Continuation.zig");
 const Module = @import("../types/Module.zig");
 const Handle = @import("../types/object_pool.zig").Handle;
@@ -127,6 +128,10 @@ pub inline fn handleToVector(self: Inspector, h: Handle(Vector)) error{Undefined
 
 pub inline fn handleToBytevector(self: Inspector, h: Handle(ByteVector)) error{UndefinedBehavior}!*ByteVector {
     return self.vm.objects.bytevectors.get(h) orelse return Vm.Error.UndefinedBehavior;
+}
+
+pub inline fn handleToBox(self: Inspector, h: Handle(Box)) error{UndefinedBehavior}!*Box {
+    return self.vm.objects.boxes.get(h) orelse return Vm.Error.UndefinedBehavior;
 }
 
 pub inline fn handleToModule(self: Inspector, h: Handle(Module)) error{UndefinedBehavior}!*Module {
