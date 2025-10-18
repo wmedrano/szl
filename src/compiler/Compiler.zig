@@ -44,7 +44,7 @@ pub fn init(arena: *std.heap.ArenaAllocator, vm: *Vm, module: Handle(Module)) Co
 
 pub fn compile(self: *Compiler, expr: Val, diagnostics: ?*Diagnostics) Error!Val {
     // Val -> Ir
-    const ir = try Ir.init(self.arena, self.vm, self.scope.module, expr);
+    const ir = try Ir.init(self.arena, self.vm, self.scope.module, expr, diagnostics);
     try self.addIr(ir, true, diagnostics);
     // Ir -> Val(Proc)
     const proc = try self.makeProc(null);

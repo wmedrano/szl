@@ -208,7 +208,7 @@ fn readList(self: *Reader, open_paren_token: Tokenizer.Token, diagnostics: ?*Dia
                         .line = open_paren_token.line,
                         .column = open_paren_token.column,
                         .message = "missing closing parenthesis for list",
-                        .suggested_fix = "add ')' to close the list",
+                        .hint ="add ')' to close the list",
                     } });
                 }
                 return Error.ReadError;
@@ -221,7 +221,7 @@ fn readList(self: *Reader, open_paren_token: Tokenizer.Token, diagnostics: ?*Dia
                             .line = dot_token.line,
                             .column = dot_token.column,
                             .message = "dot notation requires at least one element before the dot",
-                            .suggested_fix = "add at least one element before the dot, e.g., (a . b)",
+                            .hint ="add at least one element before the dot, e.g., (a . b)",
                             .lexeme = dot_token.lexeme,
                         } });
                     }
@@ -248,7 +248,7 @@ fn readSharpsignExpr(self: *Reader, open_token: Tokenizer.Token, diagnostics: ?*
             .column = open_token.column,
             .message = "unsupported sharpsign expression",
             .lexeme = lexeme,
-            .suggested_fix = "supported forms are #( for vectors and #u8( for bytevectors",
+            .hint = "supported forms are #( for vectors and #u8( for bytevectors",
         } });
     }
     return Error.ReadError;
@@ -270,7 +270,7 @@ fn readBytevector(self: *Reader, open_token: Tokenizer.Token, diagnostics: ?*Dia
                             .line = a.token.line,
                             .column = a.token.column,
                             .message = "bytevector elements must be integers",
-                            .suggested_fix = "use only integer values in range 0-255",
+                            .hint ="use only integer values in range 0-255",
                             .lexeme = a.token.lexeme,
                         } });
                     }
@@ -283,7 +283,7 @@ fn readBytevector(self: *Reader, open_token: Tokenizer.Token, diagnostics: ?*Dia
                             .line = a.token.line,
                             .column = a.token.column,
                             .message = "bytevector elements must be in range 0-255",
-                            .suggested_fix = "use values between 0 and 255",
+                            .hint ="use values between 0 and 255",
                             .lexeme = a.token.lexeme,
                         } });
                     }
@@ -305,7 +305,7 @@ fn readBytevector(self: *Reader, open_token: Tokenizer.Token, diagnostics: ?*Dia
                         .line = open_token.line,
                         .column = open_token.column,
                         .message = "missing closing parenthesis for bytevector",
-                        .suggested_fix = "add ')' to close the bytevector",
+                        .hint ="add ')' to close the bytevector",
                     } });
                 }
                 return Error.ReadError;
@@ -348,7 +348,7 @@ fn readVector(self: *Reader, open_token: Tokenizer.Token, diagnostics: ?*Diagnos
                         .line = open_token.line,
                         .column = open_token.column,
                         .message = "missing closing parenthesis for vector",
-                        .suggested_fix = "add ')' to close the vector",
+                        .hint ="add ')' to close the vector",
                     } });
                 }
                 return Error.ReadError;
@@ -390,7 +390,7 @@ fn readQuote(self: *Reader, quote_token: Tokenizer.Token, diagnostics: ?*Diagnos
                     .line = quote_token.line,
                     .column = quote_token.column,
                     .message = "expected value after quote",
-                    .suggested_fix = "add a value after the quote, e.g., 'x or '(1 2 3)",
+                    .hint = "add a value after the quote, e.g., 'x or '(1 2 3)",
                 } });
             }
             return Error.ReadError;

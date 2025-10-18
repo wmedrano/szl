@@ -40,6 +40,12 @@ pub const WrongArgTypeInfo = struct {
     arg_position: ?u32,
 };
 
+pub const InvalidExpressionInfo = struct {
+    message: []const u8,
+    expr: ?Val = null,
+    hint: ?[]const u8 = null,
+};
+
 /// Diagnostic information for reader errors
 pub const ReadErrorInfo = struct {
     /// The type of error that occurred
@@ -52,8 +58,8 @@ pub const ReadErrorInfo = struct {
     message: []const u8 = "",
     /// Optional lexeme that caused the error
     lexeme: ?[]const u8 = null,
-    /// Optional suggested fix for the error
-    suggested_fix: ?[]const u8 = null,
+    /// Optional hint for fixing the error
+    hint: ?[]const u8 = null,
 
     pub const Kind = enum {
         unexpected_eof,
@@ -86,6 +92,8 @@ pub const Diagnostic = union(enum) {
     wrong_arg_count: WrongArgCountInfo,
     /// Procedure called with incorrect argument type
     wrong_arg_type: WrongArgTypeInfo,
+    /// Invalid expression during compilation
+    invalid_expression: InvalidExpressionInfo,
     /// Some other custom message.
     other: []const u8,
 };
@@ -231,6 +239,7 @@ pub const DiagnosticsPrettyPrinter = struct {
             .not_callable => |val| try self.formatNotCallable(writer, val),
             .wrong_arg_count => |wac| try self.formatWrongArgCount(writer, wac),
             .wrong_arg_type => |wat| try self.formatWrongArgType(writer, wat),
+            .invalid_expression => |ie| try self.formatInvalidExpression(writer, ie),
             .other => |msg| try self.formatOther(writer, msg),
         }
     }
@@ -260,22 +269,22 @@ pub const DiagnosticsPrettyPrinter = struct {
             try writer.print("'{s}'", .{lex});
             try writer.writeAll(self.colorize(Color.reset));
 
-            // Include suggestion on same line if present
-            if (r.suggested_fix) |fix| {
+            // Include hint on same line if present
+            if (r.hint) |hint| {
                 try writer.writeAll(" ");
                 try writer.writeAll(self.colorize(Color.green));
-                try writer.print("{s}", .{fix});
+                try writer.print("{s}", .{hint});
                 try writer.writeAll(self.colorize(Color.reset));
             }
-        } else if (r.suggested_fix) |fix| {
-            // Include suggestion on new line if no lexeme
+        } else if (r.hint) |hint| {
+            // Include hint on new line if no lexeme
             try writer.writeAll("\n  ");
             try writer.writeAll(self.colorize(Color.dim));
-            try writer.writeAll("suggestion:");
+            try writer.writeAll("hint:");
             try writer.writeAll(self.colorize(Color.reset));
             try writer.writeAll(" ");
             try writer.writeAll(self.colorize(Color.green));
-            try writer.print("{s}", .{fix});
+            try writer.print("{s}", .{hint});
             try writer.writeAll(self.colorize(Color.reset));
         }
     }
@@ -406,6 +415,34 @@ pub const DiagnosticsPrettyPrinter = struct {
         };
         try writer.print("{d}{s}", .{ display_pos, suffix });
         try writer.writeAll(" argument");
+    }
+
+    fn formatInvalidExpression(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer, ie: InvalidExpressionInfo) std.Io.Writer.Error!void {
+        // Error message - Red
+        try writer.writeAll(self.colorize(Color.red));
+        try writer.writeAll("Invalid expression: ");
+        try writer.writeAll(self.colorize(Color.reset));
+        try writer.print("{s}", .{ie.message});
+
+        if (ie.expr) |expr| {
+            try writer.writeAll("\n  ");
+            try writer.writeAll(self.colorize(Color.dim));
+            try writer.writeAll("expression: ");
+            try writer.writeAll(self.colorize(Color.reset));
+            try writer.writeAll(self.colorize(Color.bold));
+            try writer.print("{f}", .{self.vm.pretty(expr, .{})});
+            try writer.writeAll(self.colorize(Color.reset));
+        }
+
+        if (ie.hint) |hint| {
+            try writer.writeAll("\n  ");
+            try writer.writeAll(self.colorize(Color.dim));
+            try writer.writeAll("hint: ");
+            try writer.writeAll(self.colorize(Color.reset));
+            try writer.writeAll(self.colorize(Color.green));
+            try writer.print("{s}", .{hint});
+            try writer.writeAll(self.colorize(Color.reset));
+        }
     }
 
     fn formatOther(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer, msg: []const u8) std.Io.Writer.Error!void {

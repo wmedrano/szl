@@ -33,11 +33,12 @@ pub const Ir = union(enum) {
     eval: Eval,
     lambda: Lambda,
 
-    pub fn init(arena: *std.heap.ArenaAllocator, vm: *Vm, module: Handle(Module), expr: Val) Error!Ir {
+    pub fn init(arena: *std.heap.ArenaAllocator, vm: *Vm, module: Handle(Module), expr: Val, diagnostics: ?*@import("../Diagnostics.zig")) Error!Ir {
         var builder = Builder{
             .arena = arena,
             .vm = vm,
             .module = module,
+            .diagnostics = diagnostics,
         };
         return builder.build(expr);
     }
@@ -79,6 +80,7 @@ const Builder = struct {
     arena: *std.heap.ArenaAllocator,
     vm: *Vm,
     module: Handle(Module),
+    diagnostics: ?*@import("../Diagnostics.zig"),
 
     pub fn build(self: *Builder, expr: Val) Error!Ir {
         // Try to expand macros first
@@ -153,7 +155,18 @@ const Builder = struct {
                 }
             }
             if (sym.eq(lambda)) {
-                if (list.len < 2) return Error.InvalidExpression;
+                if (list.len < 2) {
+                    @branchHint(.cold);
+                    if (self.diagnostics) |d| {
+                        d.addDiagnostic(.{
+                            .invalid_expression = .{
+                                .message = "lambda requires a parameter list",
+                                .hint = "syntax is (lambda (param1 param2 ...) body ...)\nexample: (lambda (x y) (+ x y))",
+                            },
+                        });
+                    }
+                    return Error.InvalidExpression;
+                }
                 return self.buildLambda(null, list[1], list[2..]);
             }
             if (sym.eq(if_sym)) {
@@ -325,6 +338,7 @@ const Builder = struct {
             .arena = self.arena,
             .vm = self.vm,
             .module = self.module,
+            .diagnostics = self.diagnostics,
         };
         return Ir{
             .lambda = .{
@@ -345,10 +359,37 @@ const Builder = struct {
     }
 
     fn valToSymbolsSlice(self: Builder, val: Val) Error![]Symbol {
-        const vals = try self.valToSlice(val);
+        const vals = self.valToSlice(val) catch |e| {
+            if (e == Error.UndefinedBehavior) {
+                @branchHint(.cold);
+                if (self.diagnostics) |d| {
+                    d.addDiagnostic(.{
+                        .invalid_expression = .{
+                            .message = "expected a list of parameter names, but got a non-list value",
+                            .expr = val,
+                            .hint = "lambda syntax is (lambda (param1 param2 ...) body ...)",
+                        },
+                    });
+                }
+                return Error.InvalidExpression;
+            }
+            return e;
+        };
         const syms = try self.arena.allocator().alloc(Symbol, vals.len);
         for (vals, syms) |v, *sym| {
-            const s = v.asSymbol() orelse return Error.InvalidExpression;
+            const s = v.asSymbol() orelse {
+                @branchHint(.cold);
+                if (self.diagnostics) |d| {
+                    d.addDiagnostic(.{
+                        .invalid_expression = .{
+                            .message = "parameter names must be symbols",
+                            .expr = v,
+                            .hint = "use identifiers like x, y, or foo (not numbers or strings)",
+                        },
+                    });
+                }
+                return Error.InvalidExpression;
+            };
             sym.* = s;
         }
         return syms;
