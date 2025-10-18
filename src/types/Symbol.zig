@@ -10,12 +10,17 @@ pub fn eq(self: Symbol, other: Symbol) bool {
 
 pub const Interner = struct {
     arena: std.heap.ArenaAllocator,
-    string_to_symbol: std.StringHashMapUnmanaged(Symbol) = .{},
-    symbol_to_string: std.ArrayListUnmanaged([]const u8) = .{},
+    string_to_symbol: std.StringHashMapUnmanaged(Symbol),
+    symbol_to_string: std.ArrayListUnmanaged([]const u8),
 
-    pub fn init(allocator: std.mem.Allocator) Interner {
+    pub fn init(allocator: std.mem.Allocator) error{OutOfMemory}!Interner {
+        var string_to_symbol = std.StringHashMapUnmanaged(Symbol){};
+        const symbol_to_string = try std.ArrayListUnmanaged([]const u8).initCapacity(allocator, 1024);
+        try string_to_symbol.ensureTotalCapacity(allocator, 1024);
         return .{
             .arena = std.heap.ArenaAllocator.init(allocator),
+            .string_to_symbol = string_to_symbol,
+            .symbol_to_string = symbol_to_string,
         };
     }
 
@@ -58,13 +63,13 @@ pub const Interner = struct {
 
 test "Interner.init and deinit" {
     const allocator = std.testing.allocator;
-    var interner = Interner.init(allocator);
+    var interner = try Interner.init(allocator);
     defer interner.deinit(allocator);
 }
 
 test "Interner.intern deduplicates symbols" {
     const allocator = std.testing.allocator;
-    var interner = Interner.init(allocator);
+    var interner = try Interner.init(allocator);
     defer interner.deinit(allocator);
 
     const interned1 = try interner.intern(allocator, "test");
@@ -74,7 +79,7 @@ test "Interner.intern deduplicates symbols" {
 
 test "Interner.intern creates unique IDs for different symbols" {
     const allocator = std.testing.allocator;
-    var interner = Interner.init(allocator);
+    var interner = try Interner.init(allocator);
     defer interner.deinit(allocator);
 
     const interned1 = try interner.intern(allocator, "foo");
@@ -85,7 +90,7 @@ test "Interner.intern creates unique IDs for different symbols" {
 
 test "Interner.asSymbol retrieves correct symbol" {
     const allocator = std.testing.allocator;
-    var interner = Interner.init(allocator);
+    var interner = try Interner.init(allocator);
     defer interner.deinit(allocator);
 
     const interned = try interner.intern(allocator, "hello");
@@ -98,7 +103,7 @@ test "Interner.asSymbol retrieves correct symbol" {
 
 test "Interner.asSymbol returns null for invalid ID" {
     const allocator = std.testing.allocator;
-    var interner = Interner.init(allocator);
+    var interner = try Interner.init(allocator);
     defer interner.deinit(allocator);
 
     const invalid = Symbol{ .id = 999 };
@@ -107,7 +112,7 @@ test "Interner.asSymbol returns null for invalid ID" {
 
 test "Interner.internStatic with static string" {
     const allocator = std.testing.allocator;
-    var interner = Interner.init(allocator);
+    var interner = try Interner.init(allocator);
     defer interner.deinit(allocator);
 
     const static_str = "static-symbol";
@@ -121,7 +126,7 @@ test "Interner.internStatic with static string" {
 
 test "Interner.internStatic deduplicates like intern" {
     const allocator = std.testing.allocator;
-    var interner = Interner.init(allocator);
+    var interner = try Interner.init(allocator);
     defer interner.deinit(allocator);
 
     const static_str = "duplicate";
@@ -134,7 +139,7 @@ test "Interner.internStatic deduplicates like intern" {
 
 test "Interner.intern uses arena for string storage" {
     const allocator = std.testing.allocator;
-    var interner = Interner.init(allocator);
+    var interner = try Interner.init(allocator);
     defer interner.deinit(allocator);
 
     // Create a temporary string that will go out of scope
@@ -156,7 +161,7 @@ test "Interner.intern uses arena for string storage" {
 
 test "Interner multiple symbols with sequential IDs" {
     const allocator = std.testing.allocator;
-    var interner = Interner.init(allocator);
+    var interner = try Interner.init(allocator);
     defer interner.deinit(allocator);
 
     const symbols = [_][]const u8{ "first", "second", "third" };

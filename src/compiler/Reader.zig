@@ -4,6 +4,7 @@ const testing = std.testing;
 const Diagnostics = @import("../Diagnostics.zig");
 const Symbol = @import("../types/Symbol.zig");
 const Val = @import("../types/Val.zig");
+const SmallArrayList = @import("../utils/small_array_list.zig").SmallArrayList;
 const Vm = @import("../Vm.zig");
 const Tokenizer = @import("Tokenizer.zig");
 
@@ -182,7 +183,7 @@ fn readNextImpl(self: *Reader, diagnostics: ?*Diagnostics) Error!ReadResult {
 }
 
 fn readList(self: *Reader, open_paren_token: Tokenizer.Token, diagnostics: ?*Diagnostics) Error!ReadResult {
-    var elements = std.ArrayList(Val){};
+    var elements = SmallArrayList(Val, 8){};
     defer elements.deinit(self.vm.allocator());
     var dot_idx: ?usize = null;
     const builder = self.vm.builder();
@@ -191,10 +192,10 @@ fn readList(self: *Reader, open_paren_token: Tokenizer.Token, diagnostics: ?*Dia
         switch (try self.readNextImpl(diagnostics)) {
             .atom => |a| try elements.append(self.vm.allocator(), a.val),
             .end_expr => {
-                const res = if (dot_idx == elements.items.len)
-                    try builder.makePairs(elements.items)
+                const res = if (dot_idx == elements.len)
+                    try builder.makePairs(elements.asSlice())
                 else
-                    try builder.makeList(elements.items);
+                    try builder.makeList(elements.asSlice());
                 return ReadResult{ .atom = .{
                     .val = res,
                     .token = open_paren_token,
@@ -213,7 +214,7 @@ fn readList(self: *Reader, open_paren_token: Tokenizer.Token, diagnostics: ?*Dia
                 return Error.ReadError;
             },
             .dot => |dot_token| {
-                if (elements.items.len == 0) {
+                if (elements.len == 0) {
                     if (diagnostics) |diag| {
                         diag.addDiagnostic(.{ .reader = .{
                             .kind = .empty_dot_list,
@@ -226,7 +227,7 @@ fn readList(self: *Reader, open_paren_token: Tokenizer.Token, diagnostics: ?*Dia
                     }
                     return Error.ReadError;
                 }
-                dot_idx = elements.items.len + 1;
+                dot_idx = elements.len + 1;
             },
         }
     }
@@ -326,7 +327,7 @@ fn readBytevector(self: *Reader, open_token: Tokenizer.Token, diagnostics: ?*Dia
 }
 
 fn readVector(self: *Reader, open_token: Tokenizer.Token, diagnostics: ?*Diagnostics) Error!ReadResult {
-    var elements = std.ArrayList(Val){};
+    var elements = SmallArrayList(Val, 8){};
     defer elements.deinit(self.vm.allocator());
     const builder = self.vm.builder();
 
@@ -334,7 +335,7 @@ fn readVector(self: *Reader, open_token: Tokenizer.Token, diagnostics: ?*Diagnos
         switch (try self.readNextImpl(diagnostics)) {
             .atom => |a| try elements.append(self.vm.allocator(), a.val),
             .end_expr => {
-                const vec = try builder.makeVector(elements.items);
+                const vec = try builder.makeVector(elements.asSlice());
                 return ReadResult{ .atom = .{
                     .val = vec,
                     .token = open_token,

@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const SmallArrayList = @import("../utils/small_array_list.zig").SmallArrayList;
 const Vm = @import("../Vm.zig");
 const Handle = @import("object_pool.zig").Handle;
 const Module = @import("Module.zig");
@@ -14,9 +15,9 @@ const Error = error{
 };
 
 /// Symbols that must match literally (not treated as pattern variables)
-literals: std.ArrayList(Symbol),
+literals: SmallArrayList(Symbol, 4), // 4 is somewhat arbitrary.
 /// List of pattern/template transformation rules
-rules: std.ArrayList(Rule),
+rules: SmallArrayList(Rule, 8), // The builtin cond statement uses 7, so 8 is enough to avoid some memory allocations.
 /// Environment where the macro was defined (for hygiene)
 defining_env: Handle(Module),
 
@@ -382,7 +383,7 @@ pub const Template = union(enum) {
 
 pub fn deinit(self: *SyntaxRules, allocator: std.mem.Allocator) void {
     self.literals.deinit(allocator);
-    for (self.rules.items) |*rule| {
+    for (self.rules.asSlice()) |*rule| {
         rule.deinit(allocator);
     }
     self.rules.deinit(allocator);
@@ -402,7 +403,7 @@ pub fn expand(self: SyntaxRules, vm: *Vm, usage: Val) Error!?Val {
     if (usage_list.len == 0) return null;
 
     // Try each rule in order
-    for (self.rules.items) |*rule| {
+    for (self.rules.asSliceConst()) |*rule| {
         var bindings = Template.Bindings.init(vm.allocator());
         defer bindings.deinit(vm.allocator());
 

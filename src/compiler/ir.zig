@@ -371,14 +371,21 @@ const Builder = struct {
         }
 
         // Create SyntaxRules object
-        const duped_literals = try self.vm.allocator().dupe(Symbol, literals_slice);
-        const duped_rules = try self.vm.allocator().dupe(SyntaxRules.Rule, rules.items);
-
-        const syntax_rules = SyntaxRules{
-            .literals = std.ArrayList(Symbol).fromOwnedSlice(duped_literals),
-            .rules = std.ArrayList(SyntaxRules.Rule).fromOwnedSlice(duped_rules),
+        var syntax_rules = SyntaxRules{
+            .literals = .{},
+            .rules = .{},
             .defining_env = self.module,
         };
+
+        // Append literals
+        for (literals_slice) |lit| {
+            try syntax_rules.literals.append(self.vm.allocator(), lit);
+        }
+
+        // Append rules
+        for (rules.items) |rule| {
+            try syntax_rules.rules.append(self.vm.allocator(), rule);
+        }
 
         const handle = try self.vm.objects.syntax_rules.put(self.vm.allocator(), syntax_rules);
         return Ir{ .push_const = Val{ .data = .{ .syntax_rules = handle } } };

@@ -62,9 +62,9 @@ pub const Objects = struct {
     records: ObjectPool(Record) = .{},
     record_descriptors: ObjectPool(Record.Descriptor) = .{},
 
-    pub fn init(alloc: std.mem.Allocator) Objects {
+    pub fn init(alloc: std.mem.Allocator) error{OutOfMemory}!Objects {
         return Objects{
-            .symbols = Symbol.Interner.init(alloc),
+            .symbols = try Symbol.Interner.init(alloc),
         };
     }
 
@@ -103,7 +103,7 @@ pub const Objects = struct {
 pub fn init(options: Options) Error!Vm {
     var vm = Vm{
         .options = options,
-        .objects = Objects.init(options.allocator),
+        .objects = try Objects.init(options.allocator),
         .context = try Context.init(options.allocator),
     };
     errdefer vm.deinit();
