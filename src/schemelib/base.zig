@@ -94,6 +94,12 @@ pub fn init(vm: *Vm) Vm.Error!Handle(Module) {
         .{ .symbol = (try b.makeStaticSymbolHandle(">=")), .value = Val.initNativeProc(&number_fns.gte) },
         .{ .symbol = (try b.makeStaticSymbolHandle("=")), .value = Val.initNativeProc(&number_fns.eq) },
         .{ .symbol = (try b.makeStaticSymbolHandle("number?")), .value = Val.initNativeProc(&number_fns.number_p) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("integer?")), .value = Val.initNativeProc(&number_fns.integer_p) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("exact-integer?")), .value = Val.initNativeProc(&number_fns.exact_integer_p) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("rational?")), .value = Val.initNativeProc(&number_fns.rational_p) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("exact?")), .value = Val.initNativeProc(&number_fns.exact_p) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("inexact?")), .value = Val.initNativeProc(&number_fns.inexact_p) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("round")), .value = Val.initNativeProc(&number_fns.round) },
         // 6.3 Booleans
         .{ .symbol = (try b.makeStaticSymbolHandle("not")), .value = Val.initNativeProc(&boolean_fns.not) },
         .{ .symbol = (try b.makeStaticSymbolHandle("boolean?")), .value = Val.initNativeProc(&boolean_fns.boolean_p) },
@@ -116,7 +122,6 @@ pub fn init(vm: *Vm) Vm.Error!Handle(Module) {
         .{ .symbol = (try b.makeStaticSymbolHandle("list-set!")), .value = Val.initNativeProc(&pair_fns.list_set_b) },
         // 6.5 Symbols
         // 6.6 Characters
-        .{ .symbol = (try b.makeStaticSymbolHandle("integer?")), .value = Val.initNativeProc(&number_fns.integer_p) },
         .{ .symbol = (try b.makeStaticSymbolHandle("char?")), .value = Val.initNativeProc(&character_fns.char_p) },
         .{ .symbol = (try b.makeStaticSymbolHandle("char=?")), .value = Val.initNativeProc(&character_fns.eq) },
         .{ .symbol = (try b.makeStaticSymbolHandle("char<?")), .value = Val.initNativeProc(&character_fns.lt) },

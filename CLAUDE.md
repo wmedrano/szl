@@ -10,12 +10,6 @@ szl is a Scheme interpreter implemented in Zig. The project compiles Scheme expr
 
 **IMPORTANT:** This project does NOT use git. Never use git commands (git stash, git commit, git status, etc.).
 
-**IMPORTANT:** DO NOT use the REPL (`zig-out/bin/szl`) for testing. Claude Code runs in non-interactive mode where:
-- The REPL is broken and unreliable for testing
-- The REPL will exit on the first error
-- You cannot interact with the REPL interactively
-- **ALWAYS use `zig build test --summary all` for testing - it's the only reliable method**
-
 ## Zig 0.15 Compatibility Notes
 
 **IMPORTANT:** In Zig 0.15, `ArrayList` behaves like the old `ArrayListUnmanaged`:
@@ -53,7 +47,7 @@ zig build test --summary all  # Run all tests (VERY FAST: ~2s for full suite)
 zig test src/Vm.zig          # Run tests for specific module
 ```
 
-**Development Loop:** The test suite is extremely fast (~2 seconds for 255 tests). **ALWAYS run `zig build test --summary all` when making changes.** This is the ONLY reliable way to test - never use the REPL for testing.
+**Development Loop:** Run `zig build test --summary all` after making changes. The test suite is extremely fast (~2 seconds for 310 tests).
 
 ### Documentation
 ```bash
@@ -139,11 +133,9 @@ zig build doc  # Generate documentation in zig-out/docs/
 
 ## Testing Patterns
 
-**IMPORTANT:** Always run `zig build test --summary all` when making changes. The test suite is extremely fast (~2s) and will catch compilation errors and test failures immediately. **DO NOT use the REPL for testing - it is unreliable in non-interactive mode.**
-
+- Run `zig build test --summary all` after making changes
 - Tests are inline using `test` blocks
 - Use `Vm.expectEval(expected, source)` to test evaluation results
-- The VM persists across evaluations in the REPL - reset with `Context.reset()` for isolated tests
 - When adding new types to Val.Data union, ensure all switch statements are updated (compiler will catch missing cases)
 
 ## Key Design Notes

@@ -90,6 +90,7 @@ const Builder = struct {
             .empty_list => return Error.InvalidExpression,
             .boolean,
             .int,
+            .rational,
             .float,
             .char,
             .string,
@@ -540,7 +541,7 @@ const Builder = struct {
     fn expandMacros(self: *Builder, expr: Val) Error!?Val {
         // Base cases: atoms don't need expansion
         switch (expr.data) {
-            .boolean, .int, .float, .char, .string, .symbol, .empty_list, .module, .proc, .native_proc, .continuation, .vector, .bytevector, .box, .record, .record_descriptor => {
+            .boolean, .int, .rational, .float, .char, .string, .symbol, .empty_list, .module, .proc, .native_proc, .continuation, .vector, .bytevector, .box, .record, .record_descriptor => {
                 return expr;
             },
             .syntax_rules => return expr,

@@ -8,6 +8,8 @@ const Continuation = @import("Continuation.zig");
 const Handle = @import("object_pool.zig").Handle;
 const Module = @import("Module.zig");
 const NativeProc = @import("NativeProc.zig");
+pub const Number = @import("number.zig").Number;
+pub const Rational = @import("number.zig").Rational;
 const Pair = @import("Pair.zig");
 const Proc = @import("Proc.zig");
 const Record = @import("Record.zig");
@@ -26,6 +28,7 @@ pub const Data = union(enum) {
     boolean: bool,
     empty_list: void,
     int: i64,
+    rational: Rational,
     float: f64,
     char: u21,
     pair: Handle(Pair),
@@ -53,6 +56,14 @@ pub fn initInt(x: i64) Val {
 
 pub fn initBool(x: bool) Val {
     return Val{ .data = .{ .boolean = x } };
+}
+
+pub fn initRational(rational: Rational) Val {
+    // If the rational reduces to a whole number, return an integer instead
+    if (rational.denominator == 1) {
+        return Val.initInt(rational.numerator);
+    }
+    return Val{ .data = .{ .rational = rational } };
 }
 
 pub fn initFloat(x: f64) Val {
@@ -134,21 +145,15 @@ pub fn asChar(self: Val) ?u21 {
     return null;
 }
 
-pub const Number = union(enum) {
-    int: i64,
-    float: f64,
-
-    pub fn asFloat(self: Number) f64 {
-        switch (self) {
-            .int => |x| return @floatFromInt(x),
-            .float => |x| return x,
-        }
-    }
-};
+pub fn asRational(self: Val) ?Rational {
+    if (self.data == .rational) return self.data.rational;
+    return null;
+}
 
 pub fn asNumber(self: Val) ?Number {
     return switch (self.data) {
         .int => |x| Number{ .int = x },
+        .rational => |x| Number{ .rational = x },
         .float => |x| Number{ .float = x },
         else => null,
     };

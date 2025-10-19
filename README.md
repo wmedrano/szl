@@ -72,7 +72,10 @@ In `let`, bindings happen simultaneously, so they can't reference each other. Us
 ; Numbers
 42          ; integer
 3.14        ; float
+1/2         ; rational
 (+ 1 2.5)   ; => 3.5
+(+ 1/2 1/4) ; => 3/4
+(+ 1/2 1/2) ; => 1
 
 ; Booleans
 #t          ; true

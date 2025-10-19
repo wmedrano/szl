@@ -5,74 +5,104 @@ const Diagnostics = @import("../Diagnostics.zig");
 const Instruction = @import("../instruction.zig").Instruction;
 const Module = @import("../types/Module.zig");
 const NativeProc = @import("../types/NativeProc.zig");
+const number = @import("../types/number.zig");
 const Symbol = @import("../types/Symbol.zig");
 const Val = @import("../types/Val.zig");
 const Number = Val.Number;
 const Vm = @import("../Vm.zig");
 
+/// Compare two numbers exactly, preserving precision for exact numbers.
+/// Returns the ordering relationship between a and b.
+fn compareNumbers(a: Number, b: Number) std.math.Order {
+    // Fast path: same type comparisons
+    switch (a) {
+        .int => |a_int| switch (b) {
+            .int => |b_int| return std.math.order(a_int, b_int),
+            .rational => |b_rat| {
+                // Convert a to rational: a_int/1, compare with b_rat
+                // a_int/1 < b_num/b_den iff a_int * b_den < b_num * 1
+                const lhs = a_int * @as(i64, b_rat.denominator);
+                const rhs = @as(i64, b_rat.numerator);
+                return std.math.order(lhs, rhs);
+            },
+            .float => |b_float| {
+                // Try exact comparison if float is an exact integer within i64 range
+                const min_i64_f64: f64 = @floatFromInt(std.math.minInt(i64));
+                const max_i64_f64: f64 = 9223372036854775808.0; // 2^63, just above max i64
+                if (@round(b_float) == b_float and b_float >= min_i64_f64 and b_float < max_i64_f64) {
+                    const b_int: i64 = @intFromFloat(b_float);
+                    return std.math.order(a_int, b_int);
+                }
+                // Fall back to float comparison
+                const a_float: f64 = @floatFromInt(a_int);
+                return std.math.order(a_float, b_float);
+            },
+        },
+        .rational => |a_rat| switch (b) {
+            .int => |b_int| {
+                // a_num/a_den < b_int/1 iff a_num * 1 < b_int * a_den
+                const lhs = @as(i64, a_rat.numerator);
+                const rhs = b_int * @as(i64, a_rat.denominator);
+                return std.math.order(lhs, rhs);
+            },
+            .rational => |b_rat| {
+                // a_num/a_den < b_num/b_den iff a_num * b_den < b_num * a_den
+                const lhs = @as(i64, a_rat.numerator) * @as(i64, b_rat.denominator);
+                const rhs = @as(i64, b_rat.numerator) * @as(i64, a_rat.denominator);
+                return std.math.order(lhs, rhs);
+            },
+            .float => |b_float| {
+                // Convert rational to float for comparison with inexact number
+                const a_float = a.asFloat();
+                return std.math.order(a_float, b_float);
+            },
+        },
+        .float => |a_float| switch (b) {
+            .int => |b_int| {
+                // Try exact comparison if a is an exact integer within i64 range
+                const min_i64_f64: f64 = @floatFromInt(std.math.minInt(i64));
+                const max_i64_f64: f64 = 9223372036854775808.0; // 2^63, just above max i64
+                if (@round(a_float) == a_float and a_float >= min_i64_f64 and a_float < max_i64_f64) {
+                    const a_int: i64 = @intFromFloat(a_float);
+                    return std.math.order(a_int, b_int);
+                }
+                // Fall back to float comparison
+                const b_float: f64 = @floatFromInt(b_int);
+                return std.math.order(a_float, b_float);
+            },
+            .rational => |_| {
+                // Convert rational to float for comparison with inexact number
+                const b_float = b.asFloat();
+                return std.math.order(a_float, b_float);
+            },
+            .float => |b_float| return std.math.order(a_float, b_float),
+        },
+    }
+}
+
 /// Returns true if a < b
 fn isLessThan(a: Number, b: Number) bool {
-    const a_val: f64 = switch (a) {
-        .int => |x| @floatFromInt(x),
-        .float => |x| x,
-    };
-    const b_val: f64 = switch (b) {
-        .int => |x| @floatFromInt(x),
-        .float => |x| x,
-    };
-    return a_val < b_val;
+    return compareNumbers(a, b) == .lt;
 }
 
 /// Returns true if a <= b
 fn isLessThanOrEqual(a: Number, b: Number) bool {
-    const a_val: f64 = switch (a) {
-        .int => |x| @floatFromInt(x),
-        .float => |x| x,
-    };
-    const b_val: f64 = switch (b) {
-        .int => |x| @floatFromInt(x),
-        .float => |x| x,
-    };
-    return a_val <= b_val;
+    return compareNumbers(a, b) != .gt;
 }
 
 /// Returns true if a > b
 fn isGreaterThan(a: Number, b: Number) bool {
-    const a_val: f64 = switch (a) {
-        .int => |x| @floatFromInt(x),
-        .float => |x| x,
-    };
-    const b_val: f64 = switch (b) {
-        .int => |x| @floatFromInt(x),
-        .float => |x| x,
-    };
-    return a_val > b_val;
+    return compareNumbers(a, b) == .gt;
 }
 
 /// Returns true if a >= b
 fn isGreaterThanOrEqual(a: Number, b: Number) bool {
-    const a_val: f64 = switch (a) {
-        .int => |x| @floatFromInt(x),
-        .float => |x| x,
-    };
-    const b_val: f64 = switch (b) {
-        .int => |x| @floatFromInt(x),
-        .float => |x| x,
-    };
-    return a_val >= b_val;
+    return compareNumbers(a, b) != .lt;
 }
 
 /// Returns true if a == b
 fn isEqual(a: Number, b: Number) bool {
-    const a_val: f64 = switch (a) {
-        .int => |x| @floatFromInt(x),
-        .float => |x| x,
-    };
-    const b_val: f64 = switch (b) {
-        .int => |x| @floatFromInt(x),
-        .float => |x| x,
-    };
-    return a_val == b_val;
+    return compareNumbers(a, b) == .eq;
 }
 
 /// Helper function to validate all arguments are numbers and populate diagnostics on error
@@ -135,12 +165,22 @@ pub const add = NativeProc.withRawArgs(struct {
         try validateNumberArgs(args, diagnostics, Val.initNativeProc(&add));
 
         var int_sum: i64 = 0;
+        var rational_num: i64 = 0;
+        var rational_den: i64 = 1;
         var float_sum: f64 = 0.0;
+        var has_rational = false;
         var has_float = false;
         for (args) |v| {
             const num = v.asNumber().?; // Safe because we validated above
             switch (num) {
                 .int => |x| int_sum += x,
+                .rational => |r| {
+                    // Add rational: rational_num/rational_den + r.numerator/r.denominator
+                    // = (rational_num * r.denominator + r.numerator * rational_den) / (rational_den * r.denominator)
+                    rational_num = rational_num * @as(i64, r.denominator) + @as(i64, r.numerator) * rational_den;
+                    rational_den *= r.denominator;
+                    has_rational = true;
+                },
                 .float => |x| {
                     float_sum += x;
                     has_float = true;
@@ -149,7 +189,25 @@ pub const add = NativeProc.withRawArgs(struct {
         }
         if (has_float) {
             float_sum += @floatFromInt(int_sum);
+            if (has_rational) {
+                float_sum += @as(f64, @floatFromInt(rational_num)) / @as(f64, @floatFromInt(rational_den));
+            }
             return Val.initFloat(float_sum);
+        }
+        if (has_rational) {
+            rational_num += int_sum * rational_den;
+            const rational = number.Rational.fromInt64(rational_num, @intCast(rational_den)) catch |err| {
+                if (diagnostics) |d| {
+                    const msg = switch (err) {
+                        error.DenominatorZero => "Rational denominator cannot be zero",
+                        error.NumeratorTooLarge => "Rational numerator overflow in addition",
+                        error.DenominatorTooLarge => "Rational denominator overflow in addition",
+                    };
+                    d.addDiagnostic(.{ .other = msg });
+                }
+                return Vm.Error.UncaughtException;
+            };
+            return Val.initRational(rational);
         }
         return Val.initInt(int_sum);
     }
@@ -185,17 +243,26 @@ pub const sub = NativeProc.withRawArgs(struct {
         if (args.len == 1) {
             switch (args[0].asNumber().?) { // Safe because we validated above
                 .float => |x| return Val.initFloat(-x),
+                .rational => |r| return Val.initRational(number.Rational.init(-r.numerator, r.denominator)),
                 .int => |x| return Val.initInt(-x),
             }
         }
 
-        // Get the first value and check if we have floats
+        // Get the first value and check if we have floats/rationals
         var has_float = false;
+        var has_rational = false;
         var int_result: i64 = 0;
+        var rational_num: i64 = 0;
+        var rational_den: i64 = 1;
         var float_result: f64 = 0.0;
         const first_num = args[0].asNumber().?; // Safe because we validated above
         switch (first_num) {
             .int => |x| int_result = x,
+            .rational => |r| {
+                rational_num = r.numerator;
+                rational_den = r.denominator;
+                has_rational = true;
+            },
             .float => |x| {
                 float_result = x;
                 has_float = true;
@@ -207,6 +274,12 @@ pub const sub = NativeProc.withRawArgs(struct {
             const num = v.asNumber().?; // Safe because we validated above
             switch (num) {
                 .int => |x| int_result -= x,
+                .rational => |r| {
+                    // Subtract rational: rational_num/rational_den - r.numerator/r.denominator
+                    rational_num = rational_num * @as(i64, r.denominator) - @as(i64, r.numerator) * rational_den;
+                    rational_den *= r.denominator;
+                    has_rational = true;
+                },
                 .float => |x| {
                     float_result -= x;
                     has_float = true;
@@ -216,7 +289,26 @@ pub const sub = NativeProc.withRawArgs(struct {
 
         if (has_float) {
             float_result += @floatFromInt(int_result);
+            if (has_rational) {
+                float_result += @as(f64, @floatFromInt(rational_num)) / @as(f64, @floatFromInt(rational_den));
+            }
             return Val.initFloat(float_result);
+        }
+        if (has_rational) {
+            // Subtract int_result from rational: rational_num/rational_den - int_result
+            rational_num -= int_result * rational_den;
+            const rational = number.Rational.fromInt64(rational_num, @intCast(@abs(rational_den))) catch |err| {
+                if (diagnostics) |d| {
+                    const msg = switch (err) {
+                        error.DenominatorZero => "Rational denominator cannot be zero",
+                        error.NumeratorTooLarge => "Rational numerator overflow in subtraction",
+                        error.DenominatorTooLarge => "Rational denominator overflow in subtraction",
+                    };
+                    d.addDiagnostic(.{ .other = msg });
+                }
+                return Vm.Error.UncaughtException;
+            };
+            return Val.initRational(rational);
         }
         return Val.initInt(int_result);
     }
@@ -289,29 +381,7 @@ pub const eq = NativeProc.withRawArgs(struct {
         \\(= 5.0 5)    =>  #t
     ;
     pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
-        // Validate all arguments are numbers first
-        try validateNumberArgs(args, diagnostics, Val.initNativeProc(&eq));
-
-        const is_equal = switch (args.len) {
-            0, 1 => true,
-            else => blk: {
-                const first = args[0].asNumber().?; // Safe because we validated above
-                const first_val: f64 = switch (first) {
-                    .int => |x| @floatFromInt(x),
-                    .float => |x| x,
-                };
-                for (args[1..]) |v| {
-                    const curr = v.asNumber().?; // Safe because we validated above
-                    const curr_val: f64 = switch (curr) {
-                        .int => |x| @floatFromInt(x),
-                        .float => |x| x,
-                    };
-                    if (first_val != curr_val) break :blk false;
-                }
-                break :blk true;
-            },
-        };
-        return Val.initBool(is_equal);
+        return checkOrdered(args, diagnostics, Val.initNativeProc(&eq), isEqual);
     }
 });
 
@@ -335,13 +405,140 @@ pub const integer_p = NativeProc.with1Arg(struct {
     pub const docstring =
         \\(integer? obj)
         \\
-        \\Returns #t if obj is an integer, #f otherwise.
+        \\Returns #t if obj is an integer (exact or inexact), #f otherwise.
         \\(integer? 5)     =>  #t
-        \\(integer? 5.0)   =>  #f
+        \\(integer? 5.0)   =>  #t
         \\(integer? 5.5)   =>  #f
     ;
     pub inline fn impl(_: *Vm, _: ?*Diagnostics, arg: Val) Vm.Error!Val {
+        const num = arg.asNumber() orelse return Val.initBool(false);
+        const is_int = switch (num) {
+            .int => true,
+            .float => |f| @round(f) == f,
+            .rational => |r| @rem(r.numerator, @as(i32, @intCast(r.denominator))) == 0,
+        };
+        return Val.initBool(is_int);
+    }
+});
+
+pub const exact_integer_p = NativeProc.with1Arg(struct {
+    pub const name = "exact-integer?";
+    pub const docstring =
+        \\(exact-integer? obj)
+        \\
+        \\Returns #t if obj is an exact integer, #f otherwise.
+        \\(exact-integer? 32)    =>  #t
+        \\(exact-integer? 32.0)  =>  #f
+        \\(exact-integer? 32/5)  =>  #f
+    ;
+    pub inline fn impl(_: *Vm, _: ?*Diagnostics, arg: Val) Vm.Error!Val {
         return Val.initBool(arg.data == .int);
+    }
+});
+
+pub const rational_p = NativeProc.with1Arg(struct {
+    pub const name = "rational?";
+    pub const docstring =
+        \\(rational? obj)
+        \\
+        \\Returns #t if obj is a rational number, #f otherwise.
+        \\(rational? 1/2)  =>  #t
+        \\(rational? 5)    =>  #f
+        \\(rational? 5.5)  =>  #f
+    ;
+    pub inline fn impl(_: *Vm, _: ?*Diagnostics, arg: Val) Vm.Error!Val {
+        return Val.initBool(arg.data == .rational);
+    }
+});
+
+pub const exact_p = NativeProc.with1Arg(struct {
+    pub const name = "exact?";
+    pub const docstring =
+        \\(exact? z)
+        \\
+        \\Returns #t if z is an exact number (integer or rational), #f otherwise.
+        \\(exact? 5)      =>  #t
+        \\(exact? 1/2)    =>  #t
+        \\(exact? 5.5)    =>  #f
+    ;
+    pub inline fn impl(_: *Vm, _: ?*Diagnostics, arg: Val) Vm.Error!Val {
+        return Val.initBool(arg.data == .int or arg.data == .rational);
+    }
+});
+
+pub const inexact_p = NativeProc.with1Arg(struct {
+    pub const name = "inexact?";
+    pub const docstring =
+        \\(inexact? z)
+        \\
+        \\Returns #t if z is an inexact number (float), #f otherwise.
+        \\(inexact? 5.5)  =>  #t
+        \\(inexact? 5)    =>  #f
+        \\(inexact? 1/2)  =>  #f
+    ;
+    pub inline fn impl(_: *Vm, _: ?*Diagnostics, arg: Val) Vm.Error!Val {
+        return Val.initBool(arg.data == .float);
+    }
+});
+
+/// Implements banker's rounding (round half to even)
+fn roundToEven(x: f64) f64 {
+    const floor_val = @floor(x);
+    const ceil_val = @ceil(x);
+    const diff = x - floor_val;
+
+    // If exactly halfway
+    if (diff == 0.5) {
+        // Round to even: check if floor is even
+        const floor_int: i64 = @intFromFloat(floor_val);
+        if (@mod(floor_int, 2) == 0) {
+            return floor_val;
+        } else {
+            return ceil_val;
+        }
+    } else if (diff > 0.5) {
+        return ceil_val;
+    } else {
+        return floor_val;
+    }
+}
+
+pub const round = NativeProc.with1Arg(struct {
+    pub const name = "round";
+    pub const docstring =
+        \\(round x)
+        \\
+        \\Returns the closest integer to x, rounding to even when x is halfway between two integers.
+        \\(round 3.2)   =>  3
+        \\(round 3.8)   =>  4
+        \\(round 2.5)   =>  2
+        \\(round 3.5)   =>  4
+        \\(round -2.5)  =>  -2
+        \\(round 5)     =>  5
+        \\(round 1/2)   =>  0
+    ;
+    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, arg: Val) Vm.Error!Val {
+        const num = arg.asNumber() orelse {
+            if (diagnostics) |d| {
+                d.addDiagnostic(.{ .wrong_arg_type = .{
+                    .expected = "number",
+                    .got = arg,
+                    .proc = Val.initNativeProc(&round),
+                    .arg_name = "x",
+                    .arg_position = 0,
+                } });
+            }
+            return Vm.Error.UncaughtException;
+        };
+
+        switch (num) {
+            .int => |x| return Val.initInt(x),
+            .rational, .float => {
+                const float_val = num.asFloat();
+                const rounded = roundToEven(float_val);
+                return Val.initInt(@intFromFloat(rounded));
+            },
+        }
     }
 });
 
@@ -790,12 +987,493 @@ test "integer? with multiple arguments returns error" {
     try vm.expectError(Vm.Error.UncaughtException, "(integer? 1 2)");
 }
 
-test "integer? with float returns false" {
+test "integer? with inexact integer returns true" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try vm.expectEval("#f", "(integer? 0.0)");
+    try vm.expectEval("#t", "(integer? 0.0)");
+    try vm.expectEval("#t", "(integer? 42.0)");
+    try vm.expectEval("#t", "(integer? -5.0)");
+    try vm.expectEval("#t", "(integer? 1.0)");
+}
+
+test "integer? with non-integer float returns false" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#f", "(integer? 0.5)");
     try vm.expectEval("#f", "(integer? 42.5)");
     try vm.expectEval("#f", "(integer? -5.25)");
-    try vm.expectEval("#f", "(integer? 1.0)");
+}
+
+test "integer? with rational that is whole number returns true" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#t", "(integer? 10/2)");
+    try vm.expectEval("#t", "(integer? 15/3)");
+    try vm.expectEval("#t", "(integer? -8/4)");
+}
+
+test "integer? with non-integer rational returns false" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#f", "(integer? 1/2)");
+    try vm.expectEval("#f", "(integer? 5/3)");
+    try vm.expectEval("#f", "(integer? -7/4)");
+}
+
+test "exact-integer? with exact integers returns true" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#t", "(exact-integer? 0)");
+    try vm.expectEval("#t", "(exact-integer? 32)");
+    try vm.expectEval("#t", "(exact-integer? -42)");
+}
+
+test "exact-integer? with inexact integers returns false" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#f", "(exact-integer? 0.0)");
+    try vm.expectEval("#f", "(exact-integer? 32.0)");
+    try vm.expectEval("#f", "(exact-integer? -5.0)");
+}
+
+test "exact-integer? with rationals returns false" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#f", "(exact-integer? 1/2)");
+    try vm.expectEval("#f", "(exact-integer? 32/5)");
+    try vm.expectEval("#f", "(exact-integer? 7/3)");
+}
+
+test "exact-integer? with non-integer floats returns false" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#f", "(exact-integer? 5.5)");
+    try vm.expectEval("#f", "(exact-integer? -2.5)");
+}
+
+test "exact-integer? with non-numbers returns false" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#f", "(exact-integer? #t)");
+    try vm.expectEval("#f", "(exact-integer? 'symbol)");
+    try vm.expectEval("#f", "(exact-integer? \"string\")");
+}
+
+test "exact-integer? with no arguments returns error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectError(Vm.Error.UncaughtException, "(exact-integer?)");
+}
+
+test "exact-integer? with multiple arguments returns error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectError(Vm.Error.UncaughtException, "(exact-integer? 1 2)");
+}
+
+test "+ on rationals adds rationals" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("3/4", "(+ 1/2 1/4)");
+    try vm.expectEval("1", "(+ 1/3 1/3 1/3)"); // Reduces to 1/1, which becomes integer 1
+}
+
+test "- on rationals subtracts rationals" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("1/2", "(- 3/4 1/4)");
+    try vm.expectEval("1/2", "(- -1/2)");
+}
+
+test "< on rationals returns correct result" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#t", "(< 1/2 3/4)");
+    try vm.expectEval("#f", "(< 3/4 1/2)");
+}
+
+test "= on rationals returns correct result" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#t", "(= 1/2 2/4)");
+    try vm.expectEval("#f", "(= 1/2 1/3)");
+}
+
+test "+ on mixed ints and rationals returns rational" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("3/2", "(+ 1 1/2)");
+    try vm.expectEval("7/2", "(+ 1/2 3)");
+}
+
+test "rational arithmetic that produces integers" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("1", "(+ 1/2 1/2)");
+    try vm.expectEval("3", "(+ 1/3 1/3 1/3 2)");
+    try vm.expectEval("0", "(- 1/4 1/4)");
+}
+
+test "+ on mixed rationals and floats returns float" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("1.5", "(+ 0.5 1)");
+    try vm.expectEval("2.25", "(+ 1/4 2.0)");
+    try vm.expectEval("3.5", "(+ 1/2 3.0)");
+}
+
+test "- on mixed rationals and floats returns float" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("1.5", "(- 2.0 1/2)");
+    try vm.expectEval("-0.25", "(- 1/4 0.5)");
+    try vm.expectEval("2.75", "(- 3.0 1/4)");
+}
+
+test "rational? with rational returns true" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#t", "(rational? 1/2)");
+    try vm.expectEval("#t", "(rational? 3/4)");
+    try vm.expectEval("#t", "(rational? -1/2)");
+}
+
+test "rational? with non-rational returns false" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#f", "(rational? 5)");
+    try vm.expectEval("#f", "(rational? 5.5)");
+    try vm.expectEval("#f", "(rational? #t)");
+    try vm.expectEval("#f", "(rational? 'symbol)");
+    try vm.expectEval("#f", "(rational? \"string\")");
+}
+
+test "rational? with rationals that reduce to integers returns true" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Even though these reduce to integers at parse time,
+    // they were originally written as rationals
+    try vm.expectEval("#f", "(rational? 4/2)"); // This becomes integer 2
+    try vm.expectEval("#f", "(rational? 6/3)"); // This becomes integer 2
+}
+
+test "rational? with no arguments returns error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectError(Vm.Error.UncaughtException, "(rational?)");
+}
+
+test "rational? with multiple arguments returns error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectError(Vm.Error.UncaughtException, "(rational? 1/2 1/3)");
+}
+
+test "exact? with integers returns true" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#t", "(exact? 0)");
+    try vm.expectEval("#t", "(exact? 42)");
+    try vm.expectEval("#t", "(exact? -5)");
+}
+
+test "exact? with rationals returns true" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#t", "(exact? 1/2)");
+    try vm.expectEval("#t", "(exact? 3/4)");
+    try vm.expectEval("#t", "(exact? -1/2)");
+}
+
+test "exact? with floats returns false" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#f", "(exact? 0.0)");
+    try vm.expectEval("#f", "(exact? 5.5)");
+    try vm.expectEval("#f", "(exact? -2.5)");
+}
+
+test "exact? with non-numbers returns false" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#f", "(exact? #t)");
+    try vm.expectEval("#f", "(exact? 'symbol)");
+    try vm.expectEval("#f", "(exact? \"string\")");
+}
+
+test "exact? with no arguments returns error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectError(Vm.Error.UncaughtException, "(exact?)");
+}
+
+test "exact? with multiple arguments returns error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectError(Vm.Error.UncaughtException, "(exact? 1 2)");
+}
+
+test "inexact? with floats returns true" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#t", "(inexact? 0.0)");
+    try vm.expectEval("#t", "(inexact? 5.5)");
+    try vm.expectEval("#t", "(inexact? -2.5)");
+}
+
+test "inexact? with integers returns false" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#f", "(inexact? 0)");
+    try vm.expectEval("#f", "(inexact? 42)");
+    try vm.expectEval("#f", "(inexact? -5)");
+}
+
+test "inexact? with rationals returns false" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#f", "(inexact? 1/2)");
+    try vm.expectEval("#f", "(inexact? 3/4)");
+    try vm.expectEval("#f", "(inexact? -1/2)");
+}
+
+test "inexact? with non-numbers returns false" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("#f", "(inexact? #t)");
+    try vm.expectEval("#f", "(inexact? 'symbol)");
+    try vm.expectEval("#f", "(inexact? \"string\")");
+}
+
+test "inexact? with no arguments returns error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectError(Vm.Error.UncaughtException, "(inexact?)");
+}
+
+test "inexact? with multiple arguments returns error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectError(Vm.Error.UncaughtException, "(inexact? 1.0 2.0)");
+}
+
+test "round with integers returns unchanged" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("5", "(round 5)");
+    try vm.expectEval("0", "(round 0)");
+    try vm.expectEval("-10", "(round -10)");
+}
+
+test "round with positive floats" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("3", "(round 3.2)");
+    try vm.expectEval("4", "(round 3.8)");
+    try vm.expectEval("1", "(round 1.0)");
+    try vm.expectEval("0", "(round 0.3)");
+}
+
+test "round with negative floats" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("-3", "(round -3.2)");
+    try vm.expectEval("-4", "(round -3.8)");
+    try vm.expectEval("-1", "(round -1.0)");
+    try vm.expectEval("0", "(round -0.3)");
+}
+
+test "round with banker's rounding (round half to even)" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("2", "(round 2.5)");
+    try vm.expectEval("4", "(round 3.5)");
+    try vm.expectEval("4", "(round 4.5)");
+    try vm.expectEval("6", "(round 5.5)");
+    try vm.expectEval("-2", "(round -2.5)");
+    try vm.expectEval("-4", "(round -3.5)");
+}
+
+test "round with rationals" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("0", "(round 1/2)"); // 0.5 -> 0 (round to even)
+    try vm.expectEval("2", "(round 3/2)"); // 1.5 -> 2 (round to even)
+    try vm.expectEval("2", "(round 5/2)"); // 2.5 -> 2 (round to even)
+    try vm.expectEval("4", "(round 7/2)"); // 3.5 -> 4 (round to even)
+    try vm.expectEval("1", "(round 4/3)"); // 1.333... -> 1
+    try vm.expectEval("-2", "(round -3/2)"); // -1.5 -> -2 (round to even)
+}
+
+test "round with no arguments returns error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectError(Vm.Error.UncaughtException, "(round)");
+}
+
+test "round with multiple arguments returns error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectError(Vm.Error.UncaughtException, "(round 1 2)");
+}
+
+test "round with non-number returns error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectError(Vm.Error.UncaughtException, "(round #t)");
+    try vm.expectError(Vm.Error.UncaughtException, "(round \"string\")");
+    try vm.expectError(Vm.Error.UncaughtException, "(round 'symbol)");
+}
+
+test "= with large integers preserves precision" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // These are beyond f64 mantissa precision (2^53)
+    try vm.expectEval("#f", "(= 9007199254740993 9007199254740992)");
+    try vm.expectEval("#t", "(= 9007199254740993 9007199254740993)");
+    try vm.expectEval("#f", "(= -9007199254740993 -9007199254740992)");
+}
+
+test "< with large integers preserves precision" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // These are beyond f64 mantissa precision (2^53)
+    try vm.expectEval("#t", "(< 9007199254740992 9007199254740993)");
+    try vm.expectEval("#f", "(< 9007199254740993 9007199254740992)");
+    try vm.expectEval("#t", "(< -9007199254740993 -9007199254740992)");
+}
+
+test "> with large integers preserves precision" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // These are beyond f64 mantissa precision (2^53)
+    try vm.expectEval("#f", "(> 9007199254740992 9007199254740993)");
+    try vm.expectEval("#t", "(> 9007199254740993 9007199254740992)");
+    try vm.expectEval("#f", "(> -9007199254740993 -9007199254740992)");
+}
+
+test "= with rationals uses exact comparison" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Exact rational comparisons
+    try vm.expectEval("#t", "(= 1/3 1/3)");
+    try vm.expectEval("#f", "(= 1/3 1/4)");
+    try vm.expectEval("#t", "(= 2/6 1/3)"); // Reduced forms
+    try vm.expectEval("#f", "(= 1/3 1/2)");
+}
+
+test "< with rationals uses exact comparison" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Exact rational comparisons
+    try vm.expectEval("#t", "(< 1/4 1/3)");
+    try vm.expectEval("#f", "(< 1/3 1/4)");
+    try vm.expectEval("#t", "(< 1/3 1/2)");
+    try vm.expectEval("#f", "(< 1/2 1/3)");
+    try vm.expectEval("#t", "(< -1/2 -1/3)");
+}
+
+test "> with rationals uses exact comparison" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Exact rational comparisons
+    try vm.expectEval("#f", "(> 1/4 1/3)");
+    try vm.expectEval("#t", "(> 1/3 1/4)");
+    try vm.expectEval("#f", "(> 1/3 1/2)");
+    try vm.expectEval("#t", "(> 1/2 1/3)");
+    try vm.expectEval("#f", "(> -1/2 -1/3)");
+}
+
+test "= with mixed int and rational uses exact comparison" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Int vs rational comparisons (exact)
+    try vm.expectEval("#t", "(= 2 4/2)");
+    try vm.expectEval("#f", "(= 2 5/2)");
+    try vm.expectEval("#t", "(= 10/5 2)");
+    try vm.expectEval("#f", "(= 1/2 1)");
+}
+
+test "< with mixed int and rational uses exact comparison" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Int vs rational comparisons (exact)
+    try vm.expectEval("#t", "(< 1 3/2)");
+    try vm.expectEval("#f", "(< 2 3/2)");
+    try vm.expectEval("#t", "(< 1/2 1)");
+    try vm.expectEval("#f", "(< 3/2 1)");
+}
+
+test "= with exact float integers uses exact comparison" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Exact integer floats should compare exactly with ints
+    try vm.expectEval("#t", "(= 5 5.0)");
+    try vm.expectEval("#t", "(= 5.0 5)");
+    try vm.expectEval("#f", "(= 5 5.5)");
+    try vm.expectEval("#t", "(= -10 -10.0)");
+}
+
+test "< with exact float integers uses exact comparison" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Exact integer floats should compare exactly with ints
+    try vm.expectEval("#t", "(< 5 6.0)");
+    try vm.expectEval("#f", "(< 6 6.0)");
+    try vm.expectEval("#t", "(< 5.0 6)");
+    try vm.expectEval("#f", "(< 6.0 6)");
 }

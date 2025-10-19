@@ -2,6 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 
 const Diagnostics = @import("../Diagnostics.zig");
+const Rational = @import("../types/number.zig").Rational;
 const Symbol = @import("../types/Symbol.zig");
 const Val = @import("../types/Val.zig");
 const SmallArrayList = @import("../utils/small_array_list.zig").SmallArrayList;
@@ -208,7 +209,7 @@ fn readList(self: *Reader, open_paren_token: Tokenizer.Token, diagnostics: ?*Dia
                         .line = open_paren_token.line,
                         .column = open_paren_token.column,
                         .message = "missing closing parenthesis for list",
-                        .hint ="add ')' to close the list",
+                        .hint = "add ')' to close the list",
                     } });
                 }
                 return Error.ReadError;
@@ -221,7 +222,7 @@ fn readList(self: *Reader, open_paren_token: Tokenizer.Token, diagnostics: ?*Dia
                             .line = dot_token.line,
                             .column = dot_token.column,
                             .message = "dot notation requires at least one element before the dot",
-                            .hint ="add at least one element before the dot, e.g., (a . b)",
+                            .hint = "add at least one element before the dot, e.g., (a . b)",
                             .lexeme = dot_token.lexeme,
                         } });
                     }
@@ -270,7 +271,7 @@ fn readBytevector(self: *Reader, open_token: Tokenizer.Token, diagnostics: ?*Dia
                             .line = a.token.line,
                             .column = a.token.column,
                             .message = "bytevector elements must be integers",
-                            .hint ="use only integer values in range 0-255",
+                            .hint = "use only integer values in range 0-255",
                             .lexeme = a.token.lexeme,
                         } });
                     }
@@ -283,7 +284,7 @@ fn readBytevector(self: *Reader, open_token: Tokenizer.Token, diagnostics: ?*Dia
                             .line = a.token.line,
                             .column = a.token.column,
                             .message = "bytevector elements must be in range 0-255",
-                            .hint ="use values between 0 and 255",
+                            .hint = "use values between 0 and 255",
                             .lexeme = a.token.lexeme,
                         } });
                     }
@@ -305,7 +306,7 @@ fn readBytevector(self: *Reader, open_token: Tokenizer.Token, diagnostics: ?*Dia
                         .line = open_token.line,
                         .column = open_token.column,
                         .message = "missing closing parenthesis for bytevector",
-                        .hint ="add ')' to close the bytevector",
+                        .hint = "add ')' to close the bytevector",
                     } });
                 }
                 return Error.ReadError;
@@ -348,7 +349,7 @@ fn readVector(self: *Reader, open_token: Tokenizer.Token, diagnostics: ?*Diagnos
                         .line = open_token.line,
                         .column = open_token.column,
                         .message = "missing closing parenthesis for vector",
-                        .hint ="add ')' to close the vector",
+                        .hint = "add ')' to close the vector",
                     } });
                 }
                 return Error.ReadError;
@@ -485,35 +486,16 @@ fn parseNumber(_: Reader, token: Tokenizer.Token, diagnostics: ?*Diagnostics) Er
         return Error.ReadError;
     }
 
-    var is_negative = false;
-    var start_idx: usize = 0;
-
-    // Handle leading sign
-    if (lexeme[0] == '-') {
-        is_negative = true;
-        start_idx = 1;
-    } else if (lexeme[0] == '+') {
-        start_idx = 1;
-    }
-
-    if (start_idx >= lexeme.len) {
-        if (diagnostics) |diag| {
-            diag.addDiagnostic(.{ .reader = .{
-                .kind = .invalid_number,
-                .line = token.line,
-                .column = token.column,
-                .message = "number literal contains only sign character",
-                .lexeme = lexeme,
-            } });
-        }
-        return Error.ReadError;
-    }
-
-    // Check if this is a float (contains a decimal point)
+    // Check if this is a float (contains a decimal point) or rational (contains a slash)
     var has_decimal = false;
-    for (lexeme[start_idx..]) |c| {
+    var slash_idx: ?usize = null;
+    for (lexeme, 0..) |c, i| {
         if (c == '.') {
             has_decimal = true;
+            break;
+        }
+        if (c == '/') {
+            slash_idx = i;
             break;
         }
     }
@@ -537,30 +519,124 @@ fn parseNumber(_: Reader, token: Tokenizer.Token, diagnostics: ?*Diagnostics) Er
             .val = val,
             .token = token,
         } };
-    } // Parse as integer
-    var n: i64 = 0;
-    for (lexeme[start_idx..]) |digit| {
-        if (digit < '0' or digit > '9') {
-            if (diagnostics) |diag| {
-                diag.addDiagnostic(.{ .reader = .{
-                    .kind = .invalid_number,
-                    .line = token.line,
-                    .column = token.column,
-                    .message = "invalid digit in integer literal",
-                    .lexeme = lexeme,
-                } });
-            }
-            return Error.ReadError;
-        }
-        n *= 10;
-        n += digit - '0';
     }
 
-    if (is_negative) n = -n;
+    if (slash_idx) |idx| {
+        return try parseRational(lexeme, idx, token, diagnostics);
+    }
+
+    // Parse as integer
+    const n = std.fmt.parseInt(i64, lexeme, 10) catch |err| {
+        if (diagnostics) |diag| {
+            const message = switch (err) {
+                error.Overflow => "integer literal is too large",
+                error.InvalidCharacter => "invalid digit in integer literal",
+            };
+            diag.addDiagnostic(.{ .reader = .{
+                .kind = .invalid_number,
+                .line = token.line,
+                .column = token.column,
+                .message = message,
+                .lexeme = lexeme,
+            } });
+        }
+        return Error.ReadError;
+    };
 
     const val = Val.initInt(n);
     return ReadResult{ .atom = .{
         .val = val,
+        .token = token,
+    } };
+}
+
+fn parseRational(lexeme: []const u8, slash_idx: usize, token: Tokenizer.Token, diagnostics: ?*Diagnostics) Error!ReadResult {
+    const numerator_str = lexeme[0..slash_idx];
+    const denominator_str = lexeme[slash_idx + 1 ..];
+
+    if (denominator_str.len == 0) {
+        if (diagnostics) |diag| {
+            diag.addDiagnostic(.{ .reader = .{
+                .kind = .invalid_number,
+                .line = token.line,
+                .column = token.column,
+                .message = "rational number missing denominator",
+                .lexeme = lexeme,
+            } });
+        }
+        return Error.ReadError;
+    }
+
+    // Parse as i64/u64 to handle large numbers that might reduce to smaller ones
+    const numerator_i64 = std.fmt.parseInt(i64, numerator_str, 10) catch |err| {
+        if (diagnostics) |diag| {
+            const message = switch (err) {
+                error.Overflow => "rational numerator is too large",
+                error.InvalidCharacter => "invalid digit in rational numerator",
+            };
+            diag.addDiagnostic(.{ .reader = .{
+                .kind = .invalid_number,
+                .line = token.line,
+                .column = token.column,
+                .message = message,
+                .lexeme = lexeme,
+            } });
+        }
+        return Error.ReadError;
+    };
+
+    // Check for negative denominator before parsing
+    if (denominator_str.len > 0 and (denominator_str[0] == '-' or denominator_str[0] == '+')) {
+        if (diagnostics) |diag| {
+            diag.addDiagnostic(.{ .reader = .{
+                .kind = .invalid_number,
+                .line = token.line,
+                .column = token.column,
+                .message = "rational denominator cannot be negative",
+                .lexeme = lexeme,
+            } });
+        }
+        return Error.ReadError;
+    }
+
+    const denominator_u64 = std.fmt.parseInt(u64, denominator_str, 10) catch |err| {
+        if (diagnostics) |diag| {
+            const message = switch (err) {
+                error.Overflow => "rational denominator is too large",
+                error.InvalidCharacter => "invalid digit in rational denominator",
+            };
+            diag.addDiagnostic(.{ .reader = .{
+                .kind = .invalid_number,
+                .line = token.line,
+                .column = token.column,
+                .message = message,
+                .lexeme = lexeme,
+            } });
+        }
+        return Error.ReadError;
+    };
+
+    // Use fromInt64 which handles reduction and validation
+    const rational = Rational.fromInt64(numerator_i64, denominator_u64) catch |err| {
+        if (diagnostics) |diag| {
+            const message = switch (err) {
+                Rational.Error.DenominatorZero => "rational denominator cannot be zero",
+                Rational.Error.NumeratorTooLarge => "rational numerator is too large after reduction",
+                Rational.Error.DenominatorTooLarge => "rational denominator is too large after reduction",
+            };
+            diag.addDiagnostic(.{ .reader = .{
+                .kind = .invalid_number,
+                .line = token.line,
+                .column = token.column,
+                .message = message,
+                .lexeme = lexeme,
+            } });
+        }
+        return Error.ReadError;
+    };
+
+    return ReadResult{ .atom = .{
+        .val = Val.initRational(rational),
         .token = token,
     } };
 }
@@ -937,6 +1013,55 @@ test "read special symbols" {
     try reader.expectReadNext(null, &vm);
 }
 
+test "read rational numbers" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var reader = Reader.init(&vm, "1/2 3/4 -1/2 +5/3");
+    try reader.expectReadNext("1/2", &vm);
+    try reader.expectReadNext("3/4", &vm);
+    try reader.expectReadNext("-1/2", &vm);
+    try reader.expectReadNext("5/3", &vm);
+    try reader.expectReadNext(null, &vm);
+}
+
+test "read rational numbers with automatic reduction" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var reader = Reader.init(&vm, "10/4 6/9 100/25");
+    try reader.expectReadNext("5/2", &vm);
+    try reader.expectReadNext("2/3", &vm);
+    try reader.expectReadNext("4", &vm); // 100/25 reduces to 4/1, which becomes integer 4
+    try reader.expectReadNext(null, &vm);
+}
+
+test "read rational numbers that reduce to integers" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var reader = Reader.init(&vm, "25/1 50/10 -12/4");
+    try reader.expectReadNext("25", &vm);
+    try reader.expectReadNext("5", &vm);
+    try reader.expectReadNext("-3", &vm);
+    try reader.expectReadNext(null, &vm);
+}
+
+test "read large rational numbers that reduce to small ones" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Test large numbers that reduce to small values
+    // 6000000000/3000000000 = 2/1 = 2
+    // 9000000000/3000000000 = 3/1 = 3
+    // 10000000000/4000000000 = 5/2
+    var reader = Reader.init(&vm, "6000000000/3000000000 9000000000/3000000000 10000000000/4000000000");
+    try reader.expectReadNext("2", &vm);
+    try reader.expectReadNext("3", &vm);
+    try reader.expectReadNext("5/2", &vm);
+    try reader.expectReadNext(null, &vm);
+}
+
 test "read character named variants" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
@@ -1037,6 +1162,97 @@ test "error bare sharpsign" {
     try testing.expectEqualStrings("invalid sharpsign literal", diagnostics.diagnostics.items[0].reader.message);
     try testing.expect(diagnostics.diagnostics.items[0].reader.lexeme != null);
     try testing.expectEqualStrings("#", diagnostics.diagnostics.items[0].reader.lexeme.?);
+}
+
+test "error invalid rational numerator" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Test invalid character in numerator
+    {
+        var diagnostics = Diagnostics.init(testing.allocator);
+        defer diagnostics.deinit();
+        errdefer std.debug.print("Diagnostics:\n{f}\n", .{diagnostics.pretty(&vm, .nocolor)});
+
+        var reader = Reader.init(&vm, "12abc/5");
+        const result = reader.readNext(&diagnostics);
+        try testing.expectError(Error.ReadError, result);
+        try testing.expectEqual(Diagnostics.ReadErrorInfo.Kind.invalid_number, diagnostics.diagnostics.items[0].reader.kind);
+        try testing.expectEqualStrings("invalid digit in rational numerator", diagnostics.diagnostics.items[0].reader.message);
+    }
+
+    // Test overflow in numerator (during initial parse, before reduction can help)
+    {
+        var diagnostics = Diagnostics.init(testing.allocator);
+        defer diagnostics.deinit();
+        errdefer std.debug.print("Diagnostics:\n{f}\n", .{diagnostics.pretty(&vm, .nocolor)});
+
+        var reader = Reader.init(&vm, "99999999999999999999/1");
+        const result = reader.readNext(&diagnostics);
+        try testing.expectError(Error.ReadError, result);
+        try testing.expectEqual(Diagnostics.ReadErrorInfo.Kind.invalid_number, diagnostics.diagnostics.items[0].reader.kind);
+        try testing.expectEqualStrings("rational numerator is too large", diagnostics.diagnostics.items[0].reader.message);
+    }
+}
+
+test "error invalid rational denominator" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Test invalid character in denominator
+    {
+        var diagnostics = Diagnostics.init(testing.allocator);
+        defer diagnostics.deinit();
+        errdefer std.debug.print("Diagnostics:\n{f}\n", .{diagnostics.pretty(&vm, .nocolor)});
+
+        var reader = Reader.init(&vm, "5/12xyz");
+        const result = reader.readNext(&diagnostics);
+        try testing.expectError(Error.ReadError, result);
+        try testing.expectEqual(Diagnostics.ReadErrorInfo.Kind.invalid_number, diagnostics.diagnostics.items[0].reader.kind);
+        try testing.expectEqualStrings("invalid digit in rational denominator", diagnostics.diagnostics.items[0].reader.message);
+    }
+
+    // Test overflow in denominator (during initial parse, before reduction can help)
+    {
+        var diagnostics = Diagnostics.init(testing.allocator);
+        defer diagnostics.deinit();
+        errdefer std.debug.print("Diagnostics:\n{f}\n", .{diagnostics.pretty(&vm, .nocolor)});
+
+        var reader = Reader.init(&vm, "1/99999999999999999999");
+        const result = reader.readNext(&diagnostics);
+        try testing.expectError(Error.ReadError, result);
+        try testing.expectEqual(Diagnostics.ReadErrorInfo.Kind.invalid_number, diagnostics.diagnostics.items[0].reader.kind);
+        try testing.expectEqualStrings("rational denominator is too large", diagnostics.diagnostics.items[0].reader.message);
+    }
+}
+
+test "error zero denominator" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var diagnostics = Diagnostics.init(testing.allocator);
+    defer diagnostics.deinit();
+    errdefer std.debug.print("Diagnostics:\n{f}\n", .{diagnostics.pretty(&vm, .nocolor)});
+
+    var reader = Reader.init(&vm, "1/0");
+    const result = reader.readNext(&diagnostics);
+    try testing.expectError(Error.ReadError, result);
+    try testing.expectEqual(Diagnostics.ReadErrorInfo.Kind.invalid_number, diagnostics.diagnostics.items[0].reader.kind);
+    try testing.expectEqualStrings("rational denominator cannot be zero", diagnostics.diagnostics.items[0].reader.message);
+}
+
+test "read negative denominator rational gives error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // Negative denominators are not valid syntax
+    var diagnostics = Diagnostics.init(testing.allocator);
+    defer diagnostics.deinit();
+    errdefer std.debug.print("Diagnostics:\n{f}\n", .{diagnostics.pretty(&vm, .nocolor)});
+
+    var reader = Reader.init(&vm, "1/-2");
+    const result = reader.readNext(&diagnostics);
+    try testing.expectError(Error.ReadError, result);
 }
 
 test "lexeme information in diagnostics" {
