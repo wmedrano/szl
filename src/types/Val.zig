@@ -11,6 +11,7 @@ const NativeProc = @import("NativeProc.zig");
 pub const Number = @import("number.zig").Number;
 const Pair = @import("Pair.zig");
 const Parameter = @import("Parameter.zig");
+const Port = @import("Port.zig");
 const Proc = @import("Proc.zig");
 pub const Rational = @import("number.zig").Rational;
 const Record = @import("Record.zig");
@@ -28,6 +29,7 @@ data: Data,
 pub const Data = union(enum) {
     boolean: bool,
     empty_list: void,
+    unspecified_value: void,
     int: i64,
     rational: Rational,
     float: f64,
@@ -46,10 +48,15 @@ pub const Data = union(enum) {
     record: Handle(Record),
     record_descriptor: Handle(Record.Descriptor),
     parameter: Handle(Parameter),
+    port: Handle(Port),
 };
 
 pub fn initEmptyList() Val {
     return Val{ .data = .{ .empty_list = {} } };
+}
+
+pub fn initUnspecified() Val {
+    return Val{ .data = .{ .unspecified_value = {} } };
 }
 
 pub fn initInt(x: i64) Val {

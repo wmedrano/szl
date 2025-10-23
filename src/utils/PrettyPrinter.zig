@@ -6,6 +6,7 @@ const Continuation = @import("../types/Continuation.zig");
 const Module = @import("../types/Module.zig");
 const Handle = @import("../types/object_pool.zig").Handle;
 const Pair = @import("../types/Pair.zig");
+const Port = @import("../types/Port.zig");
 const Proc = @import("../types/Proc.zig");
 const Record = @import("../types/Record.zig");
 const String = @import("../types/String.zig");
@@ -29,15 +30,33 @@ pub const Representation = enum {
 
 pub const Options = struct {
     repr: Representation = .external,
+    max_depth: usize = 8,
 };
 
 vm: *const Vm,
 val: Val,
 options: Options,
+depth: usize = 0,
+
+/// Creates a new PrettyPrinter for a child value with incremented depth
+fn child(self: PrettyPrinter, val: Val) PrettyPrinter {
+    return PrettyPrinter{
+        .vm = self.vm,
+        .val = val,
+        .options = self.options,
+        .depth = self.depth + 1,
+    };
+}
 
 pub fn format(self: PrettyPrinter, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    // Check depth limit to prevent infinite loops with cyclic structures
+    if (self.depth >= self.options.max_depth) {
+        return writer.writeAll("...");
+    }
+
     switch (self.val.data) {
         .empty_list => try writer.writeAll("()"),
+        .unspecified_value => try writer.writeAll("#<unspecified>"),
         .boolean => |b| if (b) try writer.writeAll("#t") else try writer.writeAll("#f"),
         .int => |n| try writer.print("{}", .{n}),
         .rational => |r| try writer.print("{}/{}", .{ r.numerator, r.denominator }),
@@ -81,6 +100,7 @@ pub fn format(self: PrettyPrinter, writer: *std.Io.Writer) std.Io.Writer.Error!v
             .display => try writer.writeAll("#<parameter>"),
             .external => try writer.print("#<procedure:parameter-{}>", .{h.id}),
         },
+        .port => |h| try self.formatPort(writer, h),
     }
 }
 
@@ -125,7 +145,7 @@ fn formatPair(self: PrettyPrinter, writer: *std.Io.Writer, h: Handle(Pair)) std.
         return try writer.writeAll("#<invalid-cons>");
     };
     try writer.writeAll("(");
-    try self.vm.pretty(pair.car, .{}).format(writer);
+    try self.child(pair.car).format(writer);
     var current = pair.cdr;
     while (true) {
         switch (current.data) {
@@ -135,12 +155,12 @@ fn formatPair(self: PrettyPrinter, writer: *std.Io.Writer, h: Handle(Pair)) std.
                     return writer.writeAll(" #<invalid-cons>)");
                 };
                 try writer.writeAll(" ");
-                try self.vm.pretty(next_pair.car, .{}).format(writer);
+                try self.child(next_pair.car).format(writer);
                 current = next_pair.cdr;
             },
             else => {
                 try writer.writeAll(" . ");
-                try self.vm.pretty(current, .{}).format(writer);
+                try self.child(current).format(writer);
                 break;
             },
         }
@@ -278,11 +298,37 @@ fn formatRecordDescriptor(self: PrettyPrinter, writer: *std.Io.Writer, h: Handle
     try writer.writeAll(">");
 }
 
+fn formatPort(self: PrettyPrinter, writer: *std.Io.Writer, h: Handle(Port)) std.Io.Writer.Error!void {
+    const port = self.vm.objects.ports.get(h) orelse {
+        return try writer.print("#<port:invalid-{}>", .{h.id});
+    };
+
+    switch (self.options.repr) {
+        .display => {
+            switch (port.inner) {
+                .null => try writer.writeAll("#<null port>"),
+                .stdin => try writer.writeAll("#<stdin>"),
+                .stdout => try writer.writeAll("#<stdout>"),
+                .stderr => try writer.writeAll("#<stderr>"),
+            }
+        },
+        .external => {
+            switch (port.inner) {
+                .null => try writer.writeAll("#<port:null>"),
+                .stdin => try writer.writeAll("#<port:input:stdin>"),
+                .stdout => try writer.writeAll("#<port:output:stdout>"),
+                .stderr => try writer.writeAll("#<port:output:stderr>"),
+            }
+        },
+    }
+}
+
 /// Returns a human-readable type name for the value.
 /// For records, includes the record type name if available.
 pub fn typeName(self: PrettyPrinter) []const u8 {
     return switch (self.val.data) {
         .empty_list => "empty list",
+        .unspecified_value => "unspecified value",
         .boolean => "boolean",
         .int => "integer",
         .rational => "rational",
@@ -301,6 +347,7 @@ pub fn typeName(self: PrettyPrinter) []const u8 {
         .record => "record",
         .record_descriptor => "record descriptor",
         .parameter => "parameter",
+        .port => "port",
     };
 }
 
@@ -428,4 +475,26 @@ test "format character produces character literal" {
     try testing.expectFmt("#\\tab", "{f}", .{vm.pretty(Val.initChar('\t'), .{})});
     try testing.expectFmt("#\\return", "{f}", .{vm.pretty(Val.initChar('\r'), .{})});
     try testing.expectFmt("#\\x3BB", "{f}", .{vm.pretty(Val.initChar(0x3BB), .{})}); // Greek lambda
+}
+
+test "format port shows meaningful port type information" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const b = vm.builder();
+
+    // Test stdin port
+    const port_stdin = try b.makePort(.stdin);
+    try testing.expectFmt("#<port:input:stdin>", "{f}", .{vm.pretty(port_stdin, .{})});
+    try testing.expectFmt("#<stdin>", "{f}", .{vm.pretty(port_stdin, .{ .repr = .display })});
+
+    // Test stdout port
+    const port_stdout = try b.makePort(.stdout);
+    try testing.expectFmt("#<port:output:stdout>", "{f}", .{vm.pretty(port_stdout, .{})});
+    try testing.expectFmt("#<stdout>", "{f}", .{vm.pretty(port_stdout, .{ .repr = .display })});
+
+    // Test null port
+    const port_null = try b.makePort(.null);
+    try testing.expectFmt("#<port:null>", "{f}", .{vm.pretty(port_null, .{})});
+    try testing.expectFmt("#<null port>", "{f}", .{vm.pretty(port_null, .{ .repr = .display })});
 }

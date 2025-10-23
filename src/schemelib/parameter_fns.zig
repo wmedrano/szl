@@ -1,4 +1,5 @@
 const std = @import("std");
+const testing = std.testing;
 
 const Diagnostics = @import("../Diagnostics.zig");
 const NativeProc = @import("../types/NativeProc.zig");
@@ -81,37 +82,27 @@ pub const set_parameter = NativeProc.withRawArgs(struct {
             return Vm.Error.UncaughtException;
         };
 
-        const new_value = args[1];
-
-        // Get mutable access to the parameter
-        const param_ptr = vm.objects.parameters.get(param) orelse return Vm.Error.UndefinedBehavior;
-        const saved_value = param_ptr.getValue();
-
-        // Save the current value to bindings
         try vm.context.parameter_bindings.append(
             vm.allocator(),
-            .{ .parameter = param, .saved_value = saved_value },
+            .{ .parameter = param, .val = args[1] },
         );
-
-        // Set the new value
-        const mut_param = @constCast(param_ptr);
-        mut_param.setValue(new_value);
-
-        return new_value;
+        return Val.initUnspecified();
     }
 });
 
 test "make-parameter" {
-    const testing = std.testing;
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     // Test creating a parameter - displays as procedure
-    try vm.expectEval("#<procedure:parameter-0>", "(make-parameter 10)");
+    // Note: parameter ID may vary as other parameters are created during VM init
+    const result = try vm.evalStr("(make-parameter 10)", null, null);
+    const result_str = try std.fmt.allocPrint(testing.allocator, "{f}", .{vm.pretty(result, .{})});
+    defer testing.allocator.free(result_str);
+    try testing.expect(std.mem.startsWith(u8, result_str, "#<procedure:parameter-"));
 }
 
 test "make-parameter with converter not supported" {
-    const testing = std.testing;
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
@@ -121,26 +112,22 @@ test "make-parameter with converter not supported" {
 }
 
 test "parameterize macro basic usage" {
-    const testing = std.testing;
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     // Test basic parameterize
-    try vm.expectEval(
-        "20",
+    try vm.expectEval("20",
         \\(define p (make-parameter 10))
         \\(parameterize ((p 20)) (p))
     );
 }
 
 test "parameterize macro with multiple parameters" {
-    const testing = std.testing;
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     // Test multiple parameters
-    try vm.expectEval(
-        "30",
+    try vm.expectEval("30",
         \\(define p1 (make-parameter 10))
         \\(define p2 (make-parameter 20))
         \\(parameterize ((p1 5) (p2 25)) (+ (p1) (p2)))
@@ -148,13 +135,11 @@ test "parameterize macro with multiple parameters" {
 }
 
 test "parameterize macro with multiple body expressions" {
-    const testing = std.testing;
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     // Test multiple body expressions - should return last value
-    try vm.expectEval(
-        "40",
+    try vm.expectEval("40",
         \\(define p (make-parameter 10))
         \\(parameterize ((p 40))
         \\  (p)
@@ -164,25 +149,21 @@ test "parameterize macro with multiple body expressions" {
 }
 
 test "parameterize macro with empty parameter list" {
-    const testing = std.testing;
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     // Test empty parameter list
-    try vm.expectEval(
-        "42",
+    try vm.expectEval("42",
         \\(parameterize () 42)
     );
 }
 
 test "parameterize macro restores values on frame pop" {
-    const testing = std.testing;
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     // Test that parameter values are restored after parameterize exits
-    try vm.expectEval(
-        "10",
+    try vm.expectEval("10",
         \\(define p (make-parameter 10))
         \\(parameterize ((p 20)) (p))
         \\(p)
@@ -190,13 +171,11 @@ test "parameterize macro restores values on frame pop" {
 }
 
 test "parameterize macro nested calls" {
-    const testing = std.testing;
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
     // Test nested parameterize
-    try vm.expectEval(
-        "30",
+    try vm.expectEval("30",
         \\(define p (make-parameter 10))
         \\(parameterize ((p 20))
         \\  (parameterize ((p 30))
@@ -204,8 +183,7 @@ test "parameterize macro nested calls" {
     );
 
     // Verify outer parameterize is still in effect
-    try vm.expectEval(
-        "20",
+    try vm.expectEval("20",
         \\(define q (make-parameter 10))
         \\(parameterize ((q 20))
         \\  (parameterize ((q 30))
@@ -214,8 +192,7 @@ test "parameterize macro nested calls" {
     );
 
     // Verify original value is restored
-    try vm.expectEval(
-        "10",
+    try vm.expectEval("10",
         \\(define r (make-parameter 10))
         \\(parameterize ((r 20))
         \\  (parameterize ((r 30))

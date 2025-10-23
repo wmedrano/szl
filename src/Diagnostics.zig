@@ -38,6 +38,7 @@ pub const WrongArgTypeInfo = struct {
     got: Val,
     arg_name: ?[]const u8,
     arg_position: ?u32,
+    hint: ?[]const u8 = null,
 };
 
 pub const InvalidExpressionInfo = struct {
@@ -203,37 +204,33 @@ pub const DiagnosticsPrettyPrinter = struct {
         try writer.writeAll(self.colorize(Color.reset));
 
         // Iterate through stack frames in reverse order (most recent first)
-        var depth: usize = 0;
-        while (depth < self.diagnostics.stack_trace.items.len) {
-            const frame_idx = self.diagnostics.stack_trace.items.len - depth - 1;
-            const frame = self.diagnostics.stack_trace.items[frame_idx];
+        var display_idx: usize = 0;
+        var i = self.diagnostics.stack_trace.items.len;
+        while (i > 0) {
+            i -= 1;
+            const frame = self.diagnostics.stack_trace.items[i];
 
             // Skip frames with empty list as proc - they don't provide useful information
             if (frame.proc.isNull()) {
-                depth += 1;
                 continue;
             }
 
             try writer.writeAll("\n  ");
             // Stack entries - dim with procedure name in bold
             try writer.writeAll(self.colorize(Color.dim));
-            if (depth == 0) {
+            if (display_idx == 0) {
                 try writer.writeAll("in ");
             } else {
                 try writer.writeAll("called from ");
             }
             try writer.writeAll(self.colorize(Color.reset));
             try writer.writeAll(self.colorize(Color.bold));
-            if (frame.proc.isNull()) {
-                try writer.print("_", .{});
-            } else {
-                try writer.print(
-                    "{f}",
-                    .{self.vm.pretty(frame.proc, .{ .repr = .display })},
-                );
-            }
+            try writer.print(
+                "{f}",
+                .{self.vm.pretty(frame.proc, .{ .repr = .display })},
+            );
             try writer.writeAll(self.colorize(Color.reset));
-            depth += 1;
+            display_idx += 1;
         }
     }
 
@@ -410,6 +407,16 @@ pub const DiagnosticsPrettyPrinter = struct {
         try writer.writeAll(self.colorize(Color.bold));
         try writer.print("{f}", .{self.vm.pretty(wat.got, .{})});
         try writer.writeAll(self.colorize(Color.reset));
+
+        if (wat.hint) |hint| {
+            try writer.writeAll("\n  ");
+            try writer.writeAll(self.colorize(Color.dim));
+            try writer.writeAll("hint:          ");
+            try writer.writeAll(self.colorize(Color.reset));
+            try writer.writeAll(self.colorize(Color.green));
+            try writer.print("{s}", .{hint});
+            try writer.writeAll(self.colorize(Color.reset));
+        }
     }
 
     fn formatArgPosition(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer, pos: u32) std.Io.Writer.Error!void {

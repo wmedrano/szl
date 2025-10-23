@@ -170,15 +170,15 @@ fn addSet(self: *Compiler, symbol: Symbol, expr: Ir, diagnostics: ?*Diagnostics)
         .proc => return Error.UncaughtException,
         .arg => |idx| {
             // Set arg does not return anything so we make it an expression by
-            // returning the empty list.
+            // returning an unspecified value.
             try self.addInstruction(.{ .set_arg = idx });
-            try self.addConst(Val.initEmptyList());
+            try self.addConst(Val.initUnspecified());
         },
         .local => |idx| {
             try self.addInstruction(.{ .set_local = idx });
             // Set local does not return anything so we make it an expression by
-            // returning the empty list.
-            try self.addConst(Val.initEmptyList());
+            // returning an unspecified value.
+            try self.addConst(Val.initUnspecified());
         },
         .capture => |_| {
             if (diagnostics) |d| {
@@ -306,9 +306,9 @@ test "multiple defines uses latest" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try vm.expectEval("20", "(define x 20)");
+    try vm.expectEval("#<unspecified>", "(define x 20)");
     try vm.expectEval("20", "x");
-    try vm.expectEval("30", "(define x 30)");
+    try vm.expectEval("#<unspecified>", "(define x 30)");
     try vm.expectEval("30", "x");
 }
 

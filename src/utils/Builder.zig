@@ -8,6 +8,7 @@ const Module = @import("../types/Module.zig");
 const Handle = @import("../types/object_pool.zig").Handle;
 const Pair = @import("../types/Pair.zig");
 const Parameter = @import("../types/Parameter.zig");
+const Port = @import("../types/Port.zig");
 const Proc = @import("../types/Proc.zig");
 const String = @import("../types/String.zig");
 const Symbol = @import("../types/Symbol.zig");
@@ -139,6 +140,16 @@ pub inline fn makeParameter(self: Builder, initial_value: Val) error{OutOfMemory
 pub inline fn makeParameterHandle(self: Builder, initial_value: Val) error{OutOfMemory}!Handle(Parameter) {
     const param = Parameter.init(initial_value);
     return try self.vm.objects.parameters.put(self.vm.allocator(), param);
+}
+
+pub inline fn makePort(self: Builder, inner: Port.Inner) error{OutOfMemory}!Val {
+    const h = try self.makePortHandle(inner);
+    return Val{ .data = .{ .port = h } };
+}
+
+pub inline fn makePortHandle(self: Builder, inner: Port.Inner) error{OutOfMemory}!Handle(Port) {
+    const port = Port{ .inner = inner };
+    return try self.vm.objects.ports.put(self.vm.allocator(), port);
 }
 
 pub inline fn makeBox(self: Builder, value: Val) error{OutOfMemory}!Val {

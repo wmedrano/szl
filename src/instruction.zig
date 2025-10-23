@@ -52,9 +52,11 @@ pub const Instruction = union(enum) {
             },
             .set_global => |sym| {
                 @branchHint(.unlikely);
-                const val = vm.context.top() orelse return Vm.Error.UndefinedBehavior;
+                const top_idx = vm.context.top_idx() orelse return Vm.Error.UndefinedBehavior;
+                const val = vm.context.at_idx(top_idx);
                 const m = try vm.inspector().handleToModule(vm.context.module().?);
                 try m.set(sym, val);
+                vm.context.set_idx(top_idx, Val.initUnspecified());
             },
             .set_arg => |idx| {
                 @branchHint(.unlikely);
@@ -73,7 +75,7 @@ pub const Instruction = union(enum) {
             .squash => |n| try vm.context.stackSquash(n),
             .eval => |n| try eval(vm, n, diagnostics),
             .make_closure => |proc| try makeClosure(vm, proc),
-            .ret => _ = vm.context.popStackFrame(.return_top, vm),
+            .ret => _ = vm.context.popStackFrame(.return_top),
         }
     }
 };
@@ -82,7 +84,8 @@ pub fn executeUntilEnd(vm: *Vm, diagnostics: ?*Diagnostics) Vm.Error!Val {
     while (vm.context.nextInstruction()) |instruction| {
         try instruction.execute(vm, diagnostics);
     }
-    return vm.context.top() orelse Val.initEmptyList();
+    if (vm.context.top()) |v| return v;
+    return Val.initUnspecified();
 }
 
 fn moduleGet(vm: *Vm, slot: Module.Slot, diagnostics: ?*Diagnostics) !void {
@@ -127,6 +130,7 @@ fn eval(vm: *Vm, arg_count: u32, diagnostics: ?*Diagnostics) Vm.Error!void {
     const start = vm.context.stackLen() - arg_count;
     switch (proc_val.data) {
         .empty_list,
+        .unspecified_value,
         .boolean,
         .int,
         .rational,
@@ -142,6 +146,7 @@ fn eval(vm: *Vm, arg_count: u32, diagnostics: ?*Diagnostics) Vm.Error!void {
         .syntax_rules,
         .record,
         .record_descriptor,
+        .port,
         => {
             @branchHint(.cold);
             if (diagnostics) |d| {
@@ -221,9 +226,9 @@ fn evalContinuation(vm: *Vm, handle: Handle(Continuation), arg_count: u32, diagn
 }
 
 fn evalParameter(vm: *Vm, handle: Handle(Parameter), arg_count: u32, diagnostics: ?*Diagnostics) !void {
-    const param_ptr = vm.objects.parameters.get(handle) orelse return Vm.Error.UndefinedBehavior;
+    const val = try vm.context.resolveParameter(vm, handle);
     switch (arg_count) {
-        0 => try vm.context.push(vm.allocator(), param_ptr.getValue()),
+        0 => try vm.context.push(vm.allocator(), val),
         else => {
             @branchHint(.cold);
             if (diagnostics) |d| {

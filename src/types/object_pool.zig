@@ -5,6 +5,10 @@ pub fn Handle(comptime T: type) type {
     return packed struct {
         const Object = T;
         id: u32,
+
+        pub fn eq(self: @This(), other: @This()) bool {
+            return std.meta.eql(self, other);
+        }
     };
 }
 

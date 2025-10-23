@@ -18,6 +18,7 @@ const Handle = @import("types/object_pool.zig").Handle;
 const ObjectPool = @import("types/object_pool.zig").ObjectPool;
 const Pair = @import("types/Pair.zig");
 const Parameter = @import("types/Parameter.zig");
+const Port = @import("types/Port.zig");
 const Proc = @import("types/Proc.zig");
 const Record = @import("types/Record.zig");
 const String = @import("types/String.zig");
@@ -63,6 +64,7 @@ pub const Objects = struct {
     records: ObjectPool(Record) = .{},
     record_descriptors: ObjectPool(Record.Descriptor) = .{},
     parameters: ObjectPool(Parameter) = .{},
+    ports: ObjectPool(Port) = .{},
 
     pub fn init(alloc: std.mem.Allocator) error{OutOfMemory}!Objects {
         return Objects{
@@ -101,6 +103,7 @@ pub const Objects = struct {
         self.record_descriptors.deinit(alloc);
         self.parameters.applyAll(standard_deinit);
         self.parameters.deinit(alloc);
+        self.ports.deinit(alloc);
     }
 };
 
@@ -166,6 +169,36 @@ test builder {
         "{f}",
         .{vm.pretty(try b.makeList(&items), .{})},
     );
+}
+
+test "makePort creates port values" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const b = vm.builder();
+    const port_stdin = try b.makePort(.stdin);
+    const port_stdout = try b.makePort(.stdout);
+    const port_null = try b.makePort(.null);
+
+    // Test external representation (default)
+    try testing.expectFmt("#<port:input:stdin>", "{f}", .{vm.pretty(port_stdin, .{})});
+    try testing.expectFmt("#<port:output:stdout>", "{f}", .{vm.pretty(port_stdout, .{})});
+    try testing.expectFmt("#<port:null>", "{f}", .{vm.pretty(port_null, .{})});
+
+    // Test display representation
+    try testing.expectFmt("#<stdin>", "{f}", .{vm.pretty(port_stdin, .{ .repr = .display })});
+    try testing.expectFmt("#<stdout>", "{f}", .{vm.pretty(port_stdout, .{ .repr = .display })});
+    try testing.expectFmt("#<null port>", "{f}", .{vm.pretty(port_null, .{ .repr = .display })});
+
+    // Verify we can inspect the ports
+    const insp = vm.inspector();
+    const stdin_port = try insp.asPort(port_stdin);
+    const stdout_port = try insp.asPort(port_stdout);
+    const null_port = try insp.asPort(port_null);
+
+    try testing.expectEqual(.stdin, stdin_port.inner);
+    try testing.expectEqual(.stdout, stdout_port.inner);
+    try testing.expectEqual(.null, null_port.inner);
 }
 
 pub fn evalStr(

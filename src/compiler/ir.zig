@@ -88,6 +88,7 @@ const Builder = struct {
 
         switch (expanded.data) {
             .empty_list => return Error.InvalidExpression,
+            .unspecified_value,
             .boolean,
             .int,
             .rational,
@@ -104,6 +105,7 @@ const Builder = struct {
             .record,
             .record_descriptor,
             .parameter,
+            .port,
             => return Ir{ .push_const = expanded },
             .pair => {
                 const list = try self.valToSlice(expanded);
@@ -550,6 +552,7 @@ const Builder = struct {
             .string,
             .symbol,
             .empty_list,
+            .unspecified_value,
             .module,
             .proc,
             .native_proc,
@@ -560,6 +563,7 @@ const Builder = struct {
             .record,
             .record_descriptor,
             .parameter,
+            .port,
             => {
                 return expr;
             },

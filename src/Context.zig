@@ -17,8 +17,8 @@ stack_frames: std.ArrayList(StackFrame),
 parameter_bindings: std.ArrayList(ParameterBinding),
 
 pub const ParameterBinding = struct {
-    parameter: Handle(Parameter),
-    saved_value: Val,
+    parameter: ?Handle(Parameter),
+    val: Val,
 };
 
 pub const StackFrame = struct {
@@ -136,6 +136,19 @@ pub fn unwindToNextExceptionHandler(self: *Context) void {
     }
 }
 
+pub fn resolveParameter(self: Context, vm: *Vm, handle: Handle(Parameter)) !Val {
+    var idx = self.parameter_bindings.items.len;
+    while (idx > 0) {
+        idx -= 1;
+        const bindings = self.parameter_bindings.items[idx];
+        if (bindings.parameter) |b| {
+            if (b.eq(handle)) return bindings.val;
+        }
+    }
+    const param_ptr = vm.objects.parameters.get(handle) orelse return Vm.Error.UndefinedBehavior;
+    return param_ptr.getValue();
+}
+
 /// Describes what to do with the stack when popping a stack frame.
 pub const PopReturnVal = enum {
     /// Place the top value on top of the new stack frame.
@@ -154,15 +167,15 @@ pub const PopReturnVal = enum {
     return_first,
 };
 
-pub fn popStackFrame(self: *Context, comptime dest: PopReturnVal, vm: ?*Vm) bool {
+pub fn popStackFrame(self: *Context, comptime dest: PopReturnVal) bool {
     if (self.stack_frames.items.len == 0) return false;
     const stack_frame = self.stack_frames.items[self.stack_frames.items.len - 1];
 
-    // Restore parameter bindings if VM is provided
-    if (vm) |v| {
-        self.restoreParameterBindings(v, stack_frame);
-    }
+    // 1. Restore parameters.
+    const bindings_start: usize = @intCast(stack_frame.param_bindings_start);
+    self.parameter_bindings.shrinkRetainingCapacity(bindings_start);
 
+    // 2. Restore stack.
     switch (dest) {
         .return_top => {
             const top_val = self.stack.items[self.stack.items.len - 1];
@@ -274,6 +287,20 @@ pub fn popMany(self: *Context, n: u32) void {
     self.stack.items.len -= @intCast(n);
 }
 
+pub fn top_idx(self: Context) ?usize {
+    const len = self.stack.items.len;
+    if (len == 0) return null;
+    return len - 1;
+}
+
+pub fn at_idx(self: Context, idx: usize) Val {
+    return self.stack.items[idx];
+}
+
+pub fn set_idx(self: *Context, idx: usize, val: Val) void {
+    self.stack.items[idx] = val;
+}
+
 pub fn top(self: *Context) ?Val {
     const len = self.stack.items.len;
     if (len == 0) return null;
@@ -283,9 +310,9 @@ pub fn top(self: *Context) ?Val {
 pub fn stackSquash(self: *Context, n: u32) Vm.Error!void {
     if (n < 2 or self.stack.items.len == 0)
         return Vm.Error.UndefinedBehavior;
-    const top_idx = self.stack.items.len - 1;
+    const top_idx_var = self.stack.items.len - 1;
     const bottom_idx = self.stack.items.len - @as(usize, @intCast(n));
-    self.stack.items[bottom_idx] = self.stack.items[top_idx];
+    self.stack.items[bottom_idx] = self.stack.items[top_idx_var];
     self.stack.items.len = bottom_idx + 1;
 }
 
@@ -314,24 +341,7 @@ pub fn pushParameterBinding(
     }
 }
 
-/// Restore parameter values when popping a stack frame.
-/// This is called by popStackFrame to restore all parameters bound in the frame.
-fn restoreParameterBindings(self: *Context, vm: *Vm, frame: StackFrame) void {
-    const bindings_start: usize = @intCast(frame.param_bindings_start);
-    const bindings = self.parameter_bindings.items[bindings_start..];
-
-    // Restore all parameter values
-    for (bindings) |binding| {
-        if (vm.objects.parameters.get(binding.parameter)) |param| {
-            const mut_param = @constCast(param);
-            mut_param.setValue(binding.saved_value);
-        }
-    }
-
-    // Remove the bindings for this frame
-    self.parameter_bindings.shrinkRetainingCapacity(bindings_start);
-}
-
-test "stack frame is relatively small" {
+test "stack frame structs are relatively small" {
     try testing.expectEqual(88, @sizeOf(StackFrame));
+    try testing.expectEqual(24, @sizeOf(ParameterBinding));
 }

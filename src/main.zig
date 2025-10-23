@@ -129,9 +129,9 @@ fn replEval(allocator: std.mem.Allocator, vm: *szl.Vm, source: []const u8, expr_
             error.UndefinedBehavior,
             => {
                 if (use_color) {
-                    _ = temp.writer.print(COLOR_RED ++ "{}\n" ++ COLOR_RESET, .{err}) catch {};
+                    _ = temp.writer.print(COLOR_RED ++ "\n{}\n" ++ COLOR_RESET, .{err}) catch {};
                 } else {
-                    _ = temp.writer.print("{}\n", .{err}) catch {};
+                    _ = temp.writer.print("\n{}\n", .{err}) catch {};
                 }
                 break :blk true;
             },
@@ -146,6 +146,12 @@ fn replEval(allocator: std.mem.Allocator, vm: *szl.Vm, source: []const u8, expr_
         if (fatal) return err else return;
     };
     expr_count.* += 1;
+
+    // Don't print unspecified values - they're returned by side-effecting functions
+    if (result.data == .unspecified_value) {
+        return;
+    }
+
     if (use_color) {
         try temp.writer.print(
             COLOR_CYAN ++ "${}" ++ COLOR_RESET ++ " => " ++ COLOR_GREEN ++ "{f}" ++ COLOR_RESET ++ "\n",

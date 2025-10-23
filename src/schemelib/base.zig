@@ -19,6 +19,7 @@ const exception_fns = @import("exception_fns.zig");
 const number_fns = @import("number_fns.zig");
 const pair_fns = @import("pair_fns.zig");
 const parameter_fns = @import("parameter_fns.zig");
+const port_fns = @import("port_fns.zig");
 const string_fns = @import("string_fns.zig");
 const system_interface_fns = @import("system_interface_fns.zig");
 
@@ -158,10 +159,44 @@ pub fn init(vm: *Vm) Vm.Error!Handle(Module) {
         .{ .symbol = (try b.makeStaticSymbolHandle("%sizzle-set-parameter")), .value = Val.initNativeProc(&parameter_fns.set_parameter) },
         // 6.11 Environment and evaluation
         // 6.12 Exceptions
-        .{ .symbol = (try b.makeStaticSymbolHandle("with-exception-handler")), .value = Val.initNativeProc(&exception_fns.with_exception_handler) },
-        .{ .symbol = (try b.makeStaticSymbolHandle("raise-continuable")), .value = Val.initNativeProc(&exception_fns.raise_continuable) },
-        .{ .symbol = (try b.makeStaticSymbolHandle("%szl-raise-next")), .value = Val.initNativeProc(&exception_fns.szl_raise_next) },
+        .{
+            .symbol = (try b.makeStaticSymbolHandle("with-exception-handler")),
+            .value = Val.initNativeProc(&exception_fns.with_exception_handler),
+        },
+        .{
+            .symbol = (try b.makeStaticSymbolHandle("raise-continuable")),
+            .value = Val.initNativeProc(&exception_fns.raise_continuable),
+        },
+        .{
+            .symbol = (try b.makeStaticSymbolHandle("%szl-raise-next")),
+            .value = Val.initNativeProc(&exception_fns.szl_raise_next),
+        },
         // 6.13 Input and Output
+        .{
+            .symbol = (try b.makeStaticSymbolHandle("%szl-null-port")),
+            .value = try b.makePort(.{ .null = {} }),
+        },
+        .{
+            .symbol = (try b.makeStaticSymbolHandle("current-input-port")),
+            .value = try b.makeParameter(try b.makePort(.{ .stdin = {} })),
+        },
+        .{
+            .symbol = (try b.makeStaticSymbolHandle("current-output-port")),
+            .value = try b.makeParameter(try b.makePort(.{ .stdout = {} })),
+        },
+        .{
+            .symbol = (try b.makeStaticSymbolHandle("current-error-port")),
+            .value = try b.makeParameter(try b.makePort(.{ .stderr = {} })),
+        },
+        .{ .symbol = (try b.makeStaticSymbolHandle("display")), .value = Val.initNativeProc(&port_fns.display) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("displayln")), .value = Val.initNativeProc(&port_fns.displayln) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("newline")), .value = Val.initNativeProc(&port_fns.newline) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("write")), .value = Val.initNativeProc(&port_fns.write) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("port?")), .value = Val.initNativeProc(&port_fns.port_p) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("input-port?")), .value = Val.initNativeProc(&port_fns.input_port_p) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("output-port?")), .value = Val.initNativeProc(&port_fns.output_port_p) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("textual-port?")), .value = Val.initNativeProc(&port_fns.textual_port_p) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("binary-port?")), .value = Val.initNativeProc(&port_fns.binary_port_p) },
         // 6.14 System interface
         .{ .symbol = (try b.makeStaticSymbolHandle("exit")), .value = Val.initNativeProc(&system_interface_fns.exit) },
         // 5.6 Libraries

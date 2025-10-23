@@ -8,6 +8,7 @@ const Module = @import("types/Module.zig");
 const Handle = @import("types/object_pool.zig").Handle;
 const Pair = @import("types/Pair.zig");
 const Parameter = @import("types/Parameter.zig");
+const Port = @import("types/Port.zig");
 const Proc = @import("types/Proc.zig");
 const Record = @import("types/Record.zig");
 const String = @import("types/String.zig");
@@ -35,10 +36,11 @@ const GcObject = union(enum) {
     record: Handle(Record),
     record_descriptor: Handle(Record.Descriptor),
     parameter: Handle(Parameter),
+    port: Handle(Port),
 
     fn init(val: Val) ?GcObject {
         return switch (val.data) {
-            .empty_list, .boolean, .int, .rational, .float, .char, .symbol, .native_proc => null,
+            .empty_list, .unspecified_value, .boolean, .int, .rational, .float, .char, .symbol, .native_proc => null,
             // Modules are on the heap, but we don't clean them up.
             .module => null,
             .proc => |p| .{ .proc = p },
@@ -52,6 +54,7 @@ const GcObject = union(enum) {
             .record => |r| .{ .record = r },
             .record_descriptor => |rd| .{ .record_descriptor = rd },
             .parameter => |p| .{ .parameter = p },
+            .port => |p| .{ .port = p },
         };
     }
 };
@@ -97,6 +100,7 @@ pub fn markOne(self: *Gc, vm: *Vm, val: Val) Vm.Error!void {
             const param = vm.objects.parameters.get(h) orelse return;
             try self.markOne(vm, param.value);
         },
+        .port => {},
     }
 }
 
@@ -112,10 +116,11 @@ pub fn markModule(self: *Gc, vm: *Vm, h: Handle(Module)) Vm.Error!void {
 pub fn markContext(self: *Gc, vm: *Vm, context: Context) Vm.Error!void {
     try self.markMany(vm, context.stack.items);
     for (context.stack_frames.items) |sf| try self.markStackFrame(vm, sf);
-    // Mark parameter bindings
     for (context.parameter_bindings.items) |binding| {
-        try self.markOne(vm, Val.initParameter(binding.parameter));
-        try self.markOne(vm, binding.saved_value);
+        if (binding.parameter) |param| {
+            try self.markOne(vm, Val.initParameter(param));
+            try self.markOne(vm, binding.val);
+        }
     }
 }
 
@@ -316,6 +321,24 @@ pub fn sweep(self: Gc, vm: *Vm) Vm.Error!usize {
     try vm.objects.parameters.removeAll(
         vm.allocator(),
         RemoveParameter{ .gc = self, .allocator = vm.allocator(), .count = &removed_count },
+    );
+
+    const RemovePort = struct {
+        gc: Gc,
+        allocator: std.mem.Allocator,
+        count: *usize,
+        pub fn remove(this: @This(), h: Handle(Port), obj: *Port) bool {
+            const should_remove = !this.gc.marked.contains(GcObject{ .port = h });
+            if (should_remove) {
+                obj.deinit(this.allocator);
+                this.count.* += 1;
+            }
+            return should_remove;
+        }
+    };
+    try vm.objects.ports.removeAll(
+        vm.allocator(),
+        RemovePort{ .gc = self, .allocator = vm.allocator(), .count = &removed_count },
     );
 
     return removed_count;

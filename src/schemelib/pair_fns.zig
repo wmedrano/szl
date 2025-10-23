@@ -136,7 +136,7 @@ pub const set_car_b = NativeProc.with2Args(struct {
             return Vm.Error.UncaughtException;
         };
         pair.car = new_car;
-        return Val.initEmptyList();
+        return Val.initUnspecified();
     }
 });
 
@@ -163,7 +163,7 @@ pub const set_cdr_b = NativeProc.with2Args(struct {
             return Vm.Error.UncaughtException;
         };
         pair.cdr = new_cdr;
-        return Val.initEmptyList();
+        return Val.initUnspecified();
     }
 });
 
@@ -237,7 +237,7 @@ pub const make_list = NativeProc.withRawArgs(struct {
             return Vm.Error.UncaughtException;
         }
 
-        const fill = if (args.len == 2) args[1] else Val.initEmptyList();
+        const fill = if (args.len == 2) args[1] else Val.initUnspecified();
         const builder = vm.builder();
 
         var result = Val.initEmptyList();
@@ -617,7 +617,7 @@ pub const list_set_b = NativeProc.withRawArgs(struct {
                     const pair = inspector.handleToPair(h) catch return error.UndefinedBehavior;
                     if (i == k) {
                         pair.car = new_val;
-                        return Val.initEmptyList();
+                        return Val.initUnspecified();
                     }
                     i += 1;
                     current = pair.cdr;
