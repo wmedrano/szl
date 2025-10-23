@@ -16,10 +16,15 @@ pub fn init(allocator: std.mem.Allocator, ctx: Context) !Continuation {
     errdefer stack_frames.deinit(allocator);
     try stack_frames.appendSlice(allocator, ctx.stack_frames.items);
 
+    var parameter_bindings = try std.ArrayList(Context.ParameterBinding).initCapacity(allocator, ctx.parameter_bindings.items.len);
+    errdefer parameter_bindings.deinit(allocator);
+    try parameter_bindings.appendSlice(allocator, ctx.parameter_bindings.items);
+
     return Continuation{
         .context = .{
             .stack = stack,
             .stack_frames = stack_frames,
+            .parameter_bindings = parameter_bindings,
         },
     };
 }

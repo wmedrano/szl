@@ -1,7 +1,3 @@
-(define (raise err)
-  (raise-continuable err)
-  (%szl-raise-next err))
-
 (define-syntax import
   (syntax-rules ()
     ((_ lib) (%szl-import (quote lib)))
@@ -10,10 +6,14 @@
        (%szl-import (quote lib1))
        (import lib2 ...)))))
 
-;; TODO: Support multiple arguments. This is a stub that supports only 1
-;; argument for call-with-values.
-(define (call-with-values producer consumer)
-  (consumer (producer)))
+(define-syntax parameterize
+  (syntax-rules ()
+    ((parameterize () body1 body2 ...)
+     ((lambda () body1 body2 ...)))
+    ((parameterize ((param1 value1) (param2 value2) ...) body1 body2 ...)
+     ((lambda ()
+        (%sizzle-set-parameter param1 value1)
+        (parameterize ((param2 value2) ...) body1 body2 ...))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Lifted directly from R7RS spec.

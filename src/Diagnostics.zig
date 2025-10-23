@@ -46,6 +46,11 @@ pub const InvalidExpressionInfo = struct {
     hint: ?[]const u8 = null,
 };
 
+pub const UnsupportedFeatureInfo = struct {
+    feature_name: []const u8,
+    hint: ?[]const u8 = null,
+};
+
 /// Diagnostic information for reader errors
 pub const ReadErrorInfo = struct {
     /// The type of error that occurred
@@ -94,6 +99,8 @@ pub const Diagnostic = union(enum) {
     wrong_arg_type: WrongArgTypeInfo,
     /// Invalid expression during compilation
     invalid_expression: InvalidExpressionInfo,
+    /// Unsupported feature attempted
+    unsupported_feature: UnsupportedFeatureInfo,
     /// Some other custom message.
     other: []const u8,
 };
@@ -240,6 +247,7 @@ pub const DiagnosticsPrettyPrinter = struct {
             .wrong_arg_count => |wac| try self.formatWrongArgCount(writer, wac),
             .wrong_arg_type => |wat| try self.formatWrongArgType(writer, wat),
             .invalid_expression => |ie| try self.formatInvalidExpression(writer, ie),
+            .unsupported_feature => |uf| try self.formatUnsupportedFeature(writer, uf),
             .other => |msg| try self.formatOther(writer, msg),
         }
     }
@@ -435,6 +443,30 @@ pub const DiagnosticsPrettyPrinter = struct {
         }
 
         if (ie.hint) |hint| {
+            try writer.writeAll("\n  ");
+            try writer.writeAll(self.colorize(Color.dim));
+            try writer.writeAll("hint: ");
+            try writer.writeAll(self.colorize(Color.reset));
+            try writer.writeAll(self.colorize(Color.green));
+            try writer.print("{s}", .{hint});
+            try writer.writeAll(self.colorize(Color.reset));
+        }
+    }
+
+    fn formatUnsupportedFeature(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer, uf: UnsupportedFeatureInfo) std.Io.Writer.Error!void {
+        // Error message - Red
+        try writer.writeAll(self.colorize(Color.red));
+        try writer.writeAll("Unsupported feature:");
+        try writer.writeAll(self.colorize(Color.reset));
+        try writer.writeAll("\n  ");
+        try writer.writeAll(self.colorize(Color.dim));
+        try writer.writeAll("feature: ");
+        try writer.writeAll(self.colorize(Color.reset));
+        try writer.writeAll(self.colorize(Color.bold));
+        try writer.print("{s}", .{uf.feature_name});
+        try writer.writeAll(self.colorize(Color.reset));
+
+        if (uf.hint) |hint| {
             try writer.writeAll("\n  ");
             try writer.writeAll(self.colorize(Color.dim));
             try writer.writeAll("hint: ");

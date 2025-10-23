@@ -9,9 +9,10 @@ const Handle = @import("object_pool.zig").Handle;
 const Module = @import("Module.zig");
 const NativeProc = @import("NativeProc.zig");
 pub const Number = @import("number.zig").Number;
-pub const Rational = @import("number.zig").Rational;
 const Pair = @import("Pair.zig");
+const Parameter = @import("Parameter.zig");
 const Proc = @import("Proc.zig");
+pub const Rational = @import("number.zig").Rational;
 const Record = @import("Record.zig");
 const String = @import("String.zig");
 const Symbol = @import("Symbol.zig");
@@ -44,6 +45,7 @@ pub const Data = union(enum) {
     syntax_rules: Handle(SyntaxRules),
     record: Handle(Record),
     record_descriptor: Handle(Record.Descriptor),
+    parameter: Handle(Parameter),
 };
 
 pub fn initEmptyList() Val {
@@ -98,6 +100,10 @@ pub fn initContinuation(continuation: Handle(Continuation)) Val {
     return Val{ .data = .{ .continuation = continuation } };
 }
 
+pub fn initParameter(parameter: Handle(Parameter)) Val {
+    return Val{ .data = .{ .parameter = parameter } };
+}
+
 pub fn isNull(self: Val) bool {
     return self.data == .empty_list;
 }
@@ -111,7 +117,11 @@ pub fn isTruthy(self: Val) bool {
 
 pub fn isProc(self: Val) bool {
     return switch (self.data) {
-        .proc, .native_proc, .continuation => true,
+        .continuation,
+        .native_proc,
+        .parameter,
+        .proc,
+        => true,
         else => false,
     };
 }
@@ -157,6 +167,11 @@ pub fn asNumber(self: Val) ?Number {
         .float => |x| Number{ .float = x },
         else => null,
     };
+}
+
+pub fn asParameter(self: Val) ?Handle(Parameter) {
+    if (self.data == .parameter) return self.data.parameter;
+    return null;
 }
 
 pub fn eq(self: Val, other: Val) bool {

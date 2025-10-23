@@ -70,13 +70,17 @@ pub fn format(self: PrettyPrinter, writer: *std.Io.Writer) std.Io.Writer.Error!v
         .vector => |h| try self.formatVector(writer, h),
         .bytevector => |h| try self.formatBytevector(writer, h),
         .box => |h| try self.formatBox(writer, h),
-        .continuation => if (self.options.repr == .display)
-            try writer.writeAll("#<continuation>")
-        else
-            try writer.writeAll("#<procedure:continuation>"),
+        .continuation => switch (self.options.repr) {
+            .display => try writer.writeAll("#<continuation>"),
+            .external => try writer.writeAll("#<procedure:continuation>"),
+        },
         .syntax_rules => |h| try self.formatSyntaxRules(writer, h),
         .record => |h| try self.formatRecord(writer, h),
         .record_descriptor => |h| try self.formatRecordDescriptor(writer, h),
+        .parameter => |h| switch (self.options.repr) {
+            .display => try writer.writeAll("#<parameter>"),
+            .external => try writer.print("#<procedure:parameter-{}>", .{h.id}),
+        },
     }
 }
 
@@ -223,9 +227,7 @@ fn formatBox(self: PrettyPrinter, writer: *std.Io.Writer, h: Handle(Box)) std.Io
     const box = self.vm.objects.boxes.get(h) orelse {
         return try writer.writeAll("#<box:invalid>");
     };
-    try writer.writeAll("#<box:");
-    try self.vm.pretty(box.value, .{}).format(writer);
-    try writer.writeAll(">");
+    try writer.print("{f}", .{self.vm.pretty(box.value, self.options)});
 }
 
 fn formatSyntaxRules(self: PrettyPrinter, writer: *std.Io.Writer, h: Handle(SyntaxRules)) std.Io.Writer.Error!void {
@@ -298,6 +300,7 @@ pub fn typeName(self: PrettyPrinter) []const u8 {
         .syntax_rules => "syntax-rules",
         .record => "record",
         .record_descriptor => "record descriptor",
+        .parameter => "parameter",
     };
 }
 

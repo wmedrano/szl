@@ -6,6 +6,7 @@ const Instruction = @import("../instruction.zig").Instruction;
 const Module = @import("../types/Module.zig");
 const NativeProc = @import("../types/NativeProc.zig");
 const Handle = @import("../types/object_pool.zig").Handle;
+const Proc = @import("../types/Proc.zig");
 const Symbol = @import("../types/Symbol.zig");
 const Val = @import("../types/Val.zig");
 const Builder = @import("../utils/Builder.zig");
@@ -17,6 +18,7 @@ const equivalence_fns = @import("equivalence_fns.zig");
 const exception_fns = @import("exception_fns.zig");
 const number_fns = @import("number_fns.zig");
 const pair_fns = @import("pair_fns.zig");
+const parameter_fns = @import("parameter_fns.zig");
 const string_fns = @import("string_fns.zig");
 const system_interface_fns = @import("system_interface_fns.zig");
 
@@ -152,6 +154,8 @@ pub fn init(vm: *Vm) Vm.Error!Handle(Module) {
         .{ .symbol = (try b.makeStaticSymbolHandle("apply")), .value = Val.initNativeProc(&control_fns.apply) },
         .{ .symbol = (try b.makeStaticSymbolHandle("call/cc")), .value = Val.initNativeProc(&control_fns.call_cc) },
         .{ .symbol = (try b.makeStaticSymbolHandle("call-with-current-continuation")), .value = Val.initNativeProc(&control_fns.call_cc) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("make-parameter")), .value = Val.initNativeProc(&parameter_fns.make_parameter) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("%sizzle-set-parameter")), .value = Val.initNativeProc(&parameter_fns.set_parameter) },
         // 6.11 Environment and evaluation
         // 6.12 Exceptions
         .{ .symbol = (try b.makeStaticSymbolHandle("with-exception-handler")), .value = Val.initNativeProc(&exception_fns.with_exception_handler) },
@@ -163,8 +167,65 @@ pub fn init(vm: *Vm) Vm.Error!Handle(Module) {
         // 5.6 Libraries
         .{ .symbol = (try b.makeStaticSymbolHandle("%szl-import")), .value = Val.initNativeProc(&import) },
     });
-    _ = try vm.evalStr(@embedFile("base.scm"), env_handle, null);
+    const inspector = vm.inspector();
+    const env = try inspector.handleToModule(env_handle);
 
+    // raise
+    const raise_proc = Val.initProc(try vm.builder().makeProc(
+        Proc{
+            .instructions = try vm.allocator().dupe(Instruction, &[_]Instruction{
+                // (raise-continuable err)
+                Instruction{ .load_arg = 0 },
+                Instruction{ .load_global = env.getSlot(try b.makeStaticSymbolHandle("raise-continuable")).? },
+                Instruction{ .eval = 1 },
+                // (%szl-raise-next err)
+                Instruction{ .load_arg = 0 },
+                Instruction{ .load_global = env.getSlot(try b.makeStaticSymbolHandle("%szl-raise-next")).? },
+                Instruction{ .eval = 1 },
+                Instruction{ .ret = {} },
+            }),
+            .constants = &.{},
+            .module = env_handle,
+            .name = try b.makeStaticSymbolHandle("raise"),
+            .arg_count = 1,
+            .locals_count = 0,
+            .captures_count = 0,
+        },
+    ));
+    try env.setBySymbol(vm.allocator(), try b.makeStaticSymbolHandle("raise"), raise_proc);
+
+    // TODO: Support multiple arguments. This is a stub that supports only 1
+    // argument for call-with-values.
+    //
+    // (call-with-values producer consumer)
+    // (define (call-with-values producer consumer)
+    //   (consumer (producer)))
+    const call_with_values_proc = Val.initProc(try vm.builder().makeProc(
+        Proc{
+            .instructions = try vm.allocator().dupe(Instruction, &[_]Instruction{
+                // (producer)
+                Instruction{ .load_arg = 0 },
+                Instruction{ .eval = 0 },
+                // (consumer _)
+                Instruction{ .load_arg = 1 },
+                Instruction{ .eval = 1 },
+                Instruction{ .ret = {} },
+            }),
+            .constants = &.{},
+            .module = env_handle,
+            .name = try b.makeStaticSymbolHandle("call-with-values-proc"),
+            .arg_count = 1,
+            .locals_count = 0,
+            .captures_count = 0,
+        },
+    ));
+    try env.setBySymbol(
+        vm.allocator(),
+        try b.makeStaticSymbolHandle("call-with-values-proc"),
+        call_with_values_proc,
+    );
+
+    _ = try vm.evalStr(@embedFile("base.scm"), env_handle, null);
     return env_handle;
 }
 

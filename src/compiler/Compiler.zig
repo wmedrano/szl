@@ -183,7 +183,10 @@ fn addSet(self: *Compiler, symbol: Symbol, expr: Ir, diagnostics: ?*Diagnostics)
         .capture => |_| {
             if (diagnostics) |d| {
                 @branchHint(.cold);
-                d.addDiagnostic(.{ .other = "set! on captured variables is not yet supported" });
+                d.addDiagnostic(.{ .unsupported_feature = .{
+                    .feature_name = "set! on captured variables",
+                    .hint = null,
+                } });
             }
             return Error.NotImplemented;
         },

@@ -32,6 +32,7 @@ pub const Interner = struct {
 
     pub fn intern(self: *Interner, allocator: std.mem.Allocator, str: []const u8) !Symbol {
         if (self.string_to_symbol.get(str)) |interned| {
+            @branchHint(.likely);
             return interned;
         }
         const owned_string = try self.arena.allocator().dupe(u8, str);
@@ -44,6 +45,7 @@ pub const Interner = struct {
 
     pub fn internStatic(self: *Interner, allocator: std.mem.Allocator, str: []const u8) !Symbol {
         if (self.string_to_symbol.get(str)) |interned| {
+            @branchHint(.likely);
             return interned;
         }
         const id: u32 = @intCast(self.symbol_to_string.items.len);

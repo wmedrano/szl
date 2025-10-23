@@ -34,6 +34,6 @@ fn exitImpl(vm: *Vm, _: ?*Diagnostics, arg_count: u32) Vm.Error!void {
             break :blk 0;
         },
     };
-    while (vm.context.popStackFrame(.discard)) {}
+    while (vm.context.popStackFrame(.discard, vm)) {}
     std.process.exit(exit_code);
 }

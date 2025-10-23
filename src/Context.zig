@@ -4,6 +4,7 @@ const testing = std.testing;
 const Instruction = @import("instruction.zig").Instruction;
 const Module = @import("types/Module.zig");
 const Handle = @import("types/object_pool.zig").Handle;
+const Parameter = @import("types/Parameter.zig");
 const Val = @import("types/Val.zig");
 const Vm = @import("Vm.zig");
 
@@ -11,6 +12,14 @@ const Context = @This();
 
 stack: std.ArrayList(Val),
 stack_frames: std.ArrayList(StackFrame),
+/// Parameter bindings for dynamic scoping.
+/// Stores saved parameter values when entering parameterize blocks.
+parameter_bindings: std.ArrayList(ParameterBinding),
+
+pub const ParameterBinding = struct {
+    parameter: Handle(Parameter),
+    saved_value: Val,
+};
 
 pub const StackFrame = struct {
     stack_start: u32 = 0,
@@ -21,6 +30,9 @@ pub const StackFrame = struct {
     exception_handler: Val = Val.initEmptyList(),
     instructions: []const Instruction = &.{},
     constants: []const Val = &.{},
+    /// Index into Context.parameter_bindings where this frame's bindings start.
+    /// All bindings from this index until the next frame (or end) belong to this frame.
+    param_bindings_start: u32 = 0,
 
     pub inline fn exceptionHandler(self: StackFrame) ?Val {
         return if (self.exception_handler.isNull()) null else self.exception_handler;
@@ -32,20 +44,25 @@ pub fn init(allocator: std.mem.Allocator) !Context {
     errdefer stack.deinit(allocator);
     var stack_frames = try std.ArrayList(StackFrame).initCapacity(allocator, 64);
     errdefer stack_frames.deinit(allocator);
+    var parameter_bindings = try std.ArrayList(ParameterBinding).initCapacity(allocator, 32);
+    errdefer parameter_bindings.deinit(allocator);
     return Context{
         .stack = stack,
         .stack_frames = stack_frames,
+        .parameter_bindings = parameter_bindings,
     };
 }
 
 pub fn deinit(self: *Context, allocator: std.mem.Allocator) void {
     self.stack.deinit(allocator);
     self.stack_frames.deinit(allocator);
+    self.parameter_bindings.deinit(allocator);
 }
 
 pub fn reset(self: *Context) void {
     self.stack.clearRetainingCapacity();
     self.stack_frames.clearRetainingCapacity();
+    self.parameter_bindings.clearRetainingCapacity();
 }
 
 pub fn nextInstruction(self: *Context) ?Instruction {
@@ -66,8 +83,28 @@ pub fn jump(self: *Context, n: i32) !void {
     self.stack_frames.items[frame_idx].instruction_idx = @intCast(new_idx);
 }
 
-pub fn pushStackFrame(self: *Context, allocator: std.mem.Allocator, stack_frame: StackFrame) error{OutOfMemory}!void {
-    try self.stack_frames.append(allocator, stack_frame);
+pub fn pushStackFrame(
+    self: *Context,
+    allocator: std.mem.Allocator,
+    arg_count: u32,
+    locals_count: u32,
+    proc: Val,
+    module_handle: ?Handle(Module),
+    instructions: []const Instruction,
+    constants: []const Val,
+    exception_handler: Val,
+) error{OutOfMemory}!void {
+    const stack_start: u32 = @intCast(self.stack.items.len - arg_count - locals_count);
+    try self.stack_frames.append(allocator, .{
+        .stack_start = stack_start,
+        .arg_count = arg_count,
+        .module = module_handle,
+        .proc = proc,
+        .exception_handler = exception_handler,
+        .instructions = instructions,
+        .constants = constants,
+        .param_bindings_start = @intCast(self.parameter_bindings.items.len),
+    });
 }
 
 pub fn setExceptionHandler(self: *Context, handler: Val) error{UndefinedBehavior}!void {
@@ -117,9 +154,15 @@ pub const PopReturnVal = enum {
     return_first,
 };
 
-pub fn popStackFrame(self: *Context, comptime dest: PopReturnVal) bool {
+pub fn popStackFrame(self: *Context, comptime dest: PopReturnVal, vm: ?*Vm) bool {
     if (self.stack_frames.items.len == 0) return false;
     const stack_frame = self.stack_frames.items[self.stack_frames.items.len - 1];
+
+    // Restore parameter bindings if VM is provided
+    if (vm) |v| {
+        self.restoreParameterBindings(v, stack_frame);
+    }
+
     switch (dest) {
         .return_top => {
             const top_val = self.stack.items[self.stack.items.len - 1];
@@ -244,6 +287,49 @@ pub fn stackSquash(self: *Context, n: u32) Vm.Error!void {
     const bottom_idx = self.stack.items.len - @as(usize, @intCast(n));
     self.stack.items[bottom_idx] = self.stack.items[top_idx];
     self.stack.items.len = bottom_idx + 1;
+}
+
+/// Push a parameter binding onto the current stack frame.
+/// Saves the parameter's current value and sets it to a new value.
+pub fn pushParameterBinding(
+    self: *Context,
+    allocator: std.mem.Allocator,
+    vm: *Vm,
+    parameter_handle: Handle(Parameter),
+    new_value: Val,
+) error{OutOfMemory}!void {
+    const param = vm.objects.parameters.get(parameter_handle) orelse return;
+    const saved_value = param.getValue();
+
+    try self.parameter_bindings.append(allocator, ParameterBinding{
+        .parameter = parameter_handle,
+        .saved_value = saved_value,
+    });
+
+    // Set the new value (converter will be applied by caller if needed)
+    if (vm.objects.parameters.get(parameter_handle)) |p| {
+        // Need to get mutable access through the pool
+        const mut_param = @constCast(p);
+        mut_param.setValue(new_value);
+    }
+}
+
+/// Restore parameter values when popping a stack frame.
+/// This is called by popStackFrame to restore all parameters bound in the frame.
+fn restoreParameterBindings(self: *Context, vm: *Vm, frame: StackFrame) void {
+    const bindings_start: usize = @intCast(frame.param_bindings_start);
+    const bindings = self.parameter_bindings.items[bindings_start..];
+
+    // Restore all parameter values
+    for (bindings) |binding| {
+        if (vm.objects.parameters.get(binding.parameter)) |param| {
+            const mut_param = @constCast(param);
+            mut_param.setValue(binding.saved_value);
+        }
+    }
+
+    // Remove the bindings for this frame
+    self.parameter_bindings.shrinkRetainingCapacity(bindings_start);
 }
 
 test "stack frame is relatively small" {

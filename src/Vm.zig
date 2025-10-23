@@ -17,6 +17,7 @@ const NativeProc = @import("types/NativeProc.zig");
 const Handle = @import("types/object_pool.zig").Handle;
 const ObjectPool = @import("types/object_pool.zig").ObjectPool;
 const Pair = @import("types/Pair.zig");
+const Parameter = @import("types/Parameter.zig");
 const Proc = @import("types/Proc.zig");
 const Record = @import("types/Record.zig");
 const String = @import("types/String.zig");
@@ -61,6 +62,7 @@ pub const Objects = struct {
     syntax_rules: ObjectPool(SyntaxRules) = .{},
     records: ObjectPool(Record) = .{},
     record_descriptors: ObjectPool(Record.Descriptor) = .{},
+    parameters: ObjectPool(Parameter) = .{},
 
     pub fn init(alloc: std.mem.Allocator) error{OutOfMemory}!Objects {
         return Objects{
@@ -97,6 +99,8 @@ pub const Objects = struct {
         self.records.deinit(alloc);
         self.record_descriptors.applyAll(standard_deinit);
         self.record_descriptors.deinit(alloc);
+        self.parameters.applyAll(standard_deinit);
+        self.parameters.deinit(alloc);
     }
 };
 
@@ -255,4 +259,26 @@ test "runGc is ok" {
     try testing.expectEqual(34, try vm.runGc());
     try testing.expectEqual(0, try vm.runGc());
     try vm.expectEval("42", "((lambda (x) (+ x 30 2)) 10)");
+}
+
+test "make-parameter creates procedure" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    _ = try vm.evalStr("(define p (make-parameter 10))", null, null);
+    try vm.expectEval("10", "(p)");
+}
+
+test "make-parameter with wrong arg count returns error" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    // make-parameter requires exactly 1 arg
+    try vm.expectError(error.UncaughtException, "(make-parameter)");
+    try vm.expectError(error.UncaughtException, "(make-parameter 1 2)");
+    try vm.expectError(error.UncaughtException, "(make-parameter 1 2 3)");
+
+    // Calling parameter with > 1 arg is an error
+    _ = try vm.evalStr("(define p (make-parameter 10))", null, null);
+    try vm.expectError(error.UncaughtException, "(p 1 2)");
 }

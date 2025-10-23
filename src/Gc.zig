@@ -7,6 +7,7 @@ const Continuation = @import("types/Continuation.zig");
 const Module = @import("types/Module.zig");
 const Handle = @import("types/object_pool.zig").Handle;
 const Pair = @import("types/Pair.zig");
+const Parameter = @import("types/Parameter.zig");
 const Proc = @import("types/Proc.zig");
 const Record = @import("types/Record.zig");
 const String = @import("types/String.zig");
@@ -33,6 +34,7 @@ const GcObject = union(enum) {
     syntax_rules: Handle(SyntaxRules),
     record: Handle(Record),
     record_descriptor: Handle(Record.Descriptor),
+    parameter: Handle(Parameter),
 
     fn init(val: Val) ?GcObject {
         return switch (val.data) {
@@ -49,6 +51,7 @@ const GcObject = union(enum) {
             .syntax_rules => |sr| .{ .syntax_rules = sr },
             .record => |r| .{ .record = r },
             .record_descriptor => |rd| .{ .record_descriptor = rd },
+            .parameter => |p| .{ .parameter = p },
         };
     }
 };
@@ -90,6 +93,10 @@ pub fn markOne(self: *Gc, vm: *Vm, val: Val) Vm.Error!void {
             }
         },
         .record_descriptor => {},
+        .parameter => |h| {
+            const param = vm.objects.parameters.get(h) orelse return;
+            try self.markOne(vm, param.value);
+        },
     }
 }
 
@@ -105,6 +112,11 @@ pub fn markModule(self: *Gc, vm: *Vm, h: Handle(Module)) Vm.Error!void {
 pub fn markContext(self: *Gc, vm: *Vm, context: Context) Vm.Error!void {
     try self.markMany(vm, context.stack.items);
     for (context.stack_frames.items) |sf| try self.markStackFrame(vm, sf);
+    // Mark parameter bindings
+    for (context.parameter_bindings.items) |binding| {
+        try self.markOne(vm, Val.initParameter(binding.parameter));
+        try self.markOne(vm, binding.saved_value);
+    }
 }
 
 fn markStackFrame(self: *Gc, vm: *Vm, stack_frame: Context.StackFrame) Vm.Error!void {
@@ -286,6 +298,24 @@ pub fn sweep(self: Gc, vm: *Vm) Vm.Error!usize {
     try vm.objects.record_descriptors.removeAll(
         vm.allocator(),
         RemoveRecordDescriptor{ .gc = self, .allocator = vm.allocator(), .count = &removed_count },
+    );
+
+    const RemoveParameter = struct {
+        gc: Gc,
+        allocator: std.mem.Allocator,
+        count: *usize,
+        pub fn remove(this: @This(), h: Handle(Parameter), obj: *Parameter) bool {
+            const should_remove = !this.gc.marked.contains(GcObject{ .parameter = h });
+            if (should_remove) {
+                obj.deinit(this.allocator);
+                this.count.* += 1;
+            }
+            return should_remove;
+        }
+    };
+    try vm.objects.parameters.removeAll(
+        vm.allocator(),
+        RemoveParameter{ .gc = self, .allocator = vm.allocator(), .count = &removed_count },
     );
 
     return removed_count;

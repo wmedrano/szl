@@ -7,6 +7,7 @@ const Continuation = @import("../types/Continuation.zig");
 const Module = @import("../types/Module.zig");
 const Handle = @import("../types/object_pool.zig").Handle;
 const Pair = @import("../types/Pair.zig");
+const Parameter = @import("../types/Parameter.zig");
 const Proc = @import("../types/Proc.zig");
 const String = @import("../types/String.zig");
 const Symbol = @import("../types/Symbol.zig");
@@ -93,6 +94,8 @@ pub inline fn makeEnvironment(
     const module = self.vm.objects.modules.get(h) orelse unreachable;
 
     // Initialize
+    try module.slots.ensureTotalCapacity(self.vm.allocator(), definitions.len);
+    try module.symbol_to_slot.ensureTotalCapacity(self.vm.allocator(), @intCast(definitions.len));
     module.namespace = try self.vm.allocator().dupe(Symbol, namespace);
     for (definitions, 0..definitions.len) |def, idx| {
         const slot = Module.Slot{ .idx = @intCast(idx) };
@@ -128,6 +131,16 @@ pub inline fn makeBytevectorHandle(self: Builder, bytes: []const u8) error{OutOf
     return try self.vm.objects.bytevectors.put(self.vm.allocator(), bv);
 }
 
+pub inline fn makeParameter(self: Builder, initial_value: Val) error{OutOfMemory}!Val {
+    const h = try self.makeParameterHandle(initial_value);
+    return Val.initParameter(h);
+}
+
+pub inline fn makeParameterHandle(self: Builder, initial_value: Val) error{OutOfMemory}!Handle(Parameter) {
+    const param = Parameter.init(initial_value);
+    return try self.vm.objects.parameters.put(self.vm.allocator(), param);
+}
+
 pub inline fn makeBox(self: Builder, value: Val) error{OutOfMemory}!Val {
     const h = try self.makeBoxHandle(value);
     return Val{ .data = .{ .box = h } };
@@ -155,6 +168,10 @@ pub inline fn makeSyntaxRulesHandle(self: Builder, syntax_rules: SyntaxRules) er
 pub inline fn makeSyntaxRules(self: Builder, syntax_rules: SyntaxRules) !Val {
     const h = try self.makeSyntaxRulesHandle(syntax_rules);
     return Val{ .data = .{ .syntax_rules = h } };
+}
+
+pub inline fn makeProc(self: Builder, proc: Proc) error{OutOfMemory}!Handle(Proc) {
+    return try self.vm.objects.procs.put(self.vm.allocator(), proc);
 }
 
 pub inline fn makeClosure(self: Builder, base_proc: Proc, captures: []const Val) error{OutOfMemory}!Handle(Proc) {

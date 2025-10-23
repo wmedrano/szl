@@ -7,6 +7,7 @@ const Continuation = @import("types/Continuation.zig");
 const Module = @import("types/Module.zig");
 const NativeProc = @import("types/NativeProc.zig");
 const Handle = @import("types/object_pool.zig").Handle;
+const Parameter = @import("types/Parameter.zig");
 const Proc = @import("types/Proc.zig");
 const Symbol = @import("types/Symbol.zig");
 const Val = @import("types/Val.zig");
@@ -72,7 +73,7 @@ pub const Instruction = union(enum) {
             .squash => |n| try vm.context.stackSquash(n),
             .eval => |n| try eval(vm, n, diagnostics),
             .make_closure => |proc| try makeClosure(vm, proc),
-            .ret => _ = vm.context.popStackFrame(.return_top),
+            .ret => _ = vm.context.popStackFrame(.return_top, vm),
         }
     }
 };
@@ -125,7 +126,23 @@ fn eval(vm: *Vm, arg_count: u32, diagnostics: ?*Diagnostics) Vm.Error!void {
     };
     const start = vm.context.stackLen() - arg_count;
     switch (proc_val.data) {
-        .empty_list, .boolean, .int, .rational, .float, .char, .module, .pair, .string, .symbol, .vector, .bytevector, .box, .syntax_rules, .record, .record_descriptor => {
+        .empty_list,
+        .boolean,
+        .int,
+        .rational,
+        .float,
+        .char,
+        .module,
+        .pair,
+        .string,
+        .symbol,
+        .vector,
+        .bytevector,
+        .box,
+        .syntax_rules,
+        .record,
+        .record_descriptor,
+        => {
             @branchHint(.cold);
             if (diagnostics) |d| {
                 d.addDiagnostic(.{ .not_callable = proc_val });
@@ -135,10 +152,11 @@ fn eval(vm: *Vm, arg_count: u32, diagnostics: ?*Diagnostics) Vm.Error!void {
         .proc => |h| try evalProc(vm, h, arg_count, start, diagnostics),
         .native_proc => |p| return evalNativeProc(vm, diagnostics, p, start, arg_count),
         .continuation => |c| return evalContinuation(vm, c, arg_count, diagnostics),
+        .parameter => |h| return evalParameter(vm, h, arg_count, diagnostics),
     }
 }
 
-fn evalProc(vm: *Vm, h: Handle(Proc), arg_count: u32, start: usize, diagnostics: ?*Diagnostics) !void {
+fn evalProc(vm: *Vm, h: Handle(Proc), arg_count: u32, _: usize, diagnostics: ?*Diagnostics) !void {
     const proc = try vm.inspector().handleToProc(h);
     // 1. Check arguments.
     if (arg_count != proc.arg_count) {
@@ -153,23 +171,30 @@ fn evalProc(vm: *Vm, h: Handle(Proc), arg_count: u32, start: usize, diagnostics:
     // 2. Initialize locals.
     try vm.context.pushMany(vm.allocator(), Val.initBool(false), proc.locals_count);
     // 3. Set the context.
-    try vm.context.pushStackFrame(vm.allocator(), .{
-        .stack_start = @intCast(start),
-        .arg_count = arg_count,
-        .module = proc.module,
-        .proc = Val.initProc(h),
-        .instructions = proc.instructions,
-        .constants = proc.constants,
-    });
+    try vm.context.pushStackFrame(
+        vm.allocator(),
+        arg_count,
+        proc.locals_count,
+        Val.initProc(h),
+        proc.module,
+        proc.instructions,
+        proc.constants,
+        Val.initEmptyList(), // exception_handler
+    );
 }
 
-fn evalNativeProc(vm: *Vm, diagnostics: ?*Diagnostics, builtin: *const NativeProc, stack_start: u32, arg_count: u32) !void {
+fn evalNativeProc(vm: *Vm, diagnostics: ?*Diagnostics, builtin: *const NativeProc, _: u32, arg_count: u32) !void {
     // 1. Set the stack frame for debugging purposes.
-    errdefer vm.context.pushStackFrame(vm.allocator(), .{
-        .stack_start = stack_start,
-        .arg_count = arg_count,
-        .proc = Val.initNativeProc(builtin),
-    }) catch {};
+    errdefer vm.context.pushStackFrame(
+        vm.allocator(),
+        arg_count,
+        0, // locals_count
+        Val.initNativeProc(builtin),
+        null, // module
+        &.{}, // instructions
+        &.{}, // constants
+        Val.initEmptyList(), // exception_handler
+    ) catch {};
     try builtin.unsafe_impl(vm, diagnostics, arg_count);
 }
 
@@ -193,6 +218,24 @@ fn evalContinuation(vm: *Vm, handle: Handle(Continuation), arg_count: u32, diagn
     };
     std.mem.swap(Context, &continuation.context, &vm.context);
     try vm.context.push(vm.allocator(), arg);
+}
+
+fn evalParameter(vm: *Vm, handle: Handle(Parameter), arg_count: u32, diagnostics: ?*Diagnostics) !void {
+    const param_ptr = vm.objects.parameters.get(handle) orelse return Vm.Error.UndefinedBehavior;
+    switch (arg_count) {
+        0 => try vm.context.push(vm.allocator(), param_ptr.getValue()),
+        else => {
+            @branchHint(.cold);
+            if (diagnostics) |d| {
+                d.addDiagnostic(.{ .wrong_arg_count = .{
+                    .expected = 0,
+                    .got = arg_count,
+                    .proc = Val.initParameter(handle),
+                } });
+            }
+            return Vm.Error.UncaughtException;
+        },
+    }
 }
 
 fn makeClosure(vm: *Vm, proc_h: Handle(Proc)) !void {

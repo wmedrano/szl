@@ -6,6 +6,7 @@ const Continuation = @import("../types/Continuation.zig");
 const Module = @import("../types/Module.zig");
 const Handle = @import("../types/object_pool.zig").Handle;
 const Pair = @import("../types/Pair.zig");
+const Parameter = @import("../types/Parameter.zig");
 const Proc = @import("../types/Proc.zig");
 const Record = @import("../types/Record.zig");
 const String = @import("../types/String.zig");
@@ -144,6 +145,17 @@ pub inline fn handleToRecord(self: Inspector, h: Handle(Record)) Vm.Error!*Recor
 
 pub inline fn handleToRecordDescriptor(self: Inspector, h: Handle(Record.Descriptor)) Vm.Error!*Record.Descriptor {
     return self.vm.objects.record_descriptors.get(h) orelse return Vm.Error.UndefinedBehavior;
+}
+
+pub inline fn asParameter(self: Inspector, val: Val) Vm.Error!*Parameter {
+    return switch (val.data) {
+        .parameter => |h| self.vm.objects.parameters.get(h) orelse return Vm.Error.UndefinedBehavior,
+        else => Vm.Error.UncaughtException,
+    };
+}
+
+pub inline fn handleToParameter(self: Inspector, h: Handle(Parameter)) Vm.Error!*Parameter {
+    return self.vm.objects.parameters.get(h) orelse return Vm.Error.UndefinedBehavior;
 }
 
 pub fn findModule(self: Inspector, path: []const Symbol) ?Handle(Module) {
