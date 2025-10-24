@@ -52,6 +52,13 @@ pub const UnsupportedFeatureInfo = struct {
     hint: ?[]const u8 = null,
 };
 
+pub const ArithmeticOverflowInfo = struct {
+    operation: []const u8,  // "addition", "subtraction", "multiplication", "division"
+    component: []const u8,  // "numerator", "denominator", "result"
+    proc: Val,
+    hint: ?[]const u8 = null,
+};
+
 /// Diagnostic information for reader errors
 pub const ReadErrorInfo = struct {
     /// The type of error that occurred
@@ -102,6 +109,8 @@ pub const Diagnostic = union(enum) {
     invalid_expression: InvalidExpressionInfo,
     /// Unsupported feature attempted
     unsupported_feature: UnsupportedFeatureInfo,
+    /// Arithmetic overflow during numeric operation
+    arithmetic_overflow: ArithmeticOverflowInfo,
     /// Some other custom message.
     other: []const u8,
 };
@@ -245,6 +254,7 @@ pub const DiagnosticsPrettyPrinter = struct {
             .wrong_arg_type => |wat| try self.formatWrongArgType(writer, wat),
             .invalid_expression => |ie| try self.formatInvalidExpression(writer, ie),
             .unsupported_feature => |uf| try self.formatUnsupportedFeature(writer, uf),
+            .arithmetic_overflow => |ao| try self.formatArithmeticOverflow(writer, ao),
             .other => |msg| try self.formatOther(writer, msg),
         }
     }
@@ -477,6 +487,42 @@ pub const DiagnosticsPrettyPrinter = struct {
             try writer.writeAll("\n  ");
             try writer.writeAll(self.colorize(Color.dim));
             try writer.writeAll("hint: ");
+            try writer.writeAll(self.colorize(Color.reset));
+            try writer.writeAll(self.colorize(Color.green));
+            try writer.print("{s}", .{hint});
+            try writer.writeAll(self.colorize(Color.reset));
+        }
+    }
+
+    fn formatArithmeticOverflow(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer, ao: ArithmeticOverflowInfo) std.Io.Writer.Error!void {
+        // Error message - Red
+        try writer.writeAll(self.colorize(Color.red));
+        try writer.writeAll("Arithmetic overflow");
+        try writer.writeAll(self.colorize(Color.reset));
+        try writer.writeAll(" in call to ");
+        try writer.writeAll(self.colorize(Color.bold));
+        try writer.print("{f}", .{self.vm.pretty(ao.proc, .{ .repr = .display })});
+        try writer.writeAll(self.colorize(Color.reset));
+        try writer.writeAll(":");
+
+        try writer.writeAll("\n  ");
+        try writer.writeAll(self.colorize(Color.dim));
+        try writer.writeAll("operation:   ");
+        try writer.writeAll(self.colorize(Color.reset));
+        try writer.print("{s}", .{ao.operation});
+
+        try writer.writeAll("\n  ");
+        try writer.writeAll(self.colorize(Color.dim));
+        try writer.writeAll("overflow in: ");
+        try writer.writeAll(self.colorize(Color.reset));
+        try writer.writeAll(self.colorize(Color.red));
+        try writer.print("{s}", .{ao.component});
+        try writer.writeAll(self.colorize(Color.reset));
+
+        if (ao.hint) |hint| {
+            try writer.writeAll("\n  ");
+            try writer.writeAll(self.colorize(Color.dim));
+            try writer.writeAll("hint:        ");
             try writer.writeAll(self.colorize(Color.reset));
             try writer.writeAll(self.colorize(Color.green));
             try writer.print("{s}", .{hint});

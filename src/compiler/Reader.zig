@@ -123,6 +123,26 @@ fn readNextImpl(self: *Reader, diagnostics: ?*Diagnostics) Error!ReadResult {
                 return try self.parseSharpsign(next_token, diagnostics);
             }
 
+            // Check for special float literals
+            if (std.mem.eql(u8, lexeme, "+inf.0") or std.mem.eql(u8, lexeme, "+Inf.0")) {
+                return ReadResult{ .atom = .{
+                    .val = Val.initFloat(std.math.inf(f64)),
+                    .token = next_token,
+                } };
+            }
+            if (std.mem.eql(u8, lexeme, "-inf.0") or std.mem.eql(u8, lexeme, "-Inf.0")) {
+                return ReadResult{ .atom = .{
+                    .val = Val.initFloat(-std.math.inf(f64)),
+                    .token = next_token,
+                } };
+            }
+            if (std.mem.eql(u8, lexeme, "+nan.0") or std.mem.eql(u8, lexeme, "+NaN.0")) {
+                return ReadResult{ .atom = .{
+                    .val = Val.initFloat(std.math.nan(f64)),
+                    .token = next_token,
+                } };
+            }
+
             // Check if it's a number (starts with digit, +digit, -digit, or just + or -)
             if (lexeme.len > 0) {
                 const first = lexeme[0];
@@ -965,6 +985,30 @@ test "read float" {
     try reader.expectReadNext("3.14", &vm);
     try reader.expectReadNext("-2.5", &vm);
     try reader.expectReadNext("0.5", &vm);
+    try reader.expectReadNext(null, &vm);
+}
+
+test "read special floats" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    var reader = Reader.init(&vm, "+inf.0 -inf.0 +nan.0");
+
+    // Read +inf.0
+    const pos_inf = (try reader.readNext(null)).?;
+    try testing.expect(pos_inf.asFloat() != null);
+    try testing.expect(std.math.isPositiveInf(pos_inf.asFloat().?));
+
+    // Read -inf.0
+    const neg_inf = (try reader.readNext(null)).?;
+    try testing.expect(neg_inf.asFloat() != null);
+    try testing.expect(std.math.isNegativeInf(neg_inf.asFloat().?));
+
+    // Read +nan.0
+    const nan_val = (try reader.readNext(null)).?;
+    try testing.expect(nan_val.asFloat() != null);
+    try testing.expect(std.math.isNan(nan_val.asFloat().?));
+
     try reader.expectReadNext(null, &vm);
 }
 
