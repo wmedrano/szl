@@ -68,7 +68,7 @@ fn addIr(self: *Compiler, ir: Ir, return_value: bool, diagnostics: ?*Diagnostics
 
 fn addIrs(self: *Compiler, irs: []const Ir, return_value: bool, diagnostics: ?*Diagnostics) Error!void {
     switch (irs.len) {
-        0 => return self.addIr(Ir{ .push_const = Val.initEmptyList() }, return_value, diagnostics),
+        0 => return self.addIr(Ir{ .push_const = Val.initUnspecified() }, return_value, diagnostics),
         1 => return self.addIr(irs[0], return_value, diagnostics),
         else => {
             for (irs[0 .. irs.len - 1]) |ir| try self.addIr(ir, false, diagnostics);
@@ -359,7 +359,7 @@ test "lambda without body is empty list" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    try vm.expectEval("()", "((lambda ()))");
+    try vm.expectEval("#<unspecified>", "((lambda ()))");
 }
 
 test "lambda with args is evaluated" {

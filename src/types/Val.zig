@@ -111,6 +111,10 @@ pub fn initParameter(parameter: Handle(Parameter)) Val {
     return Val{ .data = .{ .parameter = parameter } };
 }
 
+pub fn isUnspecified(self: Val) bool {
+    return self.data == .unspecified_value;
+}
+
 pub fn isNull(self: Val) bool {
     return self.data == .empty_list;
 }

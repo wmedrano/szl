@@ -177,28 +177,26 @@ fn evalProc(vm: *Vm, h: Handle(Proc), arg_count: u32, _: usize, diagnostics: ?*D
     try vm.context.pushMany(vm.allocator(), Val.initBool(false), proc.locals_count);
     // 3. Set the context.
     try vm.context.pushStackFrame(
-        vm.allocator(),
+        vm,
         arg_count,
         proc.locals_count,
         Val.initProc(h),
         proc.module,
         proc.instructions,
         proc.constants,
-        Val.initEmptyList(), // exception_handler
     );
 }
 
 fn evalNativeProc(vm: *Vm, diagnostics: ?*Diagnostics, builtin: *const NativeProc, _: u32, arg_count: u32) !void {
     // 1. Set the stack frame for debugging purposes.
     errdefer vm.context.pushStackFrame(
-        vm.allocator(),
+        vm,
         arg_count,
         0, // locals_count
         Val.initNativeProc(builtin),
         null, // module
         &.{}, // instructions
         &.{}, // constants
-        Val.initEmptyList(), // exception_handler
     ) catch {};
     try builtin.unsafe_impl(vm, diagnostics, arg_count);
 }

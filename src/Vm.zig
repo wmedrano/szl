@@ -208,7 +208,7 @@ pub fn evalStr(
     diagnostics: ?*Diagnostics,
 ) Error!Val {
     var reader = Reader.init(self, source);
-    var return_val = Val.initEmptyList();
+    var return_val = Val.initUnspecified();
 
     while (try reader.readNext(diagnostics)) |raw_expr| {
         return_val = try self.evalExpr(raw_expr, maybe_env, diagnostics);

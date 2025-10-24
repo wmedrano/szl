@@ -33,7 +33,7 @@ fn withExceptionHandlerImpl(vm: *Vm, diagnostics: ?*Diagnostics, arg_count: u32)
     }
     const thunk = vm.context.pop() orelse return Vm.Error.NotImplemented;
     const handler = vm.context.pop() orelse return Vm.Error.NotImplemented;
-    try vm.context.setExceptionHandler(handler);
+    try vm.context.setExceptionHandler(vm, handler);
     try vm.context.push(vm.allocator(), thunk);
     try (Instruction{ .eval = 0 }).execute(vm, null);
 }
@@ -59,7 +59,9 @@ fn raiseContinuableImpl(vm: *Vm, diagnostics: ?*Diagnostics, arg_count: u32) Vm.
         }
         return Vm.Error.UncaughtException;
     }
-    const handler = vm.context.currentExceptionHandler() orelse return Vm.Error.UncaughtException;
+
+    const handler = vm.context.currentExceptionHandler(vm) orelse return Vm.Error.UncaughtException;
+
     try vm.context.push(vm.allocator(), handler);
     try (Instruction{ .eval = 1 }).execute(vm, null);
 }
@@ -79,7 +81,7 @@ fn szlRaiseNextImpl(vm: *Vm, _: ?*Diagnostics, arg_count: u32) Vm.Error!void {
     const builder = vm.builder();
     if (arg_count != 1) return Vm.Error.NotImplemented;
     const err = vm.context.top() orelse return Vm.Error.UndefinedBehavior;
-    vm.context.unwindToNextExceptionHandler();
+    vm.context.unwindToNextExceptionHandler(vm);
     const global_mod_handle = inspector.findModule(&.{
         try builder.makeStaticSymbolHandle("scheme"),
         try builder.makeStaticSymbolHandle("base"),

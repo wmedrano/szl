@@ -126,7 +126,6 @@ pub fn markContext(self: *Gc, vm: *Vm, context: Context) Vm.Error!void {
 
 fn markStackFrame(self: *Gc, vm: *Vm, stack_frame: Context.StackFrame) Vm.Error!void {
     try self.markOne(vm, stack_frame.proc);
-    try self.markOne(vm, stack_frame.exception_handler);
     try self.markMany(vm, stack_frame.constants);
 }
 

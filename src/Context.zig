@@ -26,17 +26,12 @@ pub const StackFrame = struct {
     arg_count: u32 = 0,
     instruction_idx: u32 = 0,
     module: ?Handle(Module) = null,
-    proc: Val = Val.initEmptyList(),
-    exception_handler: Val = Val.initEmptyList(),
+    proc: Val = Val.initUnspecified(),
     instructions: []const Instruction = &.{},
     constants: []const Val = &.{},
     /// Index into Context.parameter_bindings where this frame's bindings start.
     /// All bindings from this index until the next frame (or end) belong to this frame.
     param_bindings_start: u32 = 0,
-
-    pub inline fn exceptionHandler(self: StackFrame) ?Val {
-        return if (self.exception_handler.isNull()) null else self.exception_handler;
-    }
 };
 
 pub fn init(allocator: std.mem.Allocator) !Context {
@@ -83,56 +78,77 @@ pub fn jump(self: *Context, n: i32) !void {
     self.stack_frames.items[frame_idx].instruction_idx = @intCast(new_idx);
 }
 
+fn exceptionHandlerParam(vm: *Vm) error{ OutOfMemory, UndefinedBehavior }!Handle(Parameter) {
+    const inspector = vm.inspector();
+    // TODO: We should use the (scheme base) or maybe an internal
+    // environment instead of the REPL.
+    const repl_env_h = try inspector.getReplEnv(null);
+    const repl_env = try inspector.handleToModule(repl_env_h);
+    const sym = try vm.builder().makeStaticSymbolHandle("%szl-exception-handler");
+    const param_val = repl_env.getBySymbol(sym) orelse return error.UndefinedBehavior;
+    const param = param_val.asParameter() orelse {
+        return error.UndefinedBehavior;
+    };
+    return param;
+}
+
 pub fn pushStackFrame(
     self: *Context,
-    allocator: std.mem.Allocator,
+    vm: *Vm,
     arg_count: u32,
     locals_count: u32,
     proc: Val,
     module_handle: ?Handle(Module),
     instructions: []const Instruction,
     constants: []const Val,
-    exception_handler: Val,
 ) error{OutOfMemory}!void {
     const stack_start: u32 = @intCast(self.stack.items.len - arg_count - locals_count);
-    try self.stack_frames.append(allocator, .{
+    try self.stack_frames.append(vm.allocator(), .{
         .stack_start = stack_start,
         .arg_count = arg_count,
         .module = module_handle,
         .proc = proc,
-        .exception_handler = exception_handler,
         .instructions = instructions,
         .constants = constants,
         .param_bindings_start = @intCast(self.parameter_bindings.items.len),
     });
 }
 
-pub fn setExceptionHandler(self: *Context, handler: Val) error{UndefinedBehavior}!void {
-    if (self.stack_frames.items.len == 0) return error.UndefinedBehavior;
-    const stack_frame_idx = self.stack_frames.items.len - 1;
-    self.stack_frames.items[stack_frame_idx].exception_handler = handler;
+pub fn setExceptionHandler(_: *Context, vm: *Vm, handler: Val) error{ OutOfMemory, UndefinedBehavior }!void {
+    if (handler.isUnspecified()) return;
+    try vm.context.parameter_bindings.append(
+        vm.allocator(),
+        .{ .parameter = try exceptionHandlerParam(vm), .val = handler },
+    );
 }
 
-pub fn currentExceptionHandler(self: Context) ?Val {
-    var idx = self.stack_frames.items.len;
-    while (idx > 0) {
-        idx -= 1;
-        if (self.stack_frames.items[idx].exceptionHandler()) |h|
-            return h;
-    }
-    return null;
+pub fn currentExceptionHandler(self: Context, vm: *Vm) ?Val {
+    const handler = exceptionHandlerParam(vm) catch unreachable;
+    const param = self.resolveParameter(vm, handler) catch unreachable;
+    if (param.isUnspecified()) return null;
+    return param;
 }
 
-pub fn unwindToNextExceptionHandler(self: *Context) void {
+pub fn unwindToNextExceptionHandler(self: *Context, vm: *Vm) void {
+    const handler = exceptionHandlerParam(vm) catch unreachable;
+
     while (self.stack_frames.items.len > 0) {
         const stack_frame_idx = self.stack_frames.items.len - 1;
         const frame = &self.stack_frames.items[stack_frame_idx];
-        if (!frame.exception_handler.isNull()) {
-            frame.exception_handler = Val.initEmptyList();
-            return;
+        var has_handler = false;
+        for (self.parameter_bindings.items[frame.param_bindings_start..]) |*binding| {
+            if (binding.parameter) |param| {
+                if (!binding.val.isUnspecified() and param.eq(handler)) {
+                    has_handler = true;
+                    binding.val = Val.initUnspecified();
+                    break;
+                }
+            }
         }
         self.stack_frames.items.len -= 1;
+        self.parameter_bindings.items.len = frame.param_bindings_start;
         self.stack.items.len = frame.stack_start;
+        if (has_handler) return;
     }
 }
 
@@ -210,18 +226,18 @@ pub fn module(self: Context) ?Handle(Module) {
 }
 
 pub fn getProc(self: Context) Val {
-    if (self.stack_frames.items.len == 0) return Val.initEmptyList();
+    if (self.stack_frames.items.len == 0) return Val.initUnspecified();
     return self.stack_frames.items[self.stack_frames.items.len - 1].proc;
 }
 
 pub fn getArg(self: Context, idx: u32) Val {
-    if (self.stack_frames.items.len == 0) return Val.initEmptyList();
+    if (self.stack_frames.items.len == 0) return Val.initUnspecified();
     const abs_idx = self.stack_frames.items[self.stack_frames.items.len - 1].stack_start + idx;
     return self.stack.items[@intCast(abs_idx)];
 }
 
 pub fn getLocal(self: *Context, idx: u32) Val {
-    if (self.stack_frames.items.len == 0) return Val.initEmptyList();
+    if (self.stack_frames.items.len == 0) return Val.initUnspecified();
     const frame_idx = self.stack_frames.items.len - 1;
     const abs_idx = self.stack_frames.items[frame_idx].stack_start + self.stack_frames.items[frame_idx].arg_count + idx;
     return self.stack.items[@intCast(abs_idx)];
@@ -239,7 +255,7 @@ pub fn setLocal(self: *Context, idx: u32, val: Val) void {
 }
 
 pub fn getConstant(self: Context, idx: u32) Val {
-    if (self.stack_frames.items.len == 0) return Val.initEmptyList();
+    if (self.stack_frames.items.len == 0) return Val.initUnspecified();
     return self.stack_frames.items[self.stack_frames.items.len - 1].constants[@intCast(idx)];
 }
 
@@ -316,32 +332,7 @@ pub fn stackSquash(self: *Context, n: u32) Vm.Error!void {
     self.stack.items.len = bottom_idx + 1;
 }
 
-/// Push a parameter binding onto the current stack frame.
-/// Saves the parameter's current value and sets it to a new value.
-pub fn pushParameterBinding(
-    self: *Context,
-    allocator: std.mem.Allocator,
-    vm: *Vm,
-    parameter_handle: Handle(Parameter),
-    new_value: Val,
-) error{OutOfMemory}!void {
-    const param = vm.objects.parameters.get(parameter_handle) orelse return;
-    const saved_value = param.getValue();
-
-    try self.parameter_bindings.append(allocator, ParameterBinding{
-        .parameter = parameter_handle,
-        .saved_value = saved_value,
-    });
-
-    // Set the new value (converter will be applied by caller if needed)
-    if (vm.objects.parameters.get(parameter_handle)) |p| {
-        // Need to get mutable access through the pool
-        const mut_param = @constCast(p);
-        mut_param.setValue(new_value);
-    }
-}
-
 test "stack frame structs are relatively small" {
-    try testing.expectEqual(88, @sizeOf(StackFrame));
+    try testing.expectEqual(72, @sizeOf(StackFrame));
     try testing.expectEqual(24, @sizeOf(ParameterBinding));
 }

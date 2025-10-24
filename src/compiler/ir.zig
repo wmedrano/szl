@@ -290,7 +290,7 @@ const Builder = struct {
         const irs = try self.arena.allocator().dupe(Ir, &.{
             try self.build(test_expr),
             try self.build(true_expr),
-            if (false_expr) |e| try self.build(e) else Ir{ .push_const = Val.initEmptyList() },
+            if (false_expr) |e| try self.build(e) else Ir{ .push_const = Val.initUnspecified() },
         });
         return Ir{
             .if_expr = .{
@@ -305,7 +305,7 @@ const Builder = struct {
         const irs = try self.arena.allocator().dupe(Ir, &.{
             try self.build(test_expr),
             try self.buildLet(Val.initEmptyList(), exprs),
-            Ir{ .push_const = Val.initEmptyList() },
+            Ir{ .push_const = Val.initUnspecified() },
         });
         return Ir{
             .if_expr = .{

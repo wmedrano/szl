@@ -184,7 +184,7 @@ fn pathEq(a: []const Symbol, b: []const Symbol) bool {
     return true;
 }
 
-pub fn getReplEnv(self: Inspector, diagnostics: ?*Diagnostics) Vm.Error!Handle(Module) {
+pub fn getReplEnv(self: Inspector, diagnostics: ?*Diagnostics) error{ UndefinedBehavior, OutOfMemory }!Handle(Module) {
     const b = self.vm.builder();
     const module = self.findModule(&.{
         try b.makeStaticSymbolHandle("user"),

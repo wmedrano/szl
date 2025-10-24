@@ -171,6 +171,10 @@ pub fn init(vm: *Vm) Vm.Error!Handle(Module) {
             .symbol = (try b.makeStaticSymbolHandle("%szl-raise-next")),
             .value = Val.initNativeProc(&exception_fns.szl_raise_next),
         },
+        .{
+            .symbol = (try b.makeStaticSymbolHandle("%szl-exception-handler")),
+            .value = (try b.makeParameter(Val.initUnspecified())),
+        },
         // 6.13 Input and Output
         .{
             .symbol = (try b.makeStaticSymbolHandle("%szl-null-port")),
@@ -282,6 +286,6 @@ test "unless" {
     defer vm.deinit();
     try vm.expectEval("a", "(unless #f 'a)");
     try vm.expectEval("c", "(unless #f 'a 'b' 'c)");
-    try vm.expectEval("()", "(unless #t 'a)");
-    try vm.expectEval("()", "(unless #t 'a 'b 'c)");
+    try vm.expectEval("#<unspecified>", "(unless #t 'a)");
+    try vm.expectEval("#<unspecified>", "(unless #t 'a 'b 'c)");
 }
