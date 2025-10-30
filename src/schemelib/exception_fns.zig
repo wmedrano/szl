@@ -1,8 +1,8 @@
 const std = @import("std");
 const testing = std.testing;
 
-const Diagnostics = @import("../Diagnostics.zig");
 const Instruction = @import("../instruction.zig").Instruction;
+const ErrorDetails = @import("../types/ErrorDetails.zig");
 const NativeProc = @import("../types/NativeProc.zig");
 const Val = @import("../types/Val.zig");
 const Vm = @import("../Vm.zig");
@@ -19,23 +19,23 @@ pub const with_exception_handler = NativeProc{
     ,
 };
 
-fn withExceptionHandlerImpl(vm: *Vm, diagnostics: ?*Diagnostics, arg_count: u32) Vm.Error!void {
+fn withExceptionHandlerImpl(vm: *Vm, diagnostics: *ErrorDetails, arg_count: u32) Vm.Error!void {
     // TODO: Add diagnostics
     if (arg_count != 2) {
-        if (diagnostics) |d| {
-            d.addDiagnostic(.{ .wrong_arg_count = .{
+        diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_count = .{
                 .expected = 2,
                 .got = arg_count,
                 .proc = Val.initNativeProc(&with_exception_handler),
             } });
-        }
         return Vm.Error.UncaughtException;
     }
     const thunk = vm.context.pop() orelse return Vm.Error.NotImplemented;
     const handler = vm.context.pop() orelse return Vm.Error.NotImplemented;
     try vm.context.setExceptionHandler(vm, handler);
     try vm.context.push(vm.allocator(), thunk);
-    try (Instruction{ .eval = 0 }).execute(vm, null);
+    var error_details = ErrorDetails{};
+    // Note: Don't deinit - if it gets converted to a Val, the VM will manage it
+    try (Instruction{ .eval = 0 }).execute(vm, &error_details);
 }
 
 pub const raise_continuable = NativeProc{
@@ -48,22 +48,22 @@ pub const raise_continuable = NativeProc{
     ,
 };
 
-fn raiseContinuableImpl(vm: *Vm, diagnostics: ?*Diagnostics, arg_count: u32) Vm.Error!void {
+fn raiseContinuableImpl(vm: *Vm, diagnostics: *ErrorDetails, arg_count: u32) Vm.Error!void {
     if (arg_count != 1) {
-        if (diagnostics) |d| {
-            d.addDiagnostic(.{ .wrong_arg_count = .{
+        diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_count = .{
                 .expected = 1,
                 .got = arg_count,
                 .proc = Val.initNativeProc(&raise_continuable),
             } });
-        }
         return Vm.Error.UncaughtException;
     }
 
     const handler = vm.context.currentExceptionHandler(vm) orelse return Vm.Error.UncaughtException;
 
     try vm.context.push(vm.allocator(), handler);
-    try (Instruction{ .eval = 1 }).execute(vm, null);
+    var error_details = ErrorDetails{};
+    // Note: Don't deinit - if it gets converted to a Val, the VM will manage it
+    try (Instruction{ .eval = 1 }).execute(vm, &error_details);
 }
 
 pub const szl_raise_next = NativeProc{
@@ -76,7 +76,7 @@ pub const szl_raise_next = NativeProc{
     ,
 };
 
-fn szlRaiseNextImpl(vm: *Vm, _: ?*Diagnostics, arg_count: u32) Vm.Error!void {
+fn szlRaiseNextImpl(vm: *Vm, _: *ErrorDetails, arg_count: u32) Vm.Error!void {
     const inspector = vm.inspector();
     const builder = vm.builder();
     if (arg_count != 1) return Vm.Error.NotImplemented;
@@ -90,7 +90,9 @@ fn szlRaiseNextImpl(vm: *Vm, _: ?*Diagnostics, arg_count: u32) Vm.Error!void {
     const raise_proc = global_mod.getBySymbol(try builder.makeStaticSymbolHandle("raise")) orelse
         return Vm.Error.UndefinedBehavior;
     try vm.context.pushSlice(vm.allocator(), &.{ err, raise_proc });
-    try (Instruction{ .eval = 1 }).execute(vm, null);
+    var error_details = ErrorDetails{};
+    // Note: Don't deinit - if it gets converted to a Val, the VM will manage it
+    try (Instruction{ .eval = 1 }).execute(vm, &error_details);
 }
 
 test "raise-continuable calls exception handler and continues" {
@@ -121,6 +123,25 @@ test "raise calls all exceptions" {
         \\   (lambda ()
         \\     (with-exception-handler set-two!
         \\       (lambda () (raise 'exception)))))
+    ;
+    try vm.expectError(error.UncaughtException, source);
+    try vm.expectEval("1", "one");
+    try vm.expectEval("2", "two");
+}
+
+test "built in function with bad args calls all exceptions" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const source =
+        \\ (define one 0)
+        \\ (define two 0)
+        \\ (define (set-one! err) (define one 1))
+        \\ (define (set-two! err) (define two 2))
+        \\ (with-exception-handler set-one!
+        \\   (lambda ()
+        \\     (with-exception-handler set-two!
+        \\       (lambda () (+ 'no)))))
     ;
     try vm.expectError(error.UncaughtException, source);
     try vm.expectEval("1", "one");

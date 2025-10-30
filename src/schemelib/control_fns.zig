@@ -1,8 +1,8 @@
 const std = @import("std");
 const testing = std.testing;
 
-const Diagnostics = @import("../Diagnostics.zig");
 const Instruction = @import("../instruction.zig").Instruction;
+const ErrorDetails = @import("../types/ErrorDetails.zig");
 const NativeProc = @import("../types/NativeProc.zig");
 const Val = @import("../types/Val.zig");
 const Vm = @import("../Vm.zig");
@@ -20,33 +20,33 @@ pub const call_cc = NativeProc{
     ,
 };
 
-fn callCcImpl(vm: *Vm, diagnostics: ?*Diagnostics, arg_count: u32) Vm.Error!void {
+fn callCcImpl(vm: *Vm, diagnostics: *ErrorDetails, arg_count: u32) Vm.Error!void {
     if (arg_count != 1) {
-        if (diagnostics) |d| {
-            d.addDiagnostic(.{ .wrong_arg_count = .{
-                .expected = 1,
-                .got = arg_count,
-                .proc = Val.initNativeProc(&call_cc),
-            } });
-        }
+        @branchHint(.cold);
+        diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_count = .{
+            .expected = 1,
+            .got = arg_count,
+            .proc = Val.initNativeProc(&call_cc),
+        } });
         return Vm.Error.UncaughtException;
     }
     const proc = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
     if (!proc.isProc()) {
-        if (diagnostics) |d| {
-            d.addDiagnostic(.{ .wrong_arg_type = .{
-                .expected = "procedure",
-                .got = proc,
-                .proc = Val.initNativeProc(&call_cc),
-                .arg_name = "proc",
-                .arg_position = 0,
-            } });
-        }
+        @branchHint(.cold);
+        diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_type = .{
+            .expected = "procedure",
+            .got = proc,
+            .proc = Val.initNativeProc(&call_cc),
+            .arg_name = "proc",
+            .arg_position = 0,
+        } });
         return Vm.Error.UncaughtException;
     }
     const cont = try vm.builder().makeContinuation(vm.context);
     try vm.context.pushSlice(vm.allocator(), &.{ cont, proc });
-    try (Instruction{ .eval = 1 }).execute(vm, null);
+    var error_details = ErrorDetails{};
+    // Note: Don't deinit - if it gets converted to a Val, the VM will manage it
+    try (Instruction{ .eval = 1 }).execute(vm, &error_details);
 }
 
 pub const apply = NativeProc{
@@ -61,15 +61,14 @@ pub const apply = NativeProc{
     ,
 };
 
-fn applyImpl(vm: *Vm, diagnostics: ?*Diagnostics, arg_count: u32) Vm.Error!void {
+fn applyImpl(vm: *Vm, diagnostics: *ErrorDetails, arg_count: u32) Vm.Error!void {
     if (arg_count < 2) {
-        if (diagnostics) |d| {
-            d.addDiagnostic(.{ .wrong_arg_count = .{
-                .expected = 2,
-                .got = arg_count,
-                .proc = Val.initNativeProc(&apply),
-            } });
-        }
+        @branchHint(.cold);
+        diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_count = .{
+            .expected = 2,
+            .got = arg_count,
+            .proc = Val.initNativeProc(&apply),
+        } });
         return Vm.Error.UncaughtException;
     }
     const args = vm.context.stackTopNUnstable(arg_count);
@@ -88,27 +87,28 @@ fn applyImpl(vm: *Vm, diagnostics: ?*Diagnostics, arg_count: u32) Vm.Error!void 
         @branchHint(.cold);
         switch (err) {
             error.UncaughtException => {
-                if (diagnostics) |d| {
-                    d.addDiagnostic(.{ .wrong_arg_type = .{
-                        .expected = "list",
-                        .got = proc_args,
-                        .proc = Val.initNativeProc(&apply),
-                        .arg_name = "args",
-                        .arg_position = arg_count - 1,
-                    } });
-                }
+                diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_type = .{
+                    .expected = "list",
+                    .got = proc_args,
+                    .proc = Val.initNativeProc(&apply),
+                    .arg_name = "args",
+                    .arg_position = arg_count - 1,
+                } });
                 return Vm.Error.UncaughtException;
             },
             error.UndefinedBehavior => {
-                if (diagnostics) |d| {
-                    d.addDiagnostic(.{ .undefined_behavior = "Invalid list structure in apply" });
-                }
+                diagnostics.addDiagnostic(
+                    vm.allocator(),
+                    .{ .undefined_behavior = "Invalid list structure in apply" },
+                );
                 return Vm.Error.UndefinedBehavior;
             },
         }
     }
     try vm.context.push(vm.allocator(), proc);
-    try (Instruction{ .eval = proc_args_count }).execute(vm, null);
+    var error_details = ErrorDetails{};
+    // Note: Don't deinit - if it gets converted to a Val, the VM will manage it
+    try (Instruction{ .eval = proc_args_count }).execute(vm, &error_details);
 }
 
 test "call/cc can stop exception from propagating" {

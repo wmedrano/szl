@@ -4,6 +4,7 @@ const Context = @import("../Context.zig");
 const Instruction = @import("../instruction.zig").Instruction;
 const Box = @import("../types/Box.zig");
 const Continuation = @import("../types/Continuation.zig");
+const ErrorDetails = @import("../types/ErrorDetails.zig");
 const Module = @import("../types/Module.zig");
 const Handle = @import("../types/object_pool.zig").Handle;
 const Pair = @import("../types/Pair.zig");
@@ -209,4 +210,13 @@ pub inline fn makeClosure(self: Builder, base_proc: Proc, captures: []const Val)
 
 pub inline fn makeClosureHandle(self: Builder, closure: Proc) error{OutOfMemory}!Handle(Proc) {
     return try self.vm.objects.procs.put(self.vm.allocator(), closure);
+}
+
+pub inline fn makeErrorDetails(self: Builder, error_details: ErrorDetails) error{OutOfMemory}!Val {
+    const h = try self.makeErrorDetailsHandle(error_details);
+    return Val.initErrorDetails(h);
+}
+
+pub inline fn makeErrorDetailsHandle(self: Builder, error_details: ErrorDetails) error{OutOfMemory}!Handle(ErrorDetails) {
+    return try self.vm.objects.error_details.put(self.vm.allocator(), error_details);
 }

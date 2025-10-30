@@ -1,8 +1,8 @@
 const std = @import("std");
 const testing = std.testing;
 
-const Diagnostics = @import("../Diagnostics.zig");
 const Instruction = @import("../instruction.zig").Instruction;
+const ErrorDetails = @import("../types/ErrorDetails.zig");
 const Module = @import("../types/Module.zig");
 const NativeProc = @import("../types/NativeProc.zig");
 const Handle = @import("../types/object_pool.zig").Handle;
@@ -31,15 +31,14 @@ pub const import = NativeProc{
 
 // TODO: This should support the full `import` syntax specified by r7rs. This
 // includes things like renames and skipping certain values.
-fn importImpl(vm: *Vm, diagnostics: ?*Diagnostics, arg_count: u32) Vm.Error!void {
+fn importImpl(vm: *Vm, diagnostics: *ErrorDetails, arg_count: u32) Vm.Error!void {
     if (arg_count != 1) {
-        if (diagnostics) |d| {
-            d.addDiagnostic(.{ .wrong_arg_count = .{
-                .expected = 1,
-                .got = arg_count,
-                .proc = Val.initNativeProc(&import),
-            } });
-        }
+        @branchHint(.cold);
+        diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_count = .{
+            .expected = 1,
+            .got = arg_count,
+            .proc = Val.initNativeProc(&import),
+        } });
         return Vm.Error.UncaughtException;
     }
     const inspector = vm.inspector();
@@ -50,24 +49,22 @@ fn importImpl(vm: *Vm, diagnostics: ?*Diagnostics, arg_count: u32) Vm.Error!void
     defer vm.allocator().free(module_symbols);
     for (module_specifier, module_symbols) |val, *sym| {
         sym.* = val.asSymbol() orelse {
-            if (diagnostics) |d| {
-                d.addDiagnostic(.{ .wrong_arg_type = .{
-                    .expected = "symbol",
-                    .got = val,
-                    .proc = Val.initNativeProc(&import),
-                    .arg_name = "module-specifier",
-                    .arg_position = 0,
-                } });
-            }
+            @branchHint(.cold);
+            diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_type = .{
+                .expected = "symbol",
+                .got = val,
+                .proc = Val.initNativeProc(&import),
+                .arg_name = "module-specifier",
+                .arg_position = 0,
+            } });
             return Vm.Error.UncaughtException;
         };
     }
     // TODO: Import into the correct environment.
-    const dst_module = try inspector.getReplEnv(null);
+    const dst_module = try inspector.getReplEnv(diagnostics);
     const src_module = inspector.findModule(module_symbols) orelse {
-        if (diagnostics) |d| {
-            d.addDiagnostic(.{ .other = "Module not found" });
-        }
+        @branchHint(.cold);
+        diagnostics.addDiagnostic(vm.allocator(), .{ .other = "Module not found" });
         return Vm.Error.UncaughtException;
     };
     try (try inspector.handleToModule(dst_module)).import(
@@ -77,7 +74,7 @@ fn importImpl(vm: *Vm, diagnostics: ?*Diagnostics, arg_count: u32) Vm.Error!void
     try vm.context.push(vm.allocator(), Val.initEmptyList());
 }
 
-pub fn init(vm: *Vm) Vm.Error!Handle(Module) {
+pub fn init(vm: *Vm, error_details: *ErrorDetails) Vm.Error!Handle(Module) {
     const b = vm.builder();
 
     const env_handle = try b.makeEnvironment(&.{
@@ -275,7 +272,7 @@ pub fn init(vm: *Vm) Vm.Error!Handle(Module) {
         call_with_values_proc,
     );
 
-    _ = try vm.evalStr(@embedFile("base.scm"), env_handle, null);
+    _ = try vm.evalStr(@embedFile("base.scm"), env_handle, error_details);
     return env_handle;
 }
 

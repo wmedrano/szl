@@ -4,6 +4,7 @@ const Context = @import("Context.zig");
 const Instruction = @import("instruction.zig").Instruction;
 const Box = @import("types/Box.zig");
 const Continuation = @import("types/Continuation.zig");
+const ErrorDetails = @import("types/ErrorDetails.zig");
 const Module = @import("types/Module.zig");
 const Handle = @import("types/object_pool.zig").Handle;
 const Pair = @import("types/Pair.zig");
@@ -37,6 +38,7 @@ const GcObject = union(enum) {
     record_descriptor: Handle(Record.Descriptor),
     parameter: Handle(Parameter),
     port: Handle(Port),
+    error_details: Handle(ErrorDetails),
 
     fn init(val: Val) ?GcObject {
         return switch (val.data) {
@@ -55,6 +57,7 @@ const GcObject = union(enum) {
             .record_descriptor => |rd| .{ .record_descriptor = rd },
             .parameter => |p| .{ .parameter = p },
             .port => |p| .{ .port = p },
+            .error_details => |ed| .{ .error_details = ed },
         };
     }
 };
@@ -101,11 +104,38 @@ pub fn markOne(self: *Gc, vm: *Vm, val: Val) Vm.Error!void {
             try self.markOne(vm, param.value);
         },
         .port => {},
+        .error_details => |h| {
+            try self.markErrorDetails(vm, h);
+        },
     }
 }
 
 fn markMany(self: *Gc, vm: *Vm, vals: []const Val) Vm.Error!void {
     for (vals) |v| try self.markOne(vm, v);
+}
+
+pub fn markErrorDetails(self: *Gc, vm: *Vm, h: Handle(ErrorDetails)) Vm.Error!void {
+    const err_details = vm.objects.error_details.get(h) orelse return;
+    for (err_details.diagnostics.items) |diag| {
+        switch (diag) {
+            .none, .reader, .undefined_behavior, .undefined_variable, .unsupported_feature, .other => {},
+            .not_callable => |val| try self.markOne(vm, val),
+            .wrong_arg_count => |wac| try self.markOne(vm, wac.proc),
+            .wrong_arg_type => |wat| {
+                try self.markOne(vm, wat.proc);
+                try self.markOne(vm, wat.got);
+            },
+            .invalid_expression => |ie| {
+                if (ie.expr) |expr| try self.markOne(vm, expr);
+            },
+            .arithmetic_overflow => |ao| try self.markOne(vm, ao.proc),
+        }
+    }
+
+    // Mark all proc values in stack trace
+    for (err_details.stack_trace.items) |frame| {
+        try self.markOne(vm, frame.proc);
+    }
 }
 
 pub fn markModule(self: *Gc, vm: *Vm, h: Handle(Module)) Vm.Error!void {
@@ -338,6 +368,24 @@ pub fn sweep(self: Gc, vm: *Vm) Vm.Error!usize {
     try vm.objects.ports.removeAll(
         vm.allocator(),
         RemovePort{ .gc = self, .allocator = vm.allocator(), .count = &removed_count },
+    );
+
+    const RemoveErrorDetails = struct {
+        gc: Gc,
+        allocator: std.mem.Allocator,
+        count: *usize,
+        pub fn remove(this: @This(), h: Handle(ErrorDetails), obj: *ErrorDetails) bool {
+            const should_remove = !this.gc.marked.contains(GcObject{ .error_details = h });
+            if (should_remove) {
+                obj.deinit(this.allocator);
+                this.count.* += 1;
+            }
+            return should_remove;
+        }
+    };
+    try vm.objects.error_details.removeAll(
+        vm.allocator(),
+        RemoveErrorDetails{ .gc = self, .allocator = vm.allocator(), .count = &removed_count },
     );
 
     return removed_count;

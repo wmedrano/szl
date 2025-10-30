@@ -1,16 +1,20 @@
 const std = @import("std");
 const testing = std.testing;
 
-const Reader = @import("compiler/Reader.zig");
-const Context = @import("Context.zig");
-const Module = @import("types/Module.zig");
-const Handle = @import("types/object_pool.zig").Handle;
-const Symbol = @import("types/Symbol.zig");
-const Val = @import("types/Val.zig");
-const PrettyPrinter = @import("utils/PrettyPrinter.zig");
-const Vm = @import("Vm.zig");
+const Reader = @import("../compiler/Reader.zig");
+const Context = @import("../Context.zig");
+const ValPrettyPrinter = @import("../utils/PrettyPrinter.zig");
+const Vm = @import("../Vm.zig");
+const Handle = @import("object_pool.zig").Handle;
+const Module = @import("Module.zig");
+const Symbol = @import("Symbol.zig");
+const Val = @import("Val.zig");
 
-const Diagnostics = @This();
+const ErrorDetails = @This();
+
+diagnostics: std.ArrayList(Diagnostic) = .{},
+stack_trace: std.ArrayList(StackFrame) = .{},
+oom: bool = false,
 
 pub const SyntaxHighlighting = enum {
     color,
@@ -53,8 +57,8 @@ pub const UnsupportedFeatureInfo = struct {
 };
 
 pub const ArithmeticOverflowInfo = struct {
-    operation: []const u8,  // "addition", "subtraction", "multiplication", "division"
-    component: []const u8,  // "numerator", "denominator", "result"
+    operation: []const u8, // "addition", "subtraction", "multiplication", "division"
+    component: []const u8, // "numerator", "denominator", "result"
     proc: Val,
     hint: ?[]const u8 = null,
 };
@@ -115,42 +119,50 @@ pub const Diagnostic = union(enum) {
     other: []const u8,
 };
 
-alloc: std.mem.Allocator,
-diagnostics: std.ArrayList(Diagnostic) = .{},
-stack_trace: std.ArrayList(StackFrame) = .{},
-oom: bool = false,
-
-pub fn init(alloc: std.mem.Allocator) Diagnostics {
-    return .{ .alloc = alloc };
-}
-
-pub fn deinit(self: *Diagnostics) void {
-    self.diagnostics.deinit(self.alloc);
-    self.stack_trace.deinit(self.alloc);
+pub fn deinit(self: *ErrorDetails, alloc: std.mem.Allocator) void {
+    self.diagnostics.deinit(alloc);
+    self.stack_trace.deinit(alloc);
     self.oom = false;
 }
 
+/// Create a deep copy of this ErrorDetails instance
+pub fn clone(self: ErrorDetails, alloc: std.mem.Allocator) !ErrorDetails {
+    var result = ErrorDetails{
+        .diagnostics = .{},
+        .stack_trace = .{},
+        .oom = self.oom,
+    };
+
+    // Clone diagnostics
+    result.diagnostics = try self.diagnostics.clone(alloc);
+
+    // Clone stack trace
+    result.stack_trace = try self.stack_trace.clone(alloc);
+
+    return result;
+}
+
 /// Clear all diagnostics while retaining allocated memory
-pub fn reset(self: *Diagnostics) void {
+pub fn reset(self: *ErrorDetails) void {
     self.diagnostics.clearRetainingCapacity();
     self.stack_trace.clearRetainingCapacity();
     self.oom = false;
 }
 
 /// Add a diagnostic to the collection
-pub fn addDiagnostic(self: *Diagnostics, diag: Diagnostic) void {
-    self.diagnostics.append(self.alloc, diag) catch {
+pub fn addDiagnostic(self: *ErrorDetails, alloc: std.mem.Allocator, diag: Diagnostic) void {
+    self.diagnostics.append(alloc, diag) catch {
         self.oom = true;
     };
 }
 
 /// Capture the current stack trace from the VM, replacing any existing stack trace
-pub fn setStackTrace(self: *Diagnostics, vm: *const Vm) void {
+pub fn setStackTrace(self: *ErrorDetails, alloc: std.mem.Allocator, vm: *const Vm) void {
     // Clear existing stack trace
     self.stack_trace.clearRetainingCapacity();
 
     // Capture new stack trace
-    self.stack_trace.ensureTotalCapacity(self.alloc, vm.context.stack_frames.items.len) catch {
+    self.stack_trace.ensureTotalCapacity(alloc, vm.context.stack_frames.items.len) catch {
         self.oom = true;
         return;
     };
@@ -159,13 +171,13 @@ pub fn setStackTrace(self: *Diagnostics, vm: *const Vm) void {
     }
 }
 
-/// Create a pretty printer for diagnostics
-pub fn pretty(self: Diagnostics, vm: *const Vm, syntax_highlighting: SyntaxHighlighting) DiagnosticsPrettyPrinter {
-    return DiagnosticsPrettyPrinter{ .diagnostics = self, .vm = vm, .syntax_highlighting = syntax_highlighting };
+/// Create a pretty printer for error details
+pub fn pretty(self: ErrorDetails, vm: *const Vm, syntax_highlighting: SyntaxHighlighting) PrettyPrinter {
+    return PrettyPrinter{ .diagnostics = self, .vm = vm, .syntax_highlighting = syntax_highlighting };
 }
 
-pub const DiagnosticsPrettyPrinter = struct {
-    diagnostics: Diagnostics,
+pub const PrettyPrinter = struct {
+    diagnostics: ErrorDetails,
     vm: *const Vm,
     syntax_highlighting: SyntaxHighlighting,
 
@@ -179,13 +191,13 @@ pub const DiagnosticsPrettyPrinter = struct {
         const yellow = "\x1b[33m";
     };
 
-    fn colorize(self: DiagnosticsPrettyPrinter, color: []const u8) []const u8 {
+    fn colorize(self: PrettyPrinter, color: []const u8) []const u8 {
         return if (self.syntax_highlighting == .color) color else "";
     }
 
-    pub fn format(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    pub fn format(self: PrettyPrinter, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         if (self.diagnostics.oom) {
-            try writer.writeAll("Warning: Diagnostics encountered OOM. Some information may be lost.");
+            try writer.writeAll("Warning: Error details encountered OOM. Some information may be lost.");
         }
 
         if (self.diagnostics.diagnostics.items.len == 0 and self.diagnostics.stack_trace.items.len == 0) {
@@ -206,7 +218,7 @@ pub const DiagnosticsPrettyPrinter = struct {
         try writer.writeAll("\n");
     }
 
-    fn formatStackTrace(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    fn formatStackTrace(self: PrettyPrinter, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         // Stack Trace Header - Yellow
         try writer.writeAll(self.colorize(Color.yellow));
         try writer.writeAll("Stack trace:");
@@ -243,7 +255,7 @@ pub const DiagnosticsPrettyPrinter = struct {
         }
     }
 
-    fn formatDiagnostic(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer, diag: Diagnostic) std.Io.Writer.Error!void {
+    fn formatDiagnostic(self: PrettyPrinter, writer: *std.Io.Writer, diag: Diagnostic) std.Io.Writer.Error!void {
         switch (diag) {
             .none => try writer.writeAll("No diagnostic"),
             .reader => |r| try self.formatReaderError(writer, r),
@@ -259,7 +271,7 @@ pub const DiagnosticsPrettyPrinter = struct {
         }
     }
 
-    fn formatReaderError(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer, r: ReadErrorInfo) std.Io.Writer.Error!void {
+    fn formatReaderError(self: PrettyPrinter, writer: *std.Io.Writer, r: ReadErrorInfo) std.Io.Writer.Error!void {
         // Location (line:column) - Dim
         try writer.writeAll(self.colorize(Color.dim));
         try writer.print("{}:{}: ", .{ r.line, r.column });
@@ -304,7 +316,7 @@ pub const DiagnosticsPrettyPrinter = struct {
         }
     }
 
-    fn formatUndefinedBehavior(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer, msg: []const u8) std.Io.Writer.Error!void {
+    fn formatUndefinedBehavior(self: PrettyPrinter, writer: *std.Io.Writer, msg: []const u8) std.Io.Writer.Error!void {
         // Error message - Red
         try writer.writeAll(self.colorize(Color.red));
         try writer.writeAll("Undefined behavior: ");
@@ -312,7 +324,7 @@ pub const DiagnosticsPrettyPrinter = struct {
         try writer.print("{s}", .{msg});
     }
 
-    fn formatUndefinedVariable(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer, uv: UndefinedVariableInfo) std.Io.Writer.Error!void {
+    fn formatUndefinedVariable(self: PrettyPrinter, writer: *std.Io.Writer, uv: UndefinedVariableInfo) std.Io.Writer.Error!void {
         // Error message - Red
         try writer.writeAll(self.colorize(Color.red));
         try writer.writeAll("Undefined variable:");
@@ -330,7 +342,7 @@ pub const DiagnosticsPrettyPrinter = struct {
         try writer.print("{f}", .{self.vm.pretty(Val.initModule(uv.module), .{ .repr = .display })});
     }
 
-    fn formatNotCallable(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer, val: Val) std.Io.Writer.Error!void {
+    fn formatNotCallable(self: PrettyPrinter, writer: *std.Io.Writer, val: Val) std.Io.Writer.Error!void {
         // Error message - Red
         try writer.writeAll(self.colorize(Color.red));
         try writer.writeAll("Not callable:");
@@ -345,7 +357,7 @@ pub const DiagnosticsPrettyPrinter = struct {
         try writer.writeAll("(expected a procedure)");
     }
 
-    fn formatWrongArgCount(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer, wac: WrongArgCountInfo) std.Io.Writer.Error!void {
+    fn formatWrongArgCount(self: PrettyPrinter, writer: *std.Io.Writer, wac: WrongArgCountInfo) std.Io.Writer.Error!void {
         // Error message - Red
         try writer.writeAll(self.colorize(Color.red));
         try writer.writeAll("Wrong argument count");
@@ -372,7 +384,7 @@ pub const DiagnosticsPrettyPrinter = struct {
         try writer.writeAll(self.colorize(Color.reset));
     }
 
-    fn formatWrongArgType(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer, wat: WrongArgTypeInfo) std.Io.Writer.Error!void {
+    fn formatWrongArgType(self: PrettyPrinter, writer: *std.Io.Writer, wat: WrongArgTypeInfo) std.Io.Writer.Error!void {
         // Error message - Red
         try writer.writeAll(self.colorize(Color.red));
         try writer.writeAll("Wrong argument type");
@@ -429,7 +441,7 @@ pub const DiagnosticsPrettyPrinter = struct {
         }
     }
 
-    fn formatArgPosition(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer, pos: u32) std.Io.Writer.Error!void {
+    fn formatArgPosition(self: PrettyPrinter, writer: *std.Io.Writer, pos: u32) std.Io.Writer.Error!void {
         _ = self;
         const display_pos = pos + 1; // Convert to 1-indexed for user display
         const suffix = switch (display_pos % 10) {
@@ -442,7 +454,7 @@ pub const DiagnosticsPrettyPrinter = struct {
         try writer.writeAll(" argument");
     }
 
-    fn formatInvalidExpression(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer, ie: InvalidExpressionInfo) std.Io.Writer.Error!void {
+    fn formatInvalidExpression(self: PrettyPrinter, writer: *std.Io.Writer, ie: InvalidExpressionInfo) std.Io.Writer.Error!void {
         // Error message - Red
         try writer.writeAll(self.colorize(Color.red));
         try writer.writeAll("Invalid expression: ");
@@ -470,7 +482,7 @@ pub const DiagnosticsPrettyPrinter = struct {
         }
     }
 
-    fn formatUnsupportedFeature(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer, uf: UnsupportedFeatureInfo) std.Io.Writer.Error!void {
+    fn formatUnsupportedFeature(self: PrettyPrinter, writer: *std.Io.Writer, uf: UnsupportedFeatureInfo) std.Io.Writer.Error!void {
         // Error message - Red
         try writer.writeAll(self.colorize(Color.red));
         try writer.writeAll("Unsupported feature:");
@@ -494,7 +506,7 @@ pub const DiagnosticsPrettyPrinter = struct {
         }
     }
 
-    fn formatArithmeticOverflow(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer, ao: ArithmeticOverflowInfo) std.Io.Writer.Error!void {
+    fn formatArithmeticOverflow(self: PrettyPrinter, writer: *std.Io.Writer, ao: ArithmeticOverflowInfo) std.Io.Writer.Error!void {
         // Error message - Red
         try writer.writeAll(self.colorize(Color.red));
         try writer.writeAll("Arithmetic overflow");
@@ -530,7 +542,7 @@ pub const DiagnosticsPrettyPrinter = struct {
         }
     }
 
-    fn formatOther(self: DiagnosticsPrettyPrinter, writer: *std.Io.Writer, msg: []const u8) std.Io.Writer.Error!void {
+    fn formatOther(self: PrettyPrinter, writer: *std.Io.Writer, msg: []const u8) std.Io.Writer.Error!void {
         // Error message - Red
         try writer.writeAll(self.colorize(Color.red));
         try writer.writeAll("Error: ");

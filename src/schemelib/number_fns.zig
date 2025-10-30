@@ -1,7 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 
-const Diagnostics = @import("../Diagnostics.zig");
+const ErrorDetails = @import("../types/ErrorDetails.zig");
 const Instruction = @import("../instruction.zig").Instruction;
 const Module = @import("../types/Module.zig");
 const NativeProc = @import("../types/NativeProc.zig");
@@ -107,21 +107,19 @@ fn isEqual(a: Number, b: Number) bool {
 
 /// Helper function to validate all arguments are numbers and populate diagnostics on error
 /// Reports diagnostics for ALL invalid arguments, not just the first one
-fn validateNumberArgs(args: []const Val, diagnostics: ?*Diagnostics, proc: Val) !void {
+fn validateNumberArgs(vm: *Vm, args: []const Val, diagnostics: *ErrorDetails, proc: Val) !void {
     var has_error = false;
     for (args, 0..) |v, i| {
         if (v.asNumber() == null) {
             @branchHint(.cold);
             has_error = true;
-            if (diagnostics) |d| {
-                d.addDiagnostic(.{ .wrong_arg_type = .{
+            diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_type = .{
                     .expected = "number",
                     .got = v,
                     .proc = proc,
                     .arg_name = null,
                     .arg_position = @intCast(i),
                 } });
-            }
         }
     }
     if (has_error) {
@@ -130,9 +128,9 @@ fn validateNumberArgs(args: []const Val, diagnostics: ?*Diagnostics, proc: Val) 
 }
 
 /// Generic comparison helper that checks if all arguments are ordered according to compareFn
-fn checkOrdered(args: []const Val, diagnostics: ?*Diagnostics, proc: Val, comptime compare_fn: fn (Number, Number) bool) Vm.Error!Val {
+fn checkOrdered(vm: *Vm, args: []const Val, diagnostics: *ErrorDetails, proc: Val, comptime compare_fn: fn (Number, Number) bool) Vm.Error!Val {
     // Validate all arguments are numbers first
-    try validateNumberArgs(args, diagnostics, proc);
+    try validateNumberArgs(vm, args, diagnostics, proc);
 
     const is_ordered = switch (args.len) {
         0 => true,
@@ -161,9 +159,9 @@ pub const add = NativeProc.withRawArgs(struct {
         \\(+)     =>  0
     ;
 
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, args: []const Val) Vm.Error!Val {
         // Validate all arguments are numbers first
-        try validateNumberArgs(args, diagnostics, Val.initNativeProc(&add));
+        try validateNumberArgs(vm, args, diagnostics, Val.initNativeProc(&add));
 
         var int_sum: i64 = 0;
         var rational_num: i64 = 0;
@@ -199,19 +197,17 @@ pub const add = NativeProc.withRawArgs(struct {
             rational_num += int_sum * rational_den;
             const rational = number.Rational.fromInt64(rational_num, @intCast(rational_den)) catch |err| {
                 @branchHint(.cold);
-                if (diagnostics) |d| {
                     const component: []const u8 = switch (err) {
                         error.DenominatorZero => "denominator (division by zero)",
                         error.NumeratorTooLarge => "numerator",
                         error.DenominatorTooLarge => "denominator",
                     };
-                    d.addDiagnostic(.{ .arithmetic_overflow = .{
+                diagnostics.addDiagnostic(vm.allocator(),.{ .arithmetic_overflow = .{
                         .operation = "addition",
                         .component = component,
                         .proc = Val.initNativeProc(&add),
                         .hint = "Consider using inexact arithmetic with floats",
                     } });
-                }
                 return Vm.Error.UncaughtException;
             };
             return Val.initRational(rational);
@@ -231,21 +227,19 @@ pub const sub = NativeProc.withRawArgs(struct {
         \\(- 3 4 5)   =>  -6
         \\(- 3)       =>  -3
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, args: []const Val) Vm.Error!Val {
         if (args.len == 0) {
             @branchHint(.cold);
-            if (diagnostics) |d| {
-                d.addDiagnostic(.{ .wrong_arg_count = .{
+            diagnostics.addDiagnostic(vm.allocator(),.{ .wrong_arg_count = .{
                     .expected = 1,
                     .got = 0,
                     .proc = Val.initNativeProc(&sub),
                 } });
-            }
             return Vm.Error.UncaughtException;
         }
 
         // Validate all arguments are numbers first
-        try validateNumberArgs(args, diagnostics, Val.initNativeProc(&sub));
+        try validateNumberArgs(vm, args, diagnostics, Val.initNativeProc(&sub));
 
         // Single argument: return negation
         if (args.len == 1) {
@@ -307,19 +301,17 @@ pub const sub = NativeProc.withRawArgs(struct {
             rational_num -= int_result * rational_den;
             const rational = number.Rational.fromInt64(rational_num, @intCast(@abs(rational_den))) catch |err| {
                 @branchHint(.cold);
-                if (diagnostics) |d| {
                     const component: []const u8 = switch (err) {
                         error.DenominatorZero => "denominator (division by zero)",
                         error.NumeratorTooLarge => "numerator",
                         error.DenominatorTooLarge => "denominator",
                     };
-                    d.addDiagnostic(.{ .arithmetic_overflow = .{
+                diagnostics.addDiagnostic(vm.allocator(),.{ .arithmetic_overflow = .{
                         .operation = "subtraction",
                         .component = component,
                         .proc = Val.initNativeProc(&sub),
                         .hint = "Consider using inexact arithmetic with floats",
                     } });
-                }
                 return Vm.Error.UncaughtException;
             };
             return Val.initRational(rational);
@@ -339,9 +331,9 @@ pub const mul = NativeProc.withRawArgs(struct {
         \\(*)       =>  1
     ;
 
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, args: []const Val) Vm.Error!Val {
         // Validate all arguments are numbers first
-        try validateNumberArgs(args, diagnostics, Val.initNativeProc(&mul));
+        try validateNumberArgs(vm, args, diagnostics, Val.initNativeProc(&mul));
 
         var int_product: i64 = 1;
         var rational_num: i64 = 1;
@@ -377,19 +369,17 @@ pub const mul = NativeProc.withRawArgs(struct {
             rational_num *= int_product;
             const rational = number.Rational.fromInt64(rational_num, @intCast(rational_den)) catch |err| {
                 @branchHint(.cold);
-                if (diagnostics) |d| {
                     const component: []const u8 = switch (err) {
                         error.DenominatorZero => "denominator (division by zero)",
                         error.NumeratorTooLarge => "numerator",
                         error.DenominatorTooLarge => "denominator",
                     };
-                    d.addDiagnostic(.{ .arithmetic_overflow = .{
+                diagnostics.addDiagnostic(vm.allocator(),.{ .arithmetic_overflow = .{
                         .operation = "multiplication",
                         .component = component,
                         .proc = Val.initNativeProc(&mul),
                         .hint = "Consider using inexact arithmetic with floats",
                     } });
-                }
                 return Vm.Error.UncaughtException;
             };
             return Val.initRational(rational);
@@ -411,21 +401,19 @@ pub const div = NativeProc.withRawArgs(struct {
         \\(/ 1 2)      =>  1/2
     ;
 
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, args: []const Val) Vm.Error!Val {
         if (args.len == 0) {
             @branchHint(.cold);
-            if (diagnostics) |d| {
-                d.addDiagnostic(.{ .wrong_arg_count = .{
+            diagnostics.addDiagnostic(vm.allocator(),.{ .wrong_arg_count = .{
                     .expected = 1,
                     .got = 0,
                     .proc = Val.initNativeProc(&div),
                 } });
-            }
             return Vm.Error.UncaughtException;
         }
 
         // Validate all arguments are numbers first
-        try validateNumberArgs(args, diagnostics, Val.initNativeProc(&div));
+        try validateNumberArgs(vm, args, diagnostics, Val.initNativeProc(&div));
 
         // Single argument: return reciprocal
         if (args.len == 1) {
@@ -434,14 +422,12 @@ pub const div = NativeProc.withRawArgs(struct {
                 .int => |x| {
                     if (x == 0) {
                         @branchHint(.cold);
-                        if (diagnostics) |d| {
-                            d.addDiagnostic(.{ .arithmetic_overflow = .{
+                                diagnostics.addDiagnostic(vm.allocator(),.{ .arithmetic_overflow = .{
                                 .operation = "division",
                                 .component = "denominator (division by zero)",
                                 .proc = Val.initNativeProc(&div),
                                 .hint = null,
                             } });
-                        }
                         return Vm.Error.UncaughtException;
                     }
                     if (x == 1) return Val.initInt(1);
@@ -449,19 +435,17 @@ pub const div = NativeProc.withRawArgs(struct {
                     // Return 1/x as a rational
                     const rational = number.Rational.fromInt64(1, @intCast(@abs(x))) catch |err| {
                         @branchHint(.cold);
-                        if (diagnostics) |d| {
-                            const component: []const u8 = switch (err) {
+                                    const component: []const u8 = switch (err) {
                                 error.DenominatorZero => "denominator (division by zero)",
                                 error.NumeratorTooLarge => "numerator",
                                 error.DenominatorTooLarge => "denominator",
                             };
-                            d.addDiagnostic(.{ .arithmetic_overflow = .{
+                        diagnostics.addDiagnostic(vm.allocator(),.{ .arithmetic_overflow = .{
                                 .operation = "division",
                                 .component = component,
                                 .proc = Val.initNativeProc(&div),
                                 .hint = "Consider using inexact arithmetic with floats",
                             } });
-                        }
                         return Vm.Error.UncaughtException;
                     };
                     return Val.initRational(if (x < 0) number.Rational.init(-rational.numerator, rational.denominator) else rational);
@@ -470,31 +454,27 @@ pub const div = NativeProc.withRawArgs(struct {
                     // Reciprocal: flip numerator and denominator
                     if (r.numerator == 0) {
                         @branchHint(.cold);
-                        if (diagnostics) |d| {
-                            d.addDiagnostic(.{ .arithmetic_overflow = .{
+                                diagnostics.addDiagnostic(vm.allocator(),.{ .arithmetic_overflow = .{
                                 .operation = "division",
                                 .component = "denominator (division by zero)",
                                 .proc = Val.initNativeProc(&div),
                                 .hint = null,
                             } });
-                        }
                         return Vm.Error.UncaughtException;
                     }
                     const rational = number.Rational.fromInt64(@as(i64, r.denominator), @intCast(@abs(r.numerator))) catch |err| {
                         @branchHint(.cold);
-                        if (diagnostics) |d| {
-                            const component: []const u8 = switch (err) {
+                                    const component: []const u8 = switch (err) {
                                 error.DenominatorZero => "denominator (division by zero)",
                                 error.NumeratorTooLarge => "numerator",
                                 error.DenominatorTooLarge => "denominator",
                             };
-                            d.addDiagnostic(.{ .arithmetic_overflow = .{
+                        diagnostics.addDiagnostic(vm.allocator(),.{ .arithmetic_overflow = .{
                                 .operation = "division",
                                 .component = component,
                                 .proc = Val.initNativeProc(&div),
                                 .hint = "Consider using inexact arithmetic with floats",
                             } });
-                        }
                         return Vm.Error.UncaughtException;
                     };
                     return Val.initRational(if (r.numerator < 0) number.Rational.init(-rational.numerator, rational.denominator) else rational);
@@ -502,14 +482,12 @@ pub const div = NativeProc.withRawArgs(struct {
                 .float => |x| {
                     if (x == 0.0) {
                         @branchHint(.cold);
-                        if (diagnostics) |d| {
-                            d.addDiagnostic(.{ .arithmetic_overflow = .{
+                                diagnostics.addDiagnostic(vm.allocator(),.{ .arithmetic_overflow = .{
                                 .operation = "division",
                                 .component = "denominator (division by zero)",
                                 .proc = Val.initNativeProc(&div),
                                 .hint = null,
                             } });
-                        }
                         return Vm.Error.UncaughtException;
                     }
                     return Val.initFloat(1.0 / x);
@@ -549,14 +527,12 @@ pub const div = NativeProc.withRawArgs(struct {
                 .int => |x| {
                     if (x == 0) {
                         @branchHint(.cold);
-                        if (diagnostics) |d| {
-                            d.addDiagnostic(.{ .arithmetic_overflow = .{
+                                diagnostics.addDiagnostic(vm.allocator(),.{ .arithmetic_overflow = .{
                                 .operation = "division",
                                 .component = "denominator (division by zero)",
                                 .proc = Val.initNativeProc(&div),
                                 .hint = null,
                             } });
-                        }
                         return Vm.Error.UncaughtException;
                     }
                     if (!has_float and !has_rational) {
@@ -576,14 +552,12 @@ pub const div = NativeProc.withRawArgs(struct {
                 .rational => |r| {
                     if (r.numerator == 0) {
                         @branchHint(.cold);
-                        if (diagnostics) |d| {
-                            d.addDiagnostic(.{ .arithmetic_overflow = .{
+                                diagnostics.addDiagnostic(vm.allocator(),.{ .arithmetic_overflow = .{
                                 .operation = "division",
                                 .component = "denominator (division by zero)",
                                 .proc = Val.initNativeProc(&div),
                                 .hint = null,
                             } });
-                        }
                         return Vm.Error.UncaughtException;
                     }
                     if (has_float) {
@@ -602,14 +576,12 @@ pub const div = NativeProc.withRawArgs(struct {
                 .float => |x| {
                     if (x == 0.0) {
                         @branchHint(.cold);
-                        if (diagnostics) |d| {
-                            d.addDiagnostic(.{ .arithmetic_overflow = .{
+                                diagnostics.addDiagnostic(vm.allocator(),.{ .arithmetic_overflow = .{
                                 .operation = "division",
                                 .component = "denominator (division by zero)",
                                 .proc = Val.initNativeProc(&div),
                                 .hint = null,
                             } });
-                        }
                         return Vm.Error.UncaughtException;
                     }
                     if (!has_float) {
@@ -636,19 +608,17 @@ pub const div = NativeProc.withRawArgs(struct {
 
             const rational = number.Rational.fromInt64(final_num, @intCast(final_den)) catch |err| {
                 @branchHint(.cold);
-                if (diagnostics) |d| {
                     const component: []const u8 = switch (err) {
                         error.DenominatorZero => "denominator (division by zero)",
                         error.NumeratorTooLarge => "numerator",
                         error.DenominatorTooLarge => "denominator",
                     };
-                    d.addDiagnostic(.{ .arithmetic_overflow = .{
+                diagnostics.addDiagnostic(vm.allocator(),.{ .arithmetic_overflow = .{
                         .operation = "division",
                         .component = component,
                         .proc = Val.initNativeProc(&div),
                         .hint = "Consider using inexact arithmetic with floats",
                     } });
-                }
                 return Vm.Error.UncaughtException;
             };
             return Val.initRational(rational);
@@ -666,8 +636,8 @@ pub const lt = NativeProc.withRawArgs(struct {
         \\(< 1 2 3)  =>  #t
         \\(< 1 1 2)  =>  #f
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
-        return checkOrdered(args, diagnostics, Val.initNativeProc(&lt), isLessThan);
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, args: []const Val) Vm.Error!Val {
+        return checkOrdered(vm, args, diagnostics, Val.initNativeProc(&lt), isLessThan);
     }
 });
 
@@ -680,8 +650,8 @@ pub const lte = NativeProc.withRawArgs(struct {
         \\(<= 1 2 2 3)  =>  #t
         \\(<= 1 2 1)    =>  #f
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
-        return checkOrdered(args, diagnostics, Val.initNativeProc(&lte), isLessThanOrEqual);
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, args: []const Val) Vm.Error!Val {
+        return checkOrdered(vm, args, diagnostics, Val.initNativeProc(&lte), isLessThanOrEqual);
     }
 });
 
@@ -694,8 +664,8 @@ pub const gt = NativeProc.withRawArgs(struct {
         \\(> 3 2 1)  =>  #t
         \\(> 3 3 1)  =>  #f
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
-        return checkOrdered(args, diagnostics, Val.initNativeProc(&gt), isGreaterThan);
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, args: []const Val) Vm.Error!Val {
+        return checkOrdered(vm, args, diagnostics, Val.initNativeProc(&gt), isGreaterThan);
     }
 });
 
@@ -708,8 +678,8 @@ pub const gte = NativeProc.withRawArgs(struct {
         \\(>= 3 2 2 1)  =>  #t
         \\(>= 3 2 3)    =>  #f
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
-        return checkOrdered(args, diagnostics, Val.initNativeProc(&gte), isGreaterThanOrEqual);
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, args: []const Val) Vm.Error!Val {
+        return checkOrdered(vm, args, diagnostics, Val.initNativeProc(&gte), isGreaterThanOrEqual);
     }
 });
 
@@ -723,8 +693,8 @@ pub const eq = NativeProc.withRawArgs(struct {
         \\(= 1 1 2)    =>  #f
         \\(= 5.0 5)    =>  #t
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
-        return checkOrdered(args, diagnostics, Val.initNativeProc(&eq), isEqual);
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, args: []const Val) Vm.Error!Val {
+        return checkOrdered(vm, args, diagnostics, Val.initNativeProc(&eq), isEqual);
     }
 });
 
@@ -738,7 +708,7 @@ pub const number_p = NativeProc.with1Arg(struct {
         \\(number? 5.0)    =>  #t
         \\(number? "5")    =>  #f
     ;
-    pub inline fn impl(_: *Vm, _: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub inline fn impl(_: *Vm, _: *ErrorDetails, arg: Val) Vm.Error!Val {
         return Val.initBool(arg.asNumber() != null);
     }
 });
@@ -753,7 +723,7 @@ pub const integer_p = NativeProc.with1Arg(struct {
         \\(integer? 5.0)   =>  #t
         \\(integer? 5.5)   =>  #f
     ;
-    pub inline fn impl(_: *Vm, _: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub inline fn impl(_: *Vm, _: *ErrorDetails, arg: Val) Vm.Error!Val {
         const num = arg.asNumber() orelse return Val.initBool(false);
         const is_int = switch (num) {
             .int => true,
@@ -774,7 +744,7 @@ pub const exact_integer_p = NativeProc.with1Arg(struct {
         \\(exact-integer? 32.0)  =>  #f
         \\(exact-integer? 32/5)  =>  #f
     ;
-    pub inline fn impl(_: *Vm, _: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub inline fn impl(_: *Vm, _: *ErrorDetails, arg: Val) Vm.Error!Val {
         return Val.initBool(arg.data == .int);
     }
 });
@@ -789,7 +759,7 @@ pub const rational_p = NativeProc.with1Arg(struct {
         \\(rational? 5)    =>  #f
         \\(rational? 5.5)  =>  #f
     ;
-    pub inline fn impl(_: *Vm, _: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub inline fn impl(_: *Vm, _: *ErrorDetails, arg: Val) Vm.Error!Val {
         return Val.initBool(arg.data == .rational);
     }
 });
@@ -804,7 +774,7 @@ pub const exact_p = NativeProc.with1Arg(struct {
         \\(exact? 1/2)    =>  #t
         \\(exact? 5.5)    =>  #f
     ;
-    pub inline fn impl(_: *Vm, _: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub inline fn impl(_: *Vm, _: *ErrorDetails, arg: Val) Vm.Error!Val {
         return Val.initBool(arg.data == .int or arg.data == .rational);
     }
 });
@@ -819,7 +789,7 @@ pub const inexact_p = NativeProc.with1Arg(struct {
         \\(inexact? 5)    =>  #f
         \\(inexact? 1/2)  =>  #f
     ;
-    pub inline fn impl(_: *Vm, _: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub inline fn impl(_: *Vm, _: *ErrorDetails, arg: Val) Vm.Error!Val {
         return Val.initBool(arg.data == .float);
     }
 });
@@ -860,18 +830,16 @@ pub const round = NativeProc.with1Arg(struct {
         \\(round 5)     =>  5
         \\(round 1/2)   =>  0
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, arg: Val) Vm.Error!Val {
         const num = arg.asNumber() orelse {
             @branchHint(.cold);
-            if (diagnostics) |d| {
-                d.addDiagnostic(.{ .wrong_arg_type = .{
-                    .expected = "number",
-                    .got = arg,
-                    .proc = Val.initNativeProc(&round),
-                    .arg_name = "x",
-                    .arg_position = 0,
-                } });
-            }
+            diagnostics.addDiagnostic(vm.allocator(),.{ .wrong_arg_type = .{
+                .expected = "number",
+                .got = arg,
+                .proc = Val.initNativeProc(&round),
+                .arg_name = "x",
+                .arg_position = 0,
+            } });
             return Vm.Error.UncaughtException;
         };
 
@@ -900,7 +868,7 @@ pub const finite_p = NativeProc.with1Arg(struct {
         \\(finite? -inf.0) =>  #f
         \\(finite? +nan.0) =>  #f
     ;
-    pub inline fn impl(_: *Vm, _: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub inline fn impl(_: *Vm, _: *ErrorDetails, arg: Val) Vm.Error!Val {
         const num = arg.asNumber() orelse return Val.initBool(false);
         const is_finite = switch (num) {
             .int => true,
@@ -922,18 +890,16 @@ pub const zero_p = NativeProc.with1Arg(struct {
         \\(zero? 1)    =>  #f
         \\(zero? -1)   =>  #f
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, arg: Val) Vm.Error!Val {
         const num = arg.asNumber() orelse {
             @branchHint(.cold);
-            if (diagnostics) |d| {
-                d.addDiagnostic(.{ .wrong_arg_type = .{
-                    .expected = "number",
-                    .got = arg,
-                    .proc = Val.initNativeProc(&zero_p),
-                    .arg_name = "z",
-                    .arg_position = 0,
-                } });
-            }
+            diagnostics.addDiagnostic(vm.allocator(),.{ .wrong_arg_type = .{
+                .expected = "number",
+                .got = arg,
+                .proc = Val.initNativeProc(&zero_p),
+                .arg_name = "z",
+                .arg_position = 0,
+            } });
             return Vm.Error.UncaughtException;
         };
 
@@ -957,18 +923,16 @@ pub const positive_p = NativeProc.with1Arg(struct {
         \\(positive? -1)   =>  #f
         \\(positive? 0.5)  =>  #t
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, arg: Val) Vm.Error!Val {
         const num = arg.asNumber() orelse {
             @branchHint(.cold);
-            if (diagnostics) |d| {
-                d.addDiagnostic(.{ .wrong_arg_type = .{
-                    .expected = "number",
-                    .got = arg,
-                    .proc = Val.initNativeProc(&positive_p),
-                    .arg_name = "x",
-                    .arg_position = 0,
-                } });
-            }
+            diagnostics.addDiagnostic(vm.allocator(),.{ .wrong_arg_type = .{
+                .expected = "number",
+                .got = arg,
+                .proc = Val.initNativeProc(&positive_p),
+                .arg_name = "x",
+                .arg_position = 0,
+            } });
             return Vm.Error.UncaughtException;
         };
 
@@ -992,18 +956,16 @@ pub const negative_p = NativeProc.with1Arg(struct {
         \\(negative? 1)    =>  #f
         \\(negative? -0.5) =>  #t
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, arg: Val) Vm.Error!Val {
         const num = arg.asNumber() orelse {
             @branchHint(.cold);
-            if (diagnostics) |d| {
-                d.addDiagnostic(.{ .wrong_arg_type = .{
-                    .expected = "number",
-                    .got = arg,
-                    .proc = Val.initNativeProc(&negative_p),
-                    .arg_name = "x",
-                    .arg_position = 0,
-                } });
-            }
+            diagnostics.addDiagnostic(vm.allocator(),.{ .wrong_arg_type = .{
+                .expected = "number",
+                .got = arg,
+                .proc = Val.initNativeProc(&negative_p),
+                .arg_name = "x",
+                .arg_position = 0,
+            } });
             return Vm.Error.UncaughtException;
         };
 
@@ -1027,18 +989,16 @@ pub const odd_p = NativeProc.with1Arg(struct {
         \\(odd? -1)  =>  #t
         \\(odd? 0)   =>  #f
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, arg: Val) Vm.Error!Val {
         const num = arg.asNumber() orelse {
             @branchHint(.cold);
-            if (diagnostics) |d| {
-                d.addDiagnostic(.{ .wrong_arg_type = .{
-                    .expected = "number",
-                    .got = arg,
-                    .proc = Val.initNativeProc(&odd_p),
-                    .arg_name = "n",
-                    .arg_position = 0,
-                } });
-            }
+            diagnostics.addDiagnostic(vm.allocator(),.{ .wrong_arg_type = .{
+                .expected = "number",
+                .got = arg,
+                .proc = Val.initNativeProc(&odd_p),
+                .arg_name = "n",
+                .arg_position = 0,
+            } });
             return Vm.Error.UncaughtException;
         };
 
@@ -1075,18 +1035,16 @@ pub const even_p = NativeProc.with1Arg(struct {
         \\(even? -2)  =>  #t
         \\(even? 0)   =>  #t
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, arg: Val) Vm.Error!Val {
         const num = arg.asNumber() orelse {
             @branchHint(.cold);
-            if (diagnostics) |d| {
-                d.addDiagnostic(.{ .wrong_arg_type = .{
-                    .expected = "number",
-                    .got = arg,
-                    .proc = Val.initNativeProc(&even_p),
-                    .arg_name = "n",
-                    .arg_position = 0,
-                } });
-            }
+            diagnostics.addDiagnostic(vm.allocator(),.{ .wrong_arg_type = .{
+                .expected = "number",
+                .got = arg,
+                .proc = Val.initNativeProc(&even_p),
+                .arg_name = "n",
+                .arg_position = 0,
+            } });
             return Vm.Error.UncaughtException;
         };
 
@@ -1124,21 +1082,19 @@ pub const max = NativeProc.withRawArgs(struct {
         \\(max 3.5 2)   =>  3.5
     ;
 
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, args: []const Val) Vm.Error!Val {
         if (args.len == 0) {
             @branchHint(.cold);
-            if (diagnostics) |d| {
-                d.addDiagnostic(.{ .wrong_arg_count = .{
+            diagnostics.addDiagnostic(vm.allocator(),.{ .wrong_arg_count = .{
                     .expected = 1,
                     .got = 0,
                     .proc = Val.initNativeProc(&max),
                 } });
-            }
             return Vm.Error.UncaughtException;
         }
 
         // Validate all arguments are numbers first
-        try validateNumberArgs(args, diagnostics, Val.initNativeProc(&max));
+        try validateNumberArgs(vm, args, diagnostics, Val.initNativeProc(&max));
 
         // Check if any argument is a float (inexact)
         var has_float = false;
@@ -1176,21 +1132,19 @@ pub const min = NativeProc.withRawArgs(struct {
         \\(min 3.5 2)   =>  2
     ;
 
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, args: []const Val) Vm.Error!Val {
         if (args.len == 0) {
             @branchHint(.cold);
-            if (diagnostics) |d| {
-                d.addDiagnostic(.{ .wrong_arg_count = .{
+            diagnostics.addDiagnostic(vm.allocator(),.{ .wrong_arg_count = .{
                     .expected = 1,
                     .got = 0,
                     .proc = Val.initNativeProc(&min),
                 } });
-            }
             return Vm.Error.UncaughtException;
         }
 
         // Validate all arguments are numbers first
-        try validateNumberArgs(args, diagnostics, Val.initNativeProc(&min));
+        try validateNumberArgs(vm, args, diagnostics, Val.initNativeProc(&min));
 
         // Check if any argument is a float (inexact)
         var has_float = false;
@@ -1227,18 +1181,16 @@ pub const abs = NativeProc.with1Arg(struct {
         \\(abs 0)     =>  0
         \\(abs -3.5)  =>  3.5
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, arg: Val) Vm.Error!Val {
         const num = arg.asNumber() orelse {
             @branchHint(.cold);
-            if (diagnostics) |d| {
-                d.addDiagnostic(.{ .wrong_arg_type = .{
-                    .expected = "number",
-                    .got = arg,
-                    .proc = Val.initNativeProc(&abs),
-                    .arg_name = "x",
-                    .arg_position = 0,
-                } });
-            }
+            diagnostics.addDiagnostic(vm.allocator(),.{ .wrong_arg_type = .{
+                .expected = "number",
+                .got = arg,
+                .proc = Val.initNativeProc(&abs),
+                .arg_name = "x",
+                .arg_position = 0,
+            } });
             return Vm.Error.UncaughtException;
         };
 

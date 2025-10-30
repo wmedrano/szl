@@ -1,8 +1,8 @@
 const std = @import("std");
 
-const Diagnostics = @import("../Diagnostics.zig");
 const Box = @import("../types/Box.zig");
 const Continuation = @import("../types/Continuation.zig");
+const ErrorDetails = @import("../types/ErrorDetails.zig");
 const Module = @import("../types/Module.zig");
 const Handle = @import("../types/object_pool.zig").Handle;
 const Pair = @import("../types/Pair.zig");
@@ -167,6 +167,17 @@ pub inline fn handleToPort(self: Inspector, h: Handle(Port)) Vm.Error!*Port {
     return self.vm.objects.ports.get(h) orelse return Vm.Error.UndefinedBehavior;
 }
 
+pub inline fn asErrorDetails(self: Inspector, val: Val) Vm.Error!*ErrorDetails {
+    return switch (val.data) {
+        .error_details => |h| self.vm.objects.error_details.get(h) orelse return Vm.Error.UndefinedBehavior,
+        else => Vm.Error.UncaughtException,
+    };
+}
+
+pub inline fn handleToErrorDetails(self: Inspector, h: Handle(ErrorDetails)) Vm.Error!*ErrorDetails {
+    return self.vm.objects.error_details.get(h) orelse return Vm.Error.UndefinedBehavior;
+}
+
 pub fn findModule(self: Inspector, path: []const Symbol) ?Handle(Module) {
     var moduleIter = self.vm.objects.modules.iterator();
     while (moduleIter.next()) |module| {
@@ -184,14 +195,17 @@ fn pathEq(a: []const Symbol, b: []const Symbol) bool {
     return true;
 }
 
-pub fn getReplEnv(self: Inspector, diagnostics: ?*Diagnostics) error{ UndefinedBehavior, OutOfMemory }!Handle(Module) {
+pub fn getReplEnv(self: Inspector, diagnostics: *ErrorDetails) error{ UndefinedBehavior, OutOfMemory }!Handle(Module) {
     const b = self.vm.builder();
     const module = self.findModule(&.{
         try b.makeStaticSymbolHandle("user"),
         try b.makeStaticSymbolHandle("repl"),
     });
-    if (module) |m| return m;
-    if (diagnostics) |d| d.addDiagnostic(.{ .undefined_behavior = "Could not find (user repl) module" });
+    if (module) |m| {
+        @branchHint(.likely);
+        return m;
+    }
+    diagnostics.addDiagnostic(self.vm.allocator(), .{ .undefined_behavior = "Could not find (user repl) module" });
     return Vm.Error.UndefinedBehavior;
 }
 

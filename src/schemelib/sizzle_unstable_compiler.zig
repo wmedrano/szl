@@ -1,8 +1,8 @@
 const std = @import("std");
 const testing = std.testing;
 
-const Diagnostics = @import("../Diagnostics.zig");
 const Instruction = @import("../instruction.zig").Instruction;
+const ErrorDetails = @import("../types/ErrorDetails.zig");
 const Module = @import("../types/Module.zig");
 const NativeProc = @import("../types/NativeProc.zig");
 const Handle = @import("../types/object_pool.zig").Handle;
@@ -135,37 +135,34 @@ fn toVal(self: Instruction, vm: *Vm) Vm.Error!Val {
 
 const proc_instructions = NativeProc.withRawArgs(struct {
     pub const name = "proc-instructions";
-    pub inline fn impl(vm: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, args: []const Val) Vm.Error!Val {
         if (args.len != 1) {
-            if (diagnostics) |d| {
-                d.addDiagnostic(.{ .wrong_arg_count = .{
+            @branchHint(.cold);
+            diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_count = .{
                     .expected = 1,
                     .got = @intCast(args.len),
                     .proc = Val.initNativeProc(&proc_instructions),
                 } });
-            }
             return Vm.Error.UncaughtException;
         }
         const raw_instructions = switch (args[0].data) {
             .proc => |h| blk: {
                 const proc = vm.objects.procs.get(h) orelse {
-                    if (diagnostics) |d| {
-                        d.addDiagnostic(.{ .undefined_behavior = "Invalid procedure handle in proc-instructions" });
-                    }
+                    @branchHint(.cold);
+                    diagnostics.addDiagnostic(vm.allocator(), .{ .undefined_behavior = "Invalid procedure handle in proc-instructions" });
                     return error.UndefinedBehavior;
                 };
                 break :blk proc.instructions;
             },
             else => {
-                if (diagnostics) |d| {
-                    d.addDiagnostic(.{ .wrong_arg_type = .{
+                @branchHint(.cold);
+                diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_type = .{
                         .expected = "procedure",
                         .got = args[0],
                         .proc = Val.initNativeProc(&proc_instructions),
                         .arg_name = "proc",
                         .arg_position = 0,
                     } });
-                }
                 return Vm.Error.UncaughtException;
             },
         };

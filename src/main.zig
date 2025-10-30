@@ -34,23 +34,23 @@ fn runScript(allocator: std.mem.Allocator) !void {
     var vm = try szl.Vm.init(.{ .allocator = allocator });
     defer vm.deinit();
 
-    var diagnostics = szl.Diagnostics.init(allocator);
-    defer diagnostics.deinit();
+    var error_details = szl.ErrorDetails{};
+    defer error_details.deinit(allocator);
 
-    _ = vm.evalStr(source.items, null, &diagnostics) catch |err| {
+    _ = vm.evalStr(source.items, null, &error_details) catch |err| {
         const stderr = std.fs.File.stderr();
         // Detect if stderr is a TTY to enable/disable color output
         const use_color = stderr.isTty();
-        const syntax_highlighting: szl.Diagnostics.SyntaxHighlighting = if (use_color) .color else .nocolor;
+        const syntax_highlighting: szl.ErrorDetails.SyntaxHighlighting = if (use_color) .color else .nocolor;
 
         var temp = std.io.Writer.Allocating.init(allocator);
         defer temp.deinit();
         if (use_color) {
             try temp.writer.print("{s}Error: {}\n", .{ COLOR_RED, err });
-            try temp.writer.print("{f}{s}\n", .{ diagnostics.pretty(&vm, syntax_highlighting), COLOR_RESET });
+            try temp.writer.print("{f}{s}\n", .{ error_details.pretty(&vm, syntax_highlighting), COLOR_RESET });
         } else {
             try temp.writer.print("Error: {}\n", .{err});
-            try temp.writer.print("{f}\n", .{diagnostics.pretty(&vm, syntax_highlighting)});
+            try temp.writer.print("{f}\n", .{error_details.pretty(&vm, syntax_highlighting)});
         }
         try stderr.writeAll(temp.writer.buffered());
         return err;
@@ -112,18 +112,18 @@ fn runRepl(allocator: std.mem.Allocator) !void {
 }
 
 fn replEval(allocator: std.mem.Allocator, vm: *szl.Vm, source: []const u8, expr_count: *usize) !void {
-    var diagnostics = szl.Diagnostics.init(allocator);
-    defer diagnostics.deinit();
+    var error_details = szl.ErrorDetails{};
+    defer error_details.deinit(allocator);
 
     const stdout = std.fs.File.stdout();
     // Detect if stdout is a TTY to enable/disable color output
     const use_color = stdout.isTty();
-    const syntax_highlighting: szl.Diagnostics.SyntaxHighlighting = if (use_color) .color else .nocolor;
+    const syntax_highlighting: szl.ErrorDetails.SyntaxHighlighting = if (use_color) .color else .nocolor;
 
     var temp = std.io.Writer.Allocating.init(allocator);
     defer temp.deinit();
 
-    const result = vm.evalStr(source, null, &diagnostics) catch |err| {
+    const result = vm.evalStr(source, null, &error_details) catch |err| {
         const fatal = blk: switch (err) {
             error.OutOfMemory,
             error.UndefinedBehavior,
@@ -141,7 +141,7 @@ fn replEval(allocator: std.mem.Allocator, vm: *szl.Vm, source: []const u8, expr_
             error.UncaughtException,
             => false,
         };
-        try temp.writer.print("{f}\n", .{diagnostics.pretty(vm, syntax_highlighting)});
+        try temp.writer.print("{f}\n", .{error_details.pretty(vm, syntax_highlighting)});
         try stdout.writeAll(temp.writer.buffered());
         if (fatal) return err else return;
     };

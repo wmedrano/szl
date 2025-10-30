@@ -1,6 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 
+const ErrorDetails = @import("types/ErrorDetails.zig");
 const Instruction = @import("instruction.zig").Instruction;
 const Module = @import("types/Module.zig");
 const Handle = @import("types/object_pool.zig").Handle;
@@ -82,7 +83,9 @@ fn exceptionHandlerParam(vm: *Vm) error{ OutOfMemory, UndefinedBehavior }!Handle
     const inspector = vm.inspector();
     // TODO: We should use the (scheme base) or maybe an internal
     // environment instead of the REPL.
-    const repl_env_h = try inspector.getReplEnv(null);
+    var error_details = ErrorDetails{};
+    defer error_details.deinit(vm.allocator());
+    const repl_env_h = try inspector.getReplEnv(&error_details);
     const repl_env = try inspector.handleToModule(repl_env_h);
     const sym = try vm.builder().makeStaticSymbolHandle("%szl-exception-handler");
     const param_val = repl_env.getBySymbol(sym) orelse return error.UndefinedBehavior;

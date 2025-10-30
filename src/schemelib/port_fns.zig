@@ -1,7 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 
-const Diagnostics = @import("../Diagnostics.zig");
+const ErrorDetails = @import("../types/ErrorDetails.zig");
 const NativeProc = @import("../types/NativeProc.zig");
 const Port = @import("../types/Port.zig");
 const Val = @import("../types/Val.zig");
@@ -14,7 +14,7 @@ const Vm = @import("../Vm.zig");
 /// - Otherwise, returns the current-output-port parameter
 fn getOutputPort(
     vm: *Vm,
-    diagnostics: ?*Diagnostics,
+    diagnostics: *ErrorDetails,
 ) Vm.Error!Val {
     // Get current-output-port parameter from REPL environment
     const inspector = vm.inspector();
@@ -25,18 +25,14 @@ fn getOutputPort(
 
     const param_val = repl_module.getBySymbol(current_output_port_symbol) orelse {
         @branchHint(.cold);
-        if (diagnostics) |d| {
-            d.addDiagnostic(.{ .other = "current-output-port not found" });
-        }
+        diagnostics.addDiagnostic(vm.allocator(), .{ .other = "current-output-port not found" });
         return Vm.Error.UncaughtException;
     };
 
     // Extract the parameter and get its value
     const param = param_val.asParameter() orelse {
         @branchHint(.cold);
-        if (diagnostics) |d| {
-            d.addDiagnostic(.{ .other = "current-output-port is not a parameter" });
-        }
+        diagnostics.addDiagnostic(vm.allocator(), .{ .other = "current-output-port is not a parameter" });
         return Vm.Error.UncaughtException;
     };
     const val = try inspector.resolveParameter(param);
@@ -46,7 +42,7 @@ fn getOutputPort(
 /// Parameters for writing to a port
 const WriteToPortParams = struct {
     vm: *Vm,
-    diagnostics: ?*Diagnostics,
+    diagnostics: *ErrorDetails,
     obj: Val,
     port_val: Val,
     proc: *const NativeProc,
@@ -59,12 +55,11 @@ fn writeToPort(params: WriteToPortParams) Vm.Error!void {
     const inspector = params.vm.inspector();
     const port = inspector.asPort(params.port_val) catch {
         @branchHint(.cold);
-        if (params.diagnostics) |d| {
             const hint = if (params.arg_position != null)
                 "port argument is optional; omit it to use current-output-port"
             else
                 "current-output-port parameter must be an output port";
-            d.addDiagnostic(.{ .wrong_arg_type = .{
+        params.diagnostics.addDiagnostic(params.vm.allocator(), .{ .wrong_arg_type = .{
                 .expected = "output port",
                 .got = params.port_val,
                 .proc = Val.initNativeProc(params.proc),
@@ -72,7 +67,6 @@ fn writeToPort(params: WriteToPortParams) Vm.Error!void {
                 .arg_position = params.arg_position,
                 .hint = hint,
             } });
-        }
         return Vm.Error.UncaughtException;
     };
 
@@ -85,27 +79,22 @@ fn writeToPort(params: WriteToPortParams) Vm.Error!void {
 
             temp.writer.print("{f}", .{params.vm.pretty(params.obj, params.pretty_options)}) catch {
                 @branchHint(.cold);
-                if (params.diagnostics) |d| {
-                    d.addDiagnostic(.{ .other = "Failed to write to output port" });
-                }
+                params.diagnostics.addDiagnostic(params.vm.allocator(), .{ .other = "Failed to write to output port" });
                 return Vm.Error.UncaughtException;
             };
             file.writeAll(temp.writer.buffered()) catch {
                 @branchHint(.cold);
-                if (params.diagnostics) |d| {
-                    d.addDiagnostic(.{ .other = "Failed to write to output port" });
-                }
+                params.diagnostics.addDiagnostic(params.vm.allocator(), .{ .other = "Failed to write to output port" });
                 return Vm.Error.UncaughtException;
             };
         },
         .stdin => {
             @branchHint(.cold);
-            if (params.diagnostics) |d| {
-                const hint = if (params.arg_position != null)
+                    const hint = if (params.arg_position != null)
                     "port argument is optional; omit it to use current-output-port"
                 else
                     "current-output-port parameter must be an output port";
-                d.addDiagnostic(.{ .wrong_arg_type = .{
+            params.diagnostics.addDiagnostic(params.vm.allocator(), .{ .wrong_arg_type = .{
                     .expected = "output port",
                     .got = params.port_val,
                     .proc = Val.initNativeProc(params.proc),
@@ -113,7 +102,6 @@ fn writeToPort(params: WriteToPortParams) Vm.Error!void {
                     .arg_position = params.arg_position,
                     .hint = hint,
                 } });
-            }
             return Vm.Error.UncaughtException;
         },
         .null => {},
@@ -132,19 +120,17 @@ pub const display = NativeProc.withRawArgs(struct {
         \\If port is not specified, uses the current output port.
     ;
 
-    pub fn impl(vm: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
+    pub fn impl(vm: *Vm, diagnostics: *ErrorDetails, args: []const Val) Vm.Error!Val {
         const obj: Val, const explicit_port: ?Val = switch (args.len) {
             1 => .{ args[0], null },
             2 => .{ args[0], args[1] },
             else => {
                 @branchHint(.cold);
-                if (diagnostics) |d| {
-                    d.addDiagnostic(.{ .wrong_arg_count = .{
+                diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_count = .{
                         .expected = 1,
                         .got = @intCast(args.len),
                         .proc = Val.initNativeProc(&display),
                     } });
-                }
                 return Vm.Error.UncaughtException;
             },
         };
@@ -172,19 +158,17 @@ pub const newline = NativeProc.withRawArgs(struct {
         \\If port is not specified, uses the current output port.
     ;
 
-    pub fn impl(vm: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
+    pub fn impl(vm: *Vm, diagnostics: *ErrorDetails, args: []const Val) Vm.Error!Val {
         const explicit_port: ?Val = switch (args.len) {
             0 => null,
             1 => args[0],
             else => {
                 @branchHint(.cold);
-                if (diagnostics) |d| {
-                    d.addDiagnostic(.{ .wrong_arg_count = .{
+                diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_count = .{
                         .expected = 0,
                         .got = @intCast(args.len),
                         .proc = Val.initNativeProc(&newline),
                     } });
-                }
                 return Vm.Error.UncaughtException;
             },
         };
@@ -214,19 +198,17 @@ pub const displayln = NativeProc.withRawArgs(struct {
         \\This is a convenience function equivalent to (display obj port) followed by (newline port).
     ;
 
-    pub fn impl(vm: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
+    pub fn impl(vm: *Vm, diagnostics: *ErrorDetails, args: []const Val) Vm.Error!Val {
         const obj: Val, const explicit_port: ?Val = switch (args.len) {
             1 => .{ args[0], null },
             2 => .{ args[0], args[1] },
             else => {
                 @branchHint(.cold);
-                if (diagnostics) |d| {
-                    d.addDiagnostic(.{ .wrong_arg_count = .{
+                diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_count = .{
                         .expected = 1,
                         .got = @intCast(args.len),
                         .proc = Val.initNativeProc(&displayln),
                     } });
-                }
                 return Vm.Error.UncaughtException;
             },
         };
@@ -265,19 +247,17 @@ pub const write = NativeProc.withRawArgs(struct {
         \\If port is not specified, uses the current output port.
     ;
 
-    pub fn impl(vm: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
+    pub fn impl(vm: *Vm, diagnostics: *ErrorDetails, args: []const Val) Vm.Error!Val {
         const obj: Val, const explicit_port: ?Val = switch (args.len) {
             1 => .{ args[0], null },
             2 => .{ args[0], args[1] },
             else => {
                 @branchHint(.cold);
-                if (diagnostics) |d| {
-                    d.addDiagnostic(.{ .wrong_arg_count = .{
+                diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_count = .{
                         .expected = 1,
                         .got = @intCast(args.len),
                         .proc = Val.initNativeProc(&write),
                     } });
-                }
                 return Vm.Error.UncaughtException;
             },
         };
@@ -303,7 +283,7 @@ pub const port_p = NativeProc.with1Arg(struct {
         \\Returns #t if obj is a port, otherwise #f.
     ;
 
-    pub fn impl(vm: *Vm, _: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub fn impl(vm: *Vm, _: *ErrorDetails, arg: Val) Vm.Error!Val {
         const inspector = vm.inspector();
         const is_port = inspector.asPort(arg) catch null;
         return Val.initBool(is_port != null);
@@ -318,7 +298,7 @@ pub const input_port_p = NativeProc.with1Arg(struct {
         \\Returns #t if obj is an input port, otherwise #f.
     ;
 
-    pub fn impl(vm: *Vm, _: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub fn impl(vm: *Vm, _: *ErrorDetails, arg: Val) Vm.Error!Val {
         const inspector = vm.inspector();
         const port = inspector.asPort(arg) catch {
             return Val.initBool(false);
@@ -339,7 +319,7 @@ pub const output_port_p = NativeProc.with1Arg(struct {
         \\Returns #t if obj is an output port, otherwise #f.
     ;
 
-    pub fn impl(vm: *Vm, _: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub fn impl(vm: *Vm, _: *ErrorDetails, arg: Val) Vm.Error!Val {
         const inspector = vm.inspector();
         const port = inspector.asPort(arg) catch {
             return Val.initBool(false);
@@ -361,7 +341,7 @@ pub const textual_port_p = NativeProc.with1Arg(struct {
         \\Currently all ports in szl are textual.
     ;
 
-    pub fn impl(vm: *Vm, _: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub fn impl(vm: *Vm, _: *ErrorDetails, arg: Val) Vm.Error!Val {
         const inspector = vm.inspector();
         const port = inspector.asPort(arg) catch return Val.initBool(false);
         return Val.initBool(port.isTextual());
@@ -377,7 +357,7 @@ pub const binary_port_p = NativeProc.with1Arg(struct {
         \\Currently szl does not support binary ports, so this always returns #f.
     ;
 
-    pub fn impl(vm: *Vm, _: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub fn impl(vm: *Vm, _: *ErrorDetails, arg: Val) Vm.Error!Val {
         const inspector = vm.inspector();
         const port = inspector.asPort(arg) catch return Val.initBool(false);
         return Val.initBool(port.isBinary());
@@ -578,7 +558,9 @@ test "port? returns true for ports" {
     const stdout_port = try b.makePort(.stdout);
 
     const inspector = vm.inspector();
-    const repl_env = try inspector.getReplEnv(null);
+    var diagnostics = ErrorDetails{};
+    defer diagnostics.deinit(testing.allocator);
+    const repl_env = try inspector.getReplEnv(&diagnostics);
     const repl_module = try inspector.handleToModule(repl_env);
     try repl_module.setBySymbol(vm.allocator(), try b.makeStaticSymbolHandle("null-port"), null_port);
     try repl_module.setBySymbol(vm.allocator(), try b.makeStaticSymbolHandle("stdin-port"), stdin_port);
@@ -607,7 +589,9 @@ test "input-port? returns true for input ports" {
     const stdin_port = try b.makePort(.stdin);
 
     const inspector = vm.inspector();
-    const repl_env = try inspector.getReplEnv(null);
+    var diagnostics = ErrorDetails{};
+    defer diagnostics.deinit(testing.allocator);
+    const repl_env = try inspector.getReplEnv(&diagnostics);
     const repl_module = try inspector.handleToModule(repl_env);
     try repl_module.setBySymbol(vm.allocator(), try b.makeStaticSymbolHandle("stdin-port"), stdin_port);
 
@@ -623,7 +607,9 @@ test "input-port? returns false for non-input ports" {
     const null_port = try b.makePort(.null);
 
     const inspector = vm.inspector();
-    const repl_env = try inspector.getReplEnv(null);
+    var diagnostics = ErrorDetails{};
+    defer diagnostics.deinit(testing.allocator);
+    const repl_env = try inspector.getReplEnv(&diagnostics);
     const repl_module = try inspector.handleToModule(repl_env);
     try repl_module.setBySymbol(vm.allocator(), try b.makeStaticSymbolHandle("stdout-port"), stdout_port);
     try repl_module.setBySymbol(vm.allocator(), try b.makeStaticSymbolHandle("null-port"), null_port);
@@ -642,7 +628,9 @@ test "output-port? returns true for output ports" {
     const null_port = try b.makePort(.null);
 
     const inspector = vm.inspector();
-    const repl_env = try inspector.getReplEnv(null);
+    var diagnostics = ErrorDetails{};
+    defer diagnostics.deinit(testing.allocator);
+    const repl_env = try inspector.getReplEnv(&diagnostics);
     const repl_module = try inspector.handleToModule(repl_env);
     try repl_module.setBySymbol(vm.allocator(), try b.makeStaticSymbolHandle("stdout-port"), stdout_port);
     try repl_module.setBySymbol(vm.allocator(), try b.makeStaticSymbolHandle("null-port"), null_port);
@@ -659,7 +647,9 @@ test "output-port? returns false for non-output ports" {
     const stdin_port = try b.makePort(.stdin);
 
     const inspector = vm.inspector();
-    const repl_env = try inspector.getReplEnv(null);
+    var diagnostics = ErrorDetails{};
+    defer diagnostics.deinit(testing.allocator);
+    const repl_env = try inspector.getReplEnv(&diagnostics);
     const repl_module = try inspector.handleToModule(repl_env);
     try repl_module.setBySymbol(vm.allocator(), try b.makeStaticSymbolHandle("stdin-port"), stdin_port);
 
@@ -677,7 +667,9 @@ test "textual-port? returns true for all ports" {
     const stdout_port = try b.makePort(.stdout);
 
     const inspector = vm.inspector();
-    const repl_env = try inspector.getReplEnv(null);
+    var diagnostics = ErrorDetails{};
+    defer diagnostics.deinit(testing.allocator);
+    const repl_env = try inspector.getReplEnv(&diagnostics);
     const repl_module = try inspector.handleToModule(repl_env);
     try repl_module.setBySymbol(vm.allocator(), try b.makeStaticSymbolHandle("null-port"), null_port);
     try repl_module.setBySymbol(vm.allocator(), try b.makeStaticSymbolHandle("stdin-port"), stdin_port);
@@ -706,7 +698,9 @@ test "binary-port? returns false for all values" {
     const stdout_port = try b.makePort(.stdout);
 
     const inspector = vm.inspector();
-    const repl_env = try inspector.getReplEnv(null);
+    var diagnostics = ErrorDetails{};
+    defer diagnostics.deinit(testing.allocator);
+    const repl_env = try inspector.getReplEnv(&diagnostics);
     const repl_module = try inspector.handleToModule(repl_env);
     try repl_module.setBySymbol(vm.allocator(), try b.makeStaticSymbolHandle("null-port"), null_port);
     try repl_module.setBySymbol(vm.allocator(), try b.makeStaticSymbolHandle("stdin-port"), stdin_port);

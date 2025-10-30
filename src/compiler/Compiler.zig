@@ -1,8 +1,8 @@
 const std = @import("std");
 const testing = std.testing;
 
-const Diagnostics = @import("../Diagnostics.zig");
 const Instruction = @import("../instruction.zig").Instruction;
+const ErrorDetails = @import("../types/ErrorDetails.zig");
 const Module = @import("../types/Module.zig");
 const Handle = @import("../types/object_pool.zig").Handle;
 const ObjectPool = @import("../types/object_pool.zig").ObjectPool;
@@ -42,37 +42,37 @@ pub fn init(arena: *std.heap.ArenaAllocator, vm: *Vm, module: Handle(Module)) Co
     };
 }
 
-pub fn compile(self: *Compiler, expr: Val, diagnostics: ?*Diagnostics) Error!Val {
+pub fn compile(self: *Compiler, expr: Val, error_details: *ErrorDetails) Error!Val {
     // Val -> Ir
-    const ir = try Ir.init(self.arena, self.vm, self.scope.module, expr, diagnostics);
-    try self.addIr(ir, true, diagnostics);
+    const ir = try Ir.init(self.arena, self.vm, self.scope.module, expr, error_details);
+    try self.addIr(ir, true, error_details);
     // Ir -> Val(Proc)
     const proc = try self.makeProc(null);
     if (proc.captures.len > 0) return Error.UndefinedBehavior;
     return Val.initProc(proc.handle);
 }
 
-fn addIr(self: *Compiler, ir: Ir, return_value: bool, diagnostics: ?*Diagnostics) Error!void {
+fn addIr(self: *Compiler, ir: Ir, return_value: bool, error_details: *ErrorDetails) Error!void {
     switch (ir) {
         .push_const => |v| try self.addConst(v),
-        .get => |sym| try self.addGet(sym, diagnostics),
-        .define => |d| try self.addDefine(d.symbol, d.expr.*, diagnostics),
-        .set => |d| try self.addSet(d.symbol, d.expr.*, diagnostics),
-        .if_expr => |expr| return self.addIf(expr.test_expr.*, expr.true_expr.*, expr.false_expr.*, return_value, diagnostics),
-        .let_expr => |expr| return self.addLet(expr.bindings, expr.body, return_value, diagnostics),
-        .eval => |e| try self.addEval(e, diagnostics),
-        .lambda => |l| try self.addLambda(l, diagnostics),
+        .get => |sym| try self.addGet(sym, error_details),
+        .define => |d| try self.addDefine(d.symbol, d.expr.*, error_details),
+        .set => |d| try self.addSet(d.symbol, d.expr.*, error_details),
+        .if_expr => |expr| return self.addIf(expr.test_expr.*, expr.true_expr.*, expr.false_expr.*, return_value, error_details),
+        .let_expr => |expr| return self.addLet(expr.bindings, expr.body, return_value, error_details),
+        .eval => |e| try self.addEval(e, error_details),
+        .lambda => |l| try self.addLambda(l, error_details),
     }
     if (return_value) try self.addInstruction(.{ .ret = {} });
 }
 
-fn addIrs(self: *Compiler, irs: []const Ir, return_value: bool, diagnostics: ?*Diagnostics) Error!void {
+fn addIrs(self: *Compiler, irs: []const Ir, return_value: bool, error_details: *ErrorDetails) Error!void {
     switch (irs.len) {
-        0 => return self.addIr(Ir{ .push_const = Val.initUnspecified() }, return_value, diagnostics),
-        1 => return self.addIr(irs[0], return_value, diagnostics),
+        0 => return self.addIr(Ir{ .push_const = Val.initUnspecified() }, return_value, error_details),
+        1 => return self.addIr(irs[0], return_value, error_details),
         else => {
-            for (irs[0 .. irs.len - 1]) |ir| try self.addIr(ir, false, diagnostics);
-            try self.addIr(irs[irs.len - 1], return_value, diagnostics);
+            for (irs[0 .. irs.len - 1]) |ir| try self.addIr(ir, false, error_details);
+            try self.addIr(irs[irs.len - 1], return_value, error_details);
             if (!return_value) {
                 try self.addInstruction(.{ .squash = @intCast(irs.len) });
             }
@@ -86,7 +86,7 @@ fn addConst(self: *Compiler, val: Val) Error!void {
     try self.addInstruction(.{ .load_const = @intCast(idx) });
 }
 
-fn addGet(self: *Compiler, sym: Symbol, diagnostics: ?*Diagnostics) Error!void {
+fn addGet(self: *Compiler, sym: Symbol, error_details: *ErrorDetails) Error!void {
     const instruction = switch (self.scope.resolve(sym)) {
         .proc => Instruction{ .load_proc = {} },
         .arg => |idx| Instruction{ .load_arg = idx },
@@ -105,14 +105,12 @@ fn addGet(self: *Compiler, sym: Symbol, diagnostics: ?*Diagnostics) Error!void {
             const module = try self.vm.inspector().handleToModule(self.scope.module);
             const slot = module.getSlot(mod_sym) orelse {
                 @branchHint(.cold);
-                if (diagnostics) |d| {
-                    d.addDiagnostic(.{
-                        .undefined_variable = .{
-                            .module = self.scope.module,
-                            .symbol = mod_sym,
-                        },
-                    });
-                }
+                error_details.addDiagnostic(self.vm.allocator(), .{
+                    .undefined_variable = .{
+                        .module = self.scope.module,
+                        .symbol = mod_sym,
+                    },
+                });
                 return Error.UncaughtException;
             };
             break :blk Instruction{ .load_global = slot };
@@ -121,9 +119,9 @@ fn addGet(self: *Compiler, sym: Symbol, diagnostics: ?*Diagnostics) Error!void {
     try self.addInstruction(instruction);
 }
 
-fn addEval(self: *Compiler, e: anytype, diagnostics: ?*Diagnostics) Error!void {
-    for (e.args) |arg| try self.addIr(arg, false, diagnostics);
-    try self.addIr(e.proc.*, false, diagnostics);
+fn addEval(self: *Compiler, e: anytype, error_details: *ErrorDetails) Error!void {
+    for (e.args) |arg| try self.addIr(arg, false, error_details);
+    try self.addIr(e.proc.*, false, error_details);
     try self.addInstruction(.{ .eval = @intCast(e.args.len) });
 }
 
@@ -131,7 +129,7 @@ fn addInstruction(self: *Compiler, instruction: Instruction) !void {
     try self.instructions.append(self.arena.allocator(), instruction);
 }
 
-fn addLambda(self: *Compiler, lambda: Ir.Lambda, diagnostics: ?*Diagnostics) Error!void {
+fn addLambda(self: *Compiler, lambda: Ir.Lambda, error_details: *ErrorDetails) Error!void {
     var sub_compiler = Compiler{
         .vm = self.vm,
         .arena = self.arena,
@@ -142,12 +140,12 @@ fn addLambda(self: *Compiler, lambda: Ir.Lambda, diagnostics: ?*Diagnostics) Err
             .captures = try self.scope.toCaptureCandidates(self.arena.allocator()),
         },
     };
-    try sub_compiler.addIrs(lambda.body, true, diagnostics);
+    try sub_compiler.addIrs(lambda.body, true, error_details);
     const proc = try sub_compiler.makeProc(lambda.name);
     if (proc.captures.len == 0) {
         return self.addConst(Val.initProc(proc.handle));
     }
-    for (proc.captures) |capture| try self.addGet(capture, diagnostics);
+    for (proc.captures) |capture| try self.addGet(capture, error_details);
     try self.addInstruction(.{ .make_closure = proc.handle });
 }
 
@@ -157,15 +155,15 @@ fn jumpDistance(src: usize, dst: usize) i32 {
     return dst_i32 - src_i32;
 }
 
-fn addDefine(self: *Compiler, symbol: Symbol, expr: Ir, diagnostics: ?*Diagnostics) Error!void {
-    try self.addIr(expr, false, diagnostics);
+fn addDefine(self: *Compiler, symbol: Symbol, expr: Ir, error_details: *ErrorDetails) Error!void {
+    try self.addIr(expr, false, error_details);
     const module = try self.vm.inspector().handleToModule(self.scope.module);
     const slot = try module.getOrCreateSlot(self.vm.allocator(), symbol, Val.initBool(false));
     try self.addInstruction(.{ .set_global = slot });
 }
 
-fn addSet(self: *Compiler, symbol: Symbol, expr: Ir, diagnostics: ?*Diagnostics) Error!void {
-    try self.addIr(expr, false, diagnostics);
+fn addSet(self: *Compiler, symbol: Symbol, expr: Ir, error_details: *ErrorDetails) Error!void {
+    try self.addIr(expr, false, error_details);
     switch (self.scope.resolve(symbol)) {
         .proc => return Error.UncaughtException,
         .arg => |idx| {
@@ -181,27 +179,23 @@ fn addSet(self: *Compiler, symbol: Symbol, expr: Ir, diagnostics: ?*Diagnostics)
             try self.addConst(Val.initUnspecified());
         },
         .capture => |_| {
-            if (diagnostics) |d| {
-                @branchHint(.cold);
-                d.addDiagnostic(.{ .unsupported_feature = .{
-                    .feature_name = "set! on captured variables",
-                    .hint = null,
-                } });
-            }
+            @branchHint(.cold);
+            error_details.addDiagnostic(self.vm.allocator(), .{ .unsupported_feature = .{
+                .feature_name = "set! on captured variables",
+                .hint = null,
+            } });
             return Error.NotImplemented;
         },
         .module => |mod_sym| {
             const module = try self.vm.inspector().handleToModule(self.scope.module);
             const slot = module.getSlot(mod_sym) orelse {
                 @branchHint(.cold);
-                if (diagnostics) |d| {
-                    d.addDiagnostic(.{
-                        .undefined_variable = .{
-                            .module = self.scope.module,
-                            .symbol = mod_sym,
-                        },
-                    });
-                }
+                error_details.addDiagnostic(self.vm.allocator(), .{
+                    .undefined_variable = .{
+                        .module = self.scope.module,
+                        .symbol = mod_sym,
+                    },
+                });
                 return Error.UncaughtException;
             };
             try self.addInstruction(.{ .set_global = slot });
@@ -209,17 +203,17 @@ fn addSet(self: *Compiler, symbol: Symbol, expr: Ir, diagnostics: ?*Diagnostics)
     }
 }
 
-fn addIf(self: *Compiler, test_expr: Ir, true_expr: Ir, false_expr: Ir, return_value: bool, diagnostics: ?*Diagnostics) !void {
+fn addIf(self: *Compiler, test_expr: Ir, true_expr: Ir, false_expr: Ir, return_value: bool, error_details: *ErrorDetails) !void {
     // 1. Add expressions.
-    try self.addIr(test_expr, false, diagnostics);
+    try self.addIr(test_expr, false, error_details);
     const test_jump_idx = self.instructions.items.len;
     try self.addInstruction(.{ .jump_if_not = 0 });
-    try self.addIr(true_expr, return_value, diagnostics);
+    try self.addIr(true_expr, return_value, error_details);
     const true_jump_idx: ?usize = if (return_value) null else self.instructions.items.len;
     if (!return_value)
         try self.addInstruction(.{ .jump = 0 });
     const false_start_idx = self.instructions.items.len;
-    try self.addIr(false_expr, return_value, diagnostics);
+    try self.addIr(false_expr, return_value, error_details);
     const end_idx = self.instructions.items.len;
     // 2. Fix jump indices. The start index is after the start of the jump since
     //    the counter is always advanced once the instruction is fetched, but
@@ -232,7 +226,7 @@ fn addIf(self: *Compiler, test_expr: Ir, true_expr: Ir, false_expr: Ir, return_v
     }
 }
 
-fn addLet(self: *Compiler, bindings: []const Ir.LetBinding, body: []Ir, return_value: bool, diagnostics: ?*Diagnostics) !void {
+fn addLet(self: *Compiler, bindings: []const Ir.LetBinding, body: []Ir, return_value: bool, error_details: *ErrorDetails) !void {
     // 1. Reserve bindings.
     const start_idx = self.scope.locals.items.len;
     const end_idx = self.scope.locals.items.len + bindings.len;
@@ -242,7 +236,7 @@ fn addLet(self: *Compiler, bindings: []const Ir.LetBinding, body: []Ir, return_v
     }
     // 2. Compute values.
     for (bindings, 0..bindings.len) |b, idx| {
-        try self.addIr(b.expr, false, diagnostics);
+        try self.addIr(b.expr, false, error_details);
         const local_idx = start_idx + idx;
         try self.addInstruction(Instruction{ .set_local = @intCast(local_idx) });
     }
@@ -253,7 +247,7 @@ fn addLet(self: *Compiler, bindings: []const Ir.LetBinding, body: []Ir, return_v
         l.available = false;
     };
     // 4. Evaluate body.
-    try self.addIrs(body, return_value, diagnostics);
+    try self.addIrs(body, return_value, error_details);
 }
 
 fn makeProc(self: Compiler, name: ?Symbol) Error!struct {

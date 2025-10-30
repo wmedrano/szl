@@ -1,7 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 
-const Diagnostics = @import("../Diagnostics.zig");
+const ErrorDetails = @import("../types/ErrorDetails.zig");
 const NativeProc = @import("../types/NativeProc.zig");
 const Parameter = @import("../types/Parameter.zig");
 const Val = @import("../types/Val.zig");
@@ -17,7 +17,7 @@ pub const make_parameter = NativeProc.withRawArgs(struct {
         \\Note: Converter functions are not yet supported.
     ;
 
-    pub fn impl(vm: *Vm, diagnostics: ?*Diagnostics, args: []Val) Vm.Error!Val {
+    pub fn impl(vm: *Vm, diagnostics: *ErrorDetails, args: []Val) Vm.Error!Val {
         switch (args.len) {
             1 => {
                 const b = vm.builder();
@@ -27,24 +27,20 @@ pub const make_parameter = NativeProc.withRawArgs(struct {
             2 => {
                 @branchHint(.cold);
                 // Special error message for converter argument
-                if (diagnostics) |d| {
-                    d.addDiagnostic(.{ .unsupported_feature = .{
+                diagnostics.addDiagnostic(vm.allocator(),.{ .unsupported_feature = .{
                         .feature_name = "make-parameter with converter argument",
                         .hint = "Use (make-parameter init) with a single argument for now",
                     } });
-                }
                 return Vm.Error.UncaughtException;
             },
             else => {
                 @branchHint(.cold);
                 // Wrong number of arguments
-                if (diagnostics) |d| {
-                    d.addDiagnostic(.{ .wrong_arg_count = .{
+                diagnostics.addDiagnostic(vm.allocator(),.{ .wrong_arg_count = .{
                         .expected = 1,
                         .got = @intCast(args.len),
                         .proc = Val.initNativeProc(&make_parameter),
                     } });
-                }
                 return Vm.Error.UncaughtException;
             },
         }
@@ -55,30 +51,26 @@ pub const set_parameter = NativeProc.withRawArgs(struct {
     pub const name = "%sizzle-set-parameter";
     pub const docstring = "";
 
-    pub fn impl(vm: *Vm, diagnostics: ?*Diagnostics, args: []Val) Vm.Error!Val {
+    pub fn impl(vm: *Vm, diagnostics: *ErrorDetails, args: []Val) Vm.Error!Val {
         if (args.len != 2) {
             @branchHint(.cold);
-            if (diagnostics) |d| {
-                d.addDiagnostic(.{ .wrong_arg_count = .{
-                    .expected = 2,
-                    .got = @intCast(args.len),
-                    .proc = Val.initNativeProc(&set_parameter),
-                } });
-            }
+            diagnostics.addDiagnostic(vm.allocator(),.{ .wrong_arg_count = .{
+                .expected = 2,
+                .got = @intCast(args.len),
+                .proc = Val.initNativeProc(&set_parameter),
+            } });
             return Vm.Error.UncaughtException;
         }
 
         const param = args[0].asParameter() orelse {
             @branchHint(.cold);
-            if (diagnostics) |d| {
-                d.addDiagnostic(.{ .wrong_arg_type = .{
-                    .expected = "parameter",
-                    .proc = Val.initNativeProc(&set_parameter),
-                    .got = args[0],
-                    .arg_name = "parameter",
-                    .arg_position = 0,
-                } });
-            }
+            diagnostics.addDiagnostic(vm.allocator(),.{ .wrong_arg_type = .{
+                .expected = "parameter",
+                .proc = Val.initNativeProc(&set_parameter),
+                .got = args[0],
+                .arg_name = "parameter",
+                .arg_position = 0,
+            } });
             return Vm.Error.UncaughtException;
         };
 
@@ -96,7 +88,9 @@ test "make-parameter" {
 
     // Test creating a parameter - displays as procedure
     // Note: parameter ID may vary as other parameters are created during VM init
-    const result = try vm.evalStr("(make-parameter 10)", null, null);
+    var error_details = ErrorDetails{};
+    defer error_details.deinit(testing.allocator);
+    const result = try vm.evalStr("(make-parameter 10)", null, &error_details);
     const result_str = try std.fmt.allocPrint(testing.allocator, "{f}", .{vm.pretty(result, .{})});
     defer testing.allocator.free(result_str);
     try testing.expect(std.mem.startsWith(u8, result_str, "#<procedure:parameter-"));
@@ -107,7 +101,9 @@ test "make-parameter with converter not supported" {
     defer vm.deinit();
 
     // Test that converter argument is rejected with helpful error
-    const result = vm.evalStr("(make-parameter 10 (lambda (x) x))", null, null);
+    var error_details = ErrorDetails{};
+    defer error_details.deinit(testing.allocator);
+    const result = vm.evalStr("(make-parameter 10 (lambda (x) x))", null, &error_details);
     try testing.expectError(Vm.Error.UncaughtException, result);
 }
 

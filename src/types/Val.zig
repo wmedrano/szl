@@ -5,6 +5,7 @@ const PrettyPrinter = @import("../utils/PrettyPrinter.zig");
 const Vm = @import("../Vm.zig");
 const Box = @import("Box.zig");
 const Continuation = @import("Continuation.zig");
+const ErrorDetails = @import("ErrorDetails.zig");
 const Handle = @import("object_pool.zig").Handle;
 const Module = @import("Module.zig");
 const NativeProc = @import("NativeProc.zig");
@@ -49,6 +50,7 @@ pub const Data = union(enum) {
     record_descriptor: Handle(Record.Descriptor),
     parameter: Handle(Parameter),
     port: Handle(Port),
+    error_details: Handle(ErrorDetails),
 };
 
 pub fn initEmptyList() Val {
@@ -109,6 +111,10 @@ pub fn initContinuation(continuation: Handle(Continuation)) Val {
 
 pub fn initParameter(parameter: Handle(Parameter)) Val {
     return Val{ .data = .{ .parameter = parameter } };
+}
+
+pub fn initErrorDetails(error_details: Handle(ErrorDetails)) Val {
+    return Val{ .data = .{ .error_details = error_details } };
 }
 
 pub fn isUnspecified(self: Val) bool {
@@ -182,6 +188,11 @@ pub fn asNumber(self: Val) ?Number {
 
 pub fn asParameter(self: Val) ?Handle(Parameter) {
     if (self.data == .parameter) return self.data.parameter;
+    return null;
+}
+
+pub fn asErrorDetails(self: Val) ?Handle(ErrorDetails) {
+    if (self.data == .error_details) return self.data.error_details;
     return null;
 }
 

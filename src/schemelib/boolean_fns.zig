@@ -1,7 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 
-const Diagnostics = @import("../Diagnostics.zig");
+const ErrorDetails = @import("../types/ErrorDetails.zig");
 const NativeProc = @import("../types/NativeProc.zig");
 const Val = @import("../types/Val.zig");
 const Vm = @import("../Vm.zig");
@@ -16,7 +16,7 @@ pub const not = NativeProc.with1Arg(struct {
         \\(not #f)    =>  #t
         \\(not 'foo)  =>  #f
     ;
-    pub inline fn impl(_: *Vm, _: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub inline fn impl(_: *Vm, _: *ErrorDetails, arg: Val) Vm.Error!Val {
         return Val.initBool(!arg.isTruthy());
     }
 });
@@ -31,7 +31,7 @@ pub const boolean_p = NativeProc.with1Arg(struct {
         \\(boolean? #f)    =>  #t
         \\(boolean? 0)     =>  #f
     ;
-    pub inline fn impl(_: *Vm, _: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub inline fn impl(_: *Vm, _: *ErrorDetails, arg: Val) Vm.Error!Val {
         return Val.initBool(arg.asBool() != null);
     }
 });

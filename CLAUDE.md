@@ -42,6 +42,9 @@ zig build run -- [args]     # Build and run with arguments
 ```
 
 ### Testing
+
+"Run tests" should run the unit tests.
+
 ```bash
 zig build test --summary all  # Run all tests (VERY FAST: ~2s for full suite)
 zig test src/Vm.zig          # Run tests for specific module

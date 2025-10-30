@@ -1,7 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 
-const Diagnostics = @import("../Diagnostics.zig");
+const ErrorDetails = @import("../types/ErrorDetails.zig");
 const Rational = @import("../types/number.zig").Rational;
 const Symbol = @import("../types/Symbol.zig");
 const Val = @import("../types/Val.zig");
@@ -34,62 +34,58 @@ pub fn init(vm: *Vm, source: []const u8) Reader {
     };
 }
 
-pub fn readNext(self: *Reader, diagnostics: ?*Diagnostics) Error!?Val {
-    const result = try self.readNextImpl(diagnostics);
+pub fn readNext(self: *Reader, error_details: *ErrorDetails) Error!?Val {
+    const result = try self.readNextImpl(error_details);
     switch (result) {
         .atom => |a| return a.val,
         .end_expr => |token| {
-            if (diagnostics) |diag| {
-                diag.addDiagnostic(.{ .reader = .{
-                    .kind = .unexpected_close_paren,
-                    .line = token.line,
-                    .column = token.column,
-                    .message = "unexpected closing parenthesis",
-                    .lexeme = token.lexeme,
-                } });
-            }
+            @branchHint(.cold);
+            error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+                .kind = .unexpected_close_paren,
+                .line = token.line,
+                .column = token.column,
+                .message = "unexpected closing parenthesis",
+                .lexeme = token.lexeme,
+            } });
             return Error.ReadError;
         },
         .dot => |token| {
-            if (diagnostics) |diag| {
-                diag.addDiagnostic(.{ .reader = .{
-                    .kind = .unexpected_dot,
-                    .line = token.line,
-                    .column = token.column,
-                    .message = "unexpected dot notation",
-                    .lexeme = token.lexeme,
-                } });
-            }
+            @branchHint(.cold);
+            error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+                .kind = .unexpected_dot,
+                .line = token.line,
+                .column = token.column,
+                .message = "unexpected dot notation",
+                .lexeme = token.lexeme,
+            } });
             return Error.ReadError;
         },
         .end => return null,
     }
 }
 
-pub fn readOne(vm: *Vm, source: []const u8, diagnostics: ?*Diagnostics) ReadOneError!Val {
+pub fn readOne(vm: *Vm, source: []const u8, error_details: *ErrorDetails) ReadOneError!Val {
     var reader = Reader.init(vm, source);
-    const first = try reader.readNext(diagnostics) orelse {
-        if (diagnostics) |diag| {
-            diag.addDiagnostic(.{ .reader = .{
-                .kind = .no_values,
-                .line = 1,
-                .column = 1,
-                .message = "expected at least one value",
-                .lexeme = null,
-            } });
-        }
+    const first = try reader.readNext(error_details) orelse {
+        @branchHint(.cold);
+        error_details.addDiagnostic(vm.allocator(), .{ .reader = .{
+            .kind = .no_values,
+            .line = 1,
+            .column = 1,
+            .message = "expected at least one value",
+            .lexeme = null,
+        } });
         return ReadOneError.NoValue;
     };
-    if (try reader.readNext(diagnostics)) |_| {
-        if (diagnostics) |diag| {
-            const token = reader.last_token orelse Tokenizer.Token{ .type = .left_paren, .lexeme = "", .line = 1, .column = 1 };
-            diag.addDiagnostic(.{ .reader = .{
-                .kind = .multiple_values,
-                .line = token.line,
-                .column = token.column,
-                .message = "expected only one value, found multiple",
-            } });
-        }
+    if (try reader.readNext(error_details)) |_| {
+        @branchHint(.cold);
+        const token = reader.last_token orelse Tokenizer.Token{ .type = .left_paren, .lexeme = "", .line = 1, .column = 1 };
+        error_details.addDiagnostic(vm.allocator(), .{ .reader = .{
+            .kind = .multiple_values,
+            .line = token.line,
+            .column = token.column,
+            .message = "expected only one value, found multiple",
+        } });
         return ReadOneError.TooManyValues;
     }
     return first;
@@ -105,22 +101,22 @@ const ReadResult = union(enum) {
     end,
 };
 
-fn readNextImpl(self: *Reader, diagnostics: ?*Diagnostics) Error!ReadResult {
+fn readNextImpl(self: *Reader, error_details: *ErrorDetails) Error!ReadResult {
     const next_token = self.tokenizer.nextToken() orelse
         return ReadResult{ .end = {} };
     self.last_token = next_token;
     switch (next_token.type) {
-        .left_paren => return try self.readList(next_token, diagnostics),
+        .left_paren => return try self.readList(next_token, error_details),
         .right_paren => return ReadResult{ .end_expr = next_token },
         .dot => return ReadResult{ .dot = next_token },
-        .sharpsign_expr_start => return try self.readSharpsignExpr(next_token, diagnostics),
+        .sharpsign_expr_start => return try self.readSharpsignExpr(next_token, error_details),
         .identifier => {
             // Classify the identifier based on its lexeme
             const lexeme = next_token.lexeme;
 
             // Check if it starts with '#' (sharpsign literal)
             if (lexeme.len > 0 and lexeme[0] == '#') {
-                return try self.parseSharpsign(next_token, diagnostics);
+                return try self.parseSharpsign(next_token, error_details);
             }
 
             // Check for special float literals
@@ -147,14 +143,14 @@ fn readNextImpl(self: *Reader, diagnostics: ?*Diagnostics) Error!ReadResult {
             if (lexeme.len > 0) {
                 const first = lexeme[0];
                 if (std.ascii.isDigit(first)) {
-                    return try self.parseNumber(next_token, diagnostics);
+                    return try self.parseNumber(next_token, error_details);
                 } else if ((first == '+' or first == '-')) {
                     if (lexeme.len == 1) {
                         // Just + or - by itself is a symbol
                         return try self.parseSymbol(next_token);
                     } else if (std.ascii.isDigit(lexeme[1])) {
                         // +/- followed by digit is a number
-                        return try self.parseNumber(next_token, diagnostics);
+                        return try self.parseNumber(next_token, error_details);
                     }
                 }
             }
@@ -162,55 +158,52 @@ fn readNextImpl(self: *Reader, diagnostics: ?*Diagnostics) Error!ReadResult {
             // Otherwise, it's a symbol
             return try self.parseSymbol(next_token);
         },
-        .string => return try self.parseString(next_token, diagnostics),
-        .quote => return try self.readQuote(next_token, diagnostics),
+        .string => return try self.parseString(next_token, error_details),
+        .quote => return try self.readQuote(next_token, error_details),
         .quasiquote => {
-            if (diagnostics) |diag| {
-                diag.addDiagnostic(.{ .reader = .{
-                    .kind = .unexpected_token,
-                    .line = next_token.line,
-                    .column = next_token.column,
-                    .message = "quasiquote syntax is not yet implemented",
-                    .lexeme = next_token.lexeme,
-                } });
-            }
+            @branchHint(.cold);
+            error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+                .kind = .unexpected_token,
+                .line = next_token.line,
+                .column = next_token.column,
+                .message = "quasiquote syntax is not yet implemented",
+                .lexeme = next_token.lexeme,
+            } });
             return Error.NotImplemented;
         },
         .unquote => {
-            if (diagnostics) |diag| {
-                diag.addDiagnostic(.{ .reader = .{
-                    .kind = .unexpected_token,
-                    .line = next_token.line,
-                    .column = next_token.column,
-                    .message = "unquote syntax is not yet implemented",
-                    .lexeme = next_token.lexeme,
-                } });
-            }
+            @branchHint(.cold);
+            error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+                .kind = .unexpected_token,
+                .line = next_token.line,
+                .column = next_token.column,
+                .message = "unquote syntax is not yet implemented",
+                .lexeme = next_token.lexeme,
+            } });
             return Error.NotImplemented;
         },
         .unquote_splicing => {
-            if (diagnostics) |diag| {
-                diag.addDiagnostic(.{ .reader = .{
-                    .kind = .unexpected_token,
-                    .line = next_token.line,
-                    .column = next_token.column,
-                    .message = "unquote-splicing syntax is not yet implemented",
-                    .lexeme = next_token.lexeme,
-                } });
-            }
+            @branchHint(.cold);
+            error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+                .kind = .unexpected_token,
+                .line = next_token.line,
+                .column = next_token.column,
+                .message = "unquote-splicing syntax is not yet implemented",
+                .lexeme = next_token.lexeme,
+            } });
             return Error.NotImplemented;
         },
     }
 }
 
-fn readList(self: *Reader, open_paren_token: Tokenizer.Token, diagnostics: ?*Diagnostics) Error!ReadResult {
+fn readList(self: *Reader, open_paren_token: Tokenizer.Token, error_details: *ErrorDetails) Error!ReadResult {
     var elements = SmallArrayList(Val, 8){};
     defer elements.deinit(self.vm.allocator());
     var dot_idx: ?usize = null;
     const builder = self.vm.builder();
 
     while (true) {
-        switch (try self.readNextImpl(diagnostics)) {
+        switch (try self.readNextImpl(error_details)) {
             .atom => |a| try elements.append(self.vm.allocator(), a.val),
             .end_expr => {
                 const res = if (dot_idx == elements.len)
@@ -223,29 +216,27 @@ fn readList(self: *Reader, open_paren_token: Tokenizer.Token, diagnostics: ?*Dia
                 } };
             },
             .end => {
-                if (diagnostics) |diag| {
-                    diag.addDiagnostic(.{ .reader = .{
-                        .kind = .unexpected_eof,
-                        .line = open_paren_token.line,
-                        .column = open_paren_token.column,
-                        .message = "missing closing parenthesis for list",
-                        .hint = "add ')' to close the list",
-                    } });
-                }
+                @branchHint(.cold);
+                error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+                    .kind = .unexpected_eof,
+                    .line = open_paren_token.line,
+                    .column = open_paren_token.column,
+                    .message = "missing closing parenthesis for list",
+                    .hint = "add ')' to close the list",
+                } });
                 return Error.ReadError;
             },
             .dot => |dot_token| {
+                @branchHint(.cold);
                 if (elements.len == 0) {
-                    if (diagnostics) |diag| {
-                        diag.addDiagnostic(.{ .reader = .{
-                            .kind = .empty_dot_list,
-                            .line = dot_token.line,
-                            .column = dot_token.column,
-                            .message = "dot notation requires at least one element before the dot",
-                            .hint = "add at least one element before the dot, e.g., (a . b)",
-                            .lexeme = dot_token.lexeme,
-                        } });
-                    }
+                    error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+                        .kind = .empty_dot_list,
+                        .line = dot_token.line,
+                        .column = dot_token.column,
+                        .message = "dot notation requires at least one element before the dot",
+                        .hint = "add at least one element before the dot, e.g., (a . b)",
+                        .lexeme = dot_token.lexeme,
+                    } });
                     return Error.ReadError;
                 }
                 dot_idx = elements.len + 1;
@@ -254,60 +245,56 @@ fn readList(self: *Reader, open_paren_token: Tokenizer.Token, diagnostics: ?*Dia
     }
 }
 
-fn readSharpsignExpr(self: *Reader, open_token: Tokenizer.Token, diagnostics: ?*Diagnostics) Error!ReadResult {
+fn readSharpsignExpr(self: *Reader, open_token: Tokenizer.Token, error_details: *ErrorDetails) Error!ReadResult {
     const lexeme = open_token.lexeme;
     if (std.mem.eql(u8, lexeme, "#(")) {
-        return try self.readVector(open_token, diagnostics);
+        return try self.readVector(open_token, error_details);
     }
     if (std.mem.eql(u8, lexeme, "#u8(")) {
-        return try self.readBytevector(open_token, diagnostics);
+        return try self.readBytevector(open_token, error_details);
     }
-    if (diagnostics) |diag| {
-        diag.addDiagnostic(.{ .reader = .{
-            .kind = .unsupported_sharpsign_expr,
-            .line = open_token.line,
-            .column = open_token.column,
-            .message = "unsupported sharpsign expression",
-            .lexeme = lexeme,
-            .hint = "supported forms are #( for vectors and #u8( for bytevectors",
-        } });
-    }
+    error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+        .kind = .unsupported_sharpsign_expr,
+        .line = open_token.line,
+        .column = open_token.column,
+        .message = "unsupported sharpsign expression",
+        .lexeme = lexeme,
+        .hint = "supported forms are #( for vectors and #u8( for bytevectors",
+    } });
     return Error.ReadError;
 }
 
-fn readBytevector(self: *Reader, open_token: Tokenizer.Token, diagnostics: ?*Diagnostics) Error!ReadResult {
+fn readBytevector(self: *Reader, open_token: Tokenizer.Token, error_details: *ErrorDetails) Error!ReadResult {
     var bytes = std.ArrayList(u8){};
     defer bytes.deinit(self.vm.allocator());
     const builder = self.vm.builder();
 
     while (true) {
-        switch (try self.readNextImpl(diagnostics)) {
+        switch (try self.readNextImpl(error_details)) {
             .atom => |a| {
                 // Parse value as u8 (0-255)
                 const int_val = a.val.asInt() orelse {
-                    if (diagnostics) |diag| {
-                        diag.addDiagnostic(.{ .reader = .{
-                            .kind = .invalid_bytevector,
-                            .line = a.token.line,
-                            .column = a.token.column,
-                            .message = "bytevector elements must be integers",
-                            .hint = "use only integer values in range 0-255",
-                            .lexeme = a.token.lexeme,
-                        } });
-                    }
+                    @branchHint(.cold);
+                    error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+                        .kind = .invalid_bytevector,
+                        .line = a.token.line,
+                        .column = a.token.column,
+                        .message = "bytevector elements must be integers",
+                        .hint = "use only integer values in range 0-255",
+                        .lexeme = a.token.lexeme,
+                    } });
                     return Error.ReadError;
                 };
                 if (int_val < 0 or int_val > 255) {
-                    if (diagnostics) |diag| {
-                        diag.addDiagnostic(.{ .reader = .{
-                            .kind = .invalid_bytevector,
-                            .line = a.token.line,
-                            .column = a.token.column,
-                            .message = "bytevector elements must be in range 0-255",
-                            .hint = "use values between 0 and 255",
-                            .lexeme = a.token.lexeme,
-                        } });
-                    }
+                    @branchHint(.cold);
+                    error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+                        .kind = .invalid_bytevector,
+                        .line = a.token.line,
+                        .column = a.token.column,
+                        .message = "bytevector elements must be in range 0-255",
+                        .hint = "use values between 0 and 255",
+                        .lexeme = a.token.lexeme,
+                    } });
                     return Error.ReadError;
                 }
                 try bytes.append(self.vm.allocator(), @intCast(int_val));
@@ -320,40 +307,38 @@ fn readBytevector(self: *Reader, open_token: Tokenizer.Token, diagnostics: ?*Dia
                 } };
             },
             .end => {
-                if (diagnostics) |diag| {
-                    diag.addDiagnostic(.{ .reader = .{
-                        .kind = .unexpected_eof,
-                        .line = open_token.line,
-                        .column = open_token.column,
-                        .message = "missing closing parenthesis for bytevector",
-                        .hint = "add ')' to close the bytevector",
-                    } });
-                }
+                @branchHint(.cold);
+                error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+                    .kind = .unexpected_eof,
+                    .line = open_token.line,
+                    .column = open_token.column,
+                    .message = "missing closing parenthesis for bytevector",
+                    .hint = "add ')' to close the bytevector",
+                } });
                 return Error.ReadError;
             },
             .dot => |dot_token| {
-                if (diagnostics) |diag| {
-                    diag.addDiagnostic(.{ .reader = .{
-                        .kind = .unexpected_dot,
-                        .line = dot_token.line,
-                        .column = dot_token.column,
-                        .message = "bytevectors do not support dot notation",
-                        .lexeme = dot_token.lexeme,
-                    } });
-                }
+                @branchHint(.cold);
+                error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+                    .kind = .unexpected_dot,
+                    .line = dot_token.line,
+                    .column = dot_token.column,
+                    .message = "bytevectors do not support dot notation",
+                    .lexeme = dot_token.lexeme,
+                } });
                 return Error.ReadError;
             },
         }
     }
 }
 
-fn readVector(self: *Reader, open_token: Tokenizer.Token, diagnostics: ?*Diagnostics) Error!ReadResult {
+fn readVector(self: *Reader, open_token: Tokenizer.Token, error_details: *ErrorDetails) Error!ReadResult {
     var elements = SmallArrayList(Val, 8){};
     defer elements.deinit(self.vm.allocator());
     const builder = self.vm.builder();
 
     while (true) {
-        switch (try self.readNextImpl(diagnostics)) {
+        switch (try self.readNextImpl(error_details)) {
             .atom => |a| try elements.append(self.vm.allocator(), a.val),
             .end_expr => {
                 const vec = try builder.makeVector(elements.asSlice());
@@ -363,36 +348,34 @@ fn readVector(self: *Reader, open_token: Tokenizer.Token, diagnostics: ?*Diagnos
                 } };
             },
             .end => {
-                if (diagnostics) |diag| {
-                    diag.addDiagnostic(.{ .reader = .{
-                        .kind = .unexpected_eof,
-                        .line = open_token.line,
-                        .column = open_token.column,
-                        .message = "missing closing parenthesis for vector",
-                        .hint = "add ')' to close the vector",
-                    } });
-                }
+                @branchHint(.cold);
+                error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+                    .kind = .unexpected_eof,
+                    .line = open_token.line,
+                    .column = open_token.column,
+                    .message = "missing closing parenthesis for vector",
+                    .hint = "add ')' to close the vector",
+                } });
                 return Error.ReadError;
             },
             .dot => |dot_token| {
-                if (diagnostics) |diag| {
-                    diag.addDiagnostic(.{ .reader = .{
-                        .kind = .unexpected_dot,
-                        .line = dot_token.line,
-                        .column = dot_token.column,
-                        .message = "vectors do not support dot notation",
-                        .lexeme = dot_token.lexeme,
-                    } });
-                }
+                @branchHint(.cold);
+                error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+                    .kind = .unexpected_dot,
+                    .line = dot_token.line,
+                    .column = dot_token.column,
+                    .message = "vectors do not support dot notation",
+                    .lexeme = dot_token.lexeme,
+                } });
                 return Error.ReadError;
             },
         }
     }
 }
 
-fn readQuote(self: *Reader, quote_token: Tokenizer.Token, diagnostics: ?*Diagnostics) Error!ReadResult {
+fn readQuote(self: *Reader, quote_token: Tokenizer.Token, error_details: *ErrorDetails) Error!ReadResult {
     const builder = self.vm.builder();
-    const next = try self.readNextImpl(diagnostics);
+    const next = try self.readNextImpl(error_details);
 
     switch (next) {
         .atom => |a| {
@@ -405,64 +388,60 @@ fn readQuote(self: *Reader, quote_token: Tokenizer.Token, diagnostics: ?*Diagnos
             } };
         },
         .end => {
-            if (diagnostics) |diag| {
-                diag.addDiagnostic(.{ .reader = .{
-                    .kind = .unexpected_eof,
-                    .line = quote_token.line,
-                    .column = quote_token.column,
-                    .message = "expected value after quote",
-                    .hint = "add a value after the quote, e.g., 'x or '(1 2 3)",
-                } });
-            }
+            @branchHint(.cold);
+            error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+                .kind = .unexpected_eof,
+                .line = quote_token.line,
+                .column = quote_token.column,
+                .message = "expected value after quote",
+                .hint = "add a value after the quote, e.g., 'x or '(1 2 3)",
+            } });
             return Error.ReadError;
         },
         .end_expr => |token| {
-            if (diagnostics) |diag| {
-                diag.addDiagnostic(.{ .reader = .{
-                    .kind = .unexpected_close_paren,
-                    .line = token.line,
-                    .column = token.column,
-                    .message = "expected value after quote, found closing parenthesis",
-                    .lexeme = token.lexeme,
-                } });
-            }
+            @branchHint(.cold);
+            error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+                .kind = .unexpected_close_paren,
+                .line = token.line,
+                .column = token.column,
+                .message = "expected value after quote, found closing parenthesis",
+                .lexeme = token.lexeme,
+            } });
             return Error.ReadError;
         },
         .dot => |token| {
-            if (diagnostics) |diag| {
-                diag.addDiagnostic(.{ .reader = .{
-                    .kind = .unexpected_dot,
-                    .line = token.line,
-                    .column = token.column,
-                    .message = "expected value after quote, found dot",
-                    .lexeme = token.lexeme,
-                } });
-            }
+            @branchHint(.cold);
+            error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+                .kind = .unexpected_dot,
+                .line = token.line,
+                .column = token.column,
+                .message = "expected value after quote, found dot",
+                .lexeme = token.lexeme,
+            } });
             return Error.ReadError;
         },
     }
 }
 
-fn parseSharpsign(self: Reader, token: Tokenizer.Token, diagnostics: ?*Diagnostics) Error!ReadResult {
+fn parseSharpsign(self: Reader, token: Tokenizer.Token, error_details: *ErrorDetails) Error!ReadResult {
     const lexeme = token.lexeme;
 
     // Lexeme must start with '#'
     if (lexeme.len == 0 or lexeme[0] != '#') {
-        if (diagnostics) |diag| {
-            diag.addDiagnostic(.{ .reader = .{
-                .kind = .unexpected_token,
-                .line = token.line,
-                .column = token.column,
-                .message = "invalid sharpsign literal",
-                .lexeme = lexeme,
-            } });
-        }
+        @branchHint(.cold);
+        error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+            .kind = .unexpected_token,
+            .line = token.line,
+            .column = token.column,
+            .message = "invalid sharpsign literal",
+            .lexeme = lexeme,
+        } });
         return Error.ReadError;
     }
 
     // Check if it's a character literal (#\...)
     if (lexeme.len >= 2 and lexeme[1] == '\\') {
-        return self.parseCharacter(token, diagnostics);
+        return self.parseCharacter(token, error_details);
     }
 
     // Check if it's a boolean (#t, #f, #true, #false)
@@ -480,29 +459,26 @@ fn parseSharpsign(self: Reader, token: Tokenizer.Token, diagnostics: ?*Diagnosti
     }
 
     // If we get here, it's an invalid sharpsign literal
-    if (diagnostics) |diag| {
-        diag.addDiagnostic(.{ .reader = .{
-            .kind = .unexpected_token,
-            .line = token.line,
-            .column = token.column,
-            .message = "invalid sharpsign literal",
-            .lexeme = lexeme,
-        } });
-    }
+    error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+        .kind = .unexpected_token,
+        .line = token.line,
+        .column = token.column,
+        .message = "invalid sharpsign literal",
+        .lexeme = lexeme,
+    } });
     return Error.ReadError;
 }
 
-fn parseNumber(_: Reader, token: Tokenizer.Token, diagnostics: ?*Diagnostics) Error!ReadResult {
+fn parseNumber(self: Reader, token: Tokenizer.Token, error_details: *ErrorDetails) Error!ReadResult {
     const lexeme = token.lexeme;
     if (lexeme.len == 0) {
-        if (diagnostics) |diag| {
-            diag.addDiagnostic(.{ .reader = .{
-                .kind = .invalid_number,
-                .line = token.line,
-                .column = token.column,
-                .message = "empty number literal",
-            } });
-        }
+        @branchHint(.cold);
+        error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+            .kind = .invalid_number,
+            .line = token.line,
+            .column = token.column,
+            .message = "empty number literal",
+        } });
         return Error.ReadError;
     }
 
@@ -523,15 +499,14 @@ fn parseNumber(_: Reader, token: Tokenizer.Token, diagnostics: ?*Diagnostics) Er
     if (has_decimal) {
         // Parse as float
         const f = std.fmt.parseFloat(f64, lexeme) catch {
-            if (diagnostics) |diag| {
-                diag.addDiagnostic(.{ .reader = .{
-                    .kind = .invalid_number,
-                    .line = token.line,
-                    .column = token.column,
-                    .message = "invalid floating-point number",
-                    .lexeme = lexeme,
-                } });
-            }
+            @branchHint(.cold);
+            error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+                .kind = .invalid_number,
+                .line = token.line,
+                .column = token.column,
+                .message = "invalid floating-point number",
+                .lexeme = lexeme,
+            } });
             return Error.ReadError;
         };
         const val = Val.initFloat(f);
@@ -542,24 +517,23 @@ fn parseNumber(_: Reader, token: Tokenizer.Token, diagnostics: ?*Diagnostics) Er
     }
 
     if (slash_idx) |idx| {
-        return try parseRational(lexeme, idx, token, diagnostics);
+        return try self.parseRational(lexeme, idx, token, error_details);
     }
 
     // Parse as integer
     const n = std.fmt.parseInt(i64, lexeme, 10) catch |err| {
-        if (diagnostics) |diag| {
-            const message = switch (err) {
-                error.Overflow => "integer literal is too large",
-                error.InvalidCharacter => "invalid digit in integer literal",
-            };
-            diag.addDiagnostic(.{ .reader = .{
-                .kind = .invalid_number,
-                .line = token.line,
-                .column = token.column,
-                .message = message,
-                .lexeme = lexeme,
-            } });
-        }
+        @branchHint(.cold);
+        const message = switch (err) {
+            error.Overflow => "integer literal is too large",
+            error.InvalidCharacter => "invalid digit in integer literal",
+        };
+        error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+            .kind = .invalid_number,
+            .line = token.line,
+            .column = token.column,
+            .message = message,
+            .lexeme = lexeme,
+        } });
         return Error.ReadError;
     };
 
@@ -570,88 +544,83 @@ fn parseNumber(_: Reader, token: Tokenizer.Token, diagnostics: ?*Diagnostics) Er
     } };
 }
 
-fn parseRational(lexeme: []const u8, slash_idx: usize, token: Tokenizer.Token, diagnostics: ?*Diagnostics) Error!ReadResult {
+fn parseRational(self: Reader, lexeme: []const u8, slash_idx: usize, token: Tokenizer.Token, error_details: *ErrorDetails) Error!ReadResult {
     const numerator_str = lexeme[0..slash_idx];
     const denominator_str = lexeme[slash_idx + 1 ..];
 
     if (denominator_str.len == 0) {
-        if (diagnostics) |diag| {
-            diag.addDiagnostic(.{ .reader = .{
-                .kind = .invalid_number,
-                .line = token.line,
-                .column = token.column,
-                .message = "rational number missing denominator",
-                .lexeme = lexeme,
-            } });
-        }
+        @branchHint(.cold);
+        error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+            .kind = .invalid_number,
+            .line = token.line,
+            .column = token.column,
+            .message = "rational number missing denominator",
+            .lexeme = lexeme,
+        } });
         return Error.ReadError;
     }
 
     // Parse as i64/u64 to handle large numbers that might reduce to smaller ones
     const numerator_i64 = std.fmt.parseInt(i64, numerator_str, 10) catch |err| {
-        if (diagnostics) |diag| {
-            const message = switch (err) {
-                error.Overflow => "rational numerator is too large",
-                error.InvalidCharacter => "invalid digit in rational numerator",
-            };
-            diag.addDiagnostic(.{ .reader = .{
-                .kind = .invalid_number,
-                .line = token.line,
-                .column = token.column,
-                .message = message,
-                .lexeme = lexeme,
-            } });
-        }
+        @branchHint(.cold);
+        const message = switch (err) {
+            error.Overflow => "rational numerator is too large",
+            error.InvalidCharacter => "invalid digit in rational numerator",
+        };
+        error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+            .kind = .invalid_number,
+            .line = token.line,
+            .column = token.column,
+            .message = message,
+            .lexeme = lexeme,
+        } });
         return Error.ReadError;
     };
 
     // Check for negative denominator before parsing
     if (denominator_str.len > 0 and (denominator_str[0] == '-' or denominator_str[0] == '+')) {
-        if (diagnostics) |diag| {
-            diag.addDiagnostic(.{ .reader = .{
-                .kind = .invalid_number,
-                .line = token.line,
-                .column = token.column,
-                .message = "rational denominator cannot be negative",
-                .lexeme = lexeme,
-            } });
-        }
+        @branchHint(.cold);
+        error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+            .kind = .invalid_number,
+            .line = token.line,
+            .column = token.column,
+            .message = "rational denominator cannot be negative",
+            .lexeme = lexeme,
+        } });
         return Error.ReadError;
     }
 
     const denominator_u64 = std.fmt.parseInt(u64, denominator_str, 10) catch |err| {
-        if (diagnostics) |diag| {
-            const message = switch (err) {
-                error.Overflow => "rational denominator is too large",
-                error.InvalidCharacter => "invalid digit in rational denominator",
-            };
-            diag.addDiagnostic(.{ .reader = .{
-                .kind = .invalid_number,
-                .line = token.line,
-                .column = token.column,
-                .message = message,
-                .lexeme = lexeme,
-            } });
-        }
+        @branchHint(.cold);
+        const message = switch (err) {
+            error.Overflow => "rational denominator is too large",
+            error.InvalidCharacter => "invalid digit in rational denominator",
+        };
+        error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+            .kind = .invalid_number,
+            .line = token.line,
+            .column = token.column,
+            .message = message,
+            .lexeme = lexeme,
+        } });
         return Error.ReadError;
     };
 
     // Use fromInt64 which handles reduction and validation
     const rational = Rational.fromInt64(numerator_i64, denominator_u64) catch |err| {
-        if (diagnostics) |diag| {
-            const message = switch (err) {
-                Rational.Error.DenominatorZero => "rational denominator cannot be zero",
-                Rational.Error.NumeratorTooLarge => "rational numerator is too large after reduction",
-                Rational.Error.DenominatorTooLarge => "rational denominator is too large after reduction",
-            };
-            diag.addDiagnostic(.{ .reader = .{
-                .kind = .invalid_number,
-                .line = token.line,
-                .column = token.column,
-                .message = message,
-                .lexeme = lexeme,
-            } });
-        }
+        @branchHint(.cold);
+        const message = switch (err) {
+            Rational.Error.DenominatorZero => "rational denominator cannot be zero",
+            Rational.Error.NumeratorTooLarge => "rational numerator is too large after reduction",
+            Rational.Error.DenominatorTooLarge => "rational denominator is too large after reduction",
+        };
+        error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+            .kind = .invalid_number,
+            .line = token.line,
+            .column = token.column,
+            .message = message,
+            .lexeme = lexeme,
+        } });
         return Error.ReadError;
     };
 
@@ -669,18 +638,17 @@ fn parseSymbol(self: Reader, token: Tokenizer.Token) Error!ReadResult {
     } };
 }
 
-fn parseString(self: Reader, token: Tokenizer.Token, diagnostics: ?*Diagnostics) Error!ReadResult {
+fn parseString(self: Reader, token: Tokenizer.Token, error_details: *ErrorDetails) Error!ReadResult {
     const lexeme = token.lexeme;
     // Token includes the quotes, so we need to strip them
     if (lexeme.len < 2 or lexeme[0] != '"' or lexeme[lexeme.len - 1] != '"') {
-        if (diagnostics) |diag| {
-            diag.addDiagnostic(.{ .reader = .{
-                .kind = .invalid_string,
-                .line = token.line,
-                .column = token.column,
-                .message = "malformed string literal",
-            } });
-        }
+        @branchHint(.cold);
+        error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+            .kind = .invalid_string,
+            .line = token.line,
+            .column = token.column,
+            .message = "malformed string literal",
+        } });
         return Error.ReadError;
     }
 
@@ -716,19 +684,18 @@ fn parseString(self: Reader, token: Tokenizer.Token, diagnostics: ?*Diagnostics)
     } };
 }
 
-fn parseCharacter(_: Reader, token: Tokenizer.Token, diagnostics: ?*Diagnostics) Error!ReadResult {
+fn parseCharacter(self: Reader, token: Tokenizer.Token, error_details: *ErrorDetails) Error!ReadResult {
     const lexeme = token.lexeme;
     // Token format: #\<character>
     // Examples: #\a, #\space, #\newline, #\x3BB
     if (lexeme.len < 3 or lexeme[0] != '#' or lexeme[1] != '\\') {
-        if (diagnostics) |diag| {
-            diag.addDiagnostic(.{ .reader = .{
-                .kind = .invalid_character,
-                .line = token.line,
-                .column = token.column,
-                .message = "malformed character literal",
-            } });
-        }
+        @branchHint(.cold);
+        error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+            .kind = .invalid_character,
+            .line = token.line,
+            .column = token.column,
+            .message = "malformed character literal",
+        } });
         return Error.ReadError;
     }
 
@@ -764,25 +731,23 @@ fn parseCharacter(_: Reader, token: Tokenizer.Token, diagnostics: ?*Diagnostics)
         // Hex escape: #\x3BB
         const hex_str = char_part[1..];
         if (hex_str.len == 0) {
-            if (diagnostics) |diag| {
-                diag.addDiagnostic(.{ .reader = .{
-                    .kind = .invalid_character,
-                    .line = token.line,
-                    .column = token.column,
-                    .message = "hex character escape requires at least one digit",
-                } });
-            }
+            @branchHint(.cold);
+            error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+                .kind = .invalid_character,
+                .line = token.line,
+                .column = token.column,
+                .message = "hex character escape requires at least one digit",
+            } });
             return Error.ReadError;
         }
         const int_ch = std.fmt.parseInt(u21, hex_str, 16) catch {
-            if (diagnostics) |diag| {
-                diag.addDiagnostic(.{ .reader = .{
-                    .kind = .invalid_character,
-                    .line = token.line,
-                    .column = token.column,
-                    .message = "invalid hex character escape",
-                } });
-            }
+            @branchHint(.cold);
+            error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+                .kind = .invalid_character,
+                .line = token.line,
+                .column = token.column,
+                .message = "invalid hex character escape",
+            } });
             return Error.ReadError;
         };
         return ReadResult{ .atom = .{
@@ -792,24 +757,22 @@ fn parseCharacter(_: Reader, token: Tokenizer.Token, diagnostics: ?*Diagnostics)
     }
 
     // Unknown named character or invalid format
-    if (diagnostics) |diag| {
-        diag.addDiagnostic(.{ .reader = .{
-            .kind = .invalid_character,
-            .line = token.line,
-            .column = token.column,
-            .message = "unknown named character",
-            .lexeme = lexeme,
-        } });
-    }
+    error_details.addDiagnostic(self.vm.allocator(), .{ .reader = .{
+        .kind = .invalid_character,
+        .line = token.line,
+        .column = token.column,
+        .message = "unknown named character",
+        .lexeme = lexeme,
+    } });
     return Error.ReadError;
 }
 
 fn expectReadNext(self: *Reader, expect: ?[]const u8, vm: *const Vm) !void {
-    var diagnostics = Diagnostics.init(testing.allocator);
-    defer diagnostics.deinit();
-    errdefer std.debug.print("Diagnostics:\n{f}\n", .{diagnostics.pretty(vm, .nocolor)});
+    var error_details = ErrorDetails{};
+    defer error_details.deinit(testing.allocator);
+    errdefer std.debug.print("Error details:\n{f}\n", .{error_details.pretty(vm, .nocolor)});
 
-    const next = try self.readNext(&diagnostics);
+    const next = try self.readNext(&error_details);
     if (expect) |expected_str| {
         const val = next orelse {
             std.debug.print("Expected value '{s}' but got end of input\n", .{expected_str});
@@ -825,30 +788,30 @@ fn expectReadNext(self: *Reader, expect: ?[]const u8, vm: *const Vm) !void {
 fn expectReadError(
     self: *Reader,
     expected_error: anyerror,
-    expected_kind: Diagnostics.ReadErrorInfo.Kind,
+    expected_kind: ErrorDetails.ReadErrorInfo.Kind,
 ) !void {
-    var diagnostics = Diagnostics.init(testing.allocator);
-    defer diagnostics.deinit();
-    errdefer std.debug.print("Diagnostics:\n{f}\n", .{diagnostics.pretty(self.vm, .nocolor)});
+    var error_details = ErrorDetails{};
+    defer error_details.deinit(testing.allocator);
+    errdefer std.debug.print("Error details:\n{f}\n", .{error_details.pretty(self.vm, .nocolor)});
 
-    const actual_error = self.readNext(&diagnostics);
+    const actual_error = self.readNext(&error_details);
     try testing.expectError(expected_error, actual_error);
-    try testing.expectEqual(expected_kind, diagnostics.diagnostics.items[0].reader.kind);
+    try testing.expectEqual(expected_kind, error_details.diagnostics.items[0].reader.kind);
 }
 
 fn expectReadOneError(
     vm: *Vm,
     source: []const u8,
     expected_error: anyerror,
-    expected_kind: Diagnostics.ReadErrorInfo.Kind,
+    expected_kind: ErrorDetails.ReadErrorInfo.Kind,
 ) !void {
-    var diagnostics = Diagnostics.init(testing.allocator);
-    defer diagnostics.deinit();
-    errdefer std.debug.print("Diagnostics:\n{f}\n", .{diagnostics.pretty(vm, .nocolor)});
+    var error_details = ErrorDetails{};
+    defer error_details.deinit(testing.allocator);
+    errdefer std.debug.print("Error details:\n{f}\n", .{error_details.pretty(vm, .nocolor)});
 
-    const actual_error = Reader.readOne(vm, source, &diagnostics);
+    const actual_error = Reader.readOne(vm, source, &error_details);
     try testing.expectError(expected_error, actual_error);
-    try testing.expectEqual(expected_kind, diagnostics.diagnostics.items[0].reader.kind);
+    try testing.expectEqual(expected_kind, error_details.diagnostics.items[0].reader.kind);
 }
 
 test "read int" {
@@ -962,9 +925,11 @@ test "read string with escapes" {
 
     // Pretty printer outputs the actual escaped characters, not the escape sequences
     var reader = Reader.init(&vm, "\"line1\\nline2\" \"tab\\there\" \"quote\\\"inside\"");
-    const val1 = (try reader.readNext(null)).?;
-    const val2 = (try reader.readNext(null)).?;
-    const val3 = (try reader.readNext(null)).?;
+    var error_details = ErrorDetails{};
+    defer error_details.deinit(testing.allocator);
+    const val1 = (try reader.readNext(&error_details)).?;
+    const val2 = (try reader.readNext(&error_details)).?;
+    const val3 = (try reader.readNext(&error_details)).?;
     try reader.expectReadNext(null, &vm);
 
     // Verify the strings contain the actual escaped characters
@@ -993,19 +958,21 @@ test "read special floats" {
     defer vm.deinit();
 
     var reader = Reader.init(&vm, "+inf.0 -inf.0 +nan.0");
+    var error_details = ErrorDetails{};
+    defer error_details.deinit(testing.allocator);
 
     // Read +inf.0
-    const pos_inf = (try reader.readNext(null)).?;
+    const pos_inf = (try reader.readNext(&error_details)).?;
     try testing.expect(pos_inf.asFloat() != null);
     try testing.expect(std.math.isPositiveInf(pos_inf.asFloat().?));
 
     // Read -inf.0
-    const neg_inf = (try reader.readNext(null)).?;
+    const neg_inf = (try reader.readNext(&error_details)).?;
     try testing.expect(neg_inf.asFloat() != null);
     try testing.expect(std.math.isNegativeInf(neg_inf.asFloat().?));
 
     // Read +nan.0
-    const nan_val = (try reader.readNext(null)).?;
+    const nan_val = (try reader.readNext(&error_details)).?;
     try testing.expect(nan_val.asFloat() != null);
     try testing.expect(std.math.isNan(nan_val.asFloat().?));
 
@@ -1134,7 +1101,9 @@ test "error unexpected close paren" {
     defer vm.deinit();
 
     var reader = Reader.init(&vm, "1)");
-    _ = try reader.readNext(null);
+    var error_details = ErrorDetails{};
+    defer error_details.deinit(testing.allocator);
+    _ = try reader.readNext(&error_details);
     try reader.expectReadError(Error.ReadError, .unexpected_close_paren);
 }
 
@@ -1180,62 +1149,61 @@ test "error invalid sharpsign literal" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    var diagnostics = Diagnostics.init(testing.allocator);
-    defer diagnostics.deinit();
-    errdefer std.debug.print("Diagnostics:\n{f}\n", .{diagnostics.pretty(&vm, .nocolor)});
+    var error_details = ErrorDetails{};
+    defer error_details.deinit(testing.allocator);
+    errdefer std.debug.print("Error details:\n{f}\n", .{error_details.pretty(&vm, .nocolor)});
 
     var reader = Reader.init(&vm, "#invalid");
-    const result = reader.readNext(&diagnostics);
+    const result = reader.readNext(&error_details);
     try testing.expectError(Error.ReadError, result);
-    try testing.expectEqual(Diagnostics.ReadErrorInfo.Kind.unexpected_token, diagnostics.diagnostics.items[0].reader.kind);
-    try testing.expectEqualStrings("invalid sharpsign literal", diagnostics.diagnostics.items[0].reader.message);
+    try testing.expectEqual(ErrorDetails.ReadErrorInfo.Kind.unexpected_token, error_details.diagnostics.items[0].reader.kind);
+    try testing.expectEqualStrings("invalid sharpsign literal", error_details.diagnostics.items[0].reader.message);
 }
 
 test "error bare sharpsign" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    var diagnostics = Diagnostics.init(testing.allocator);
-    defer diagnostics.deinit();
-    errdefer std.debug.print("Diagnostics:\n{f}\n", .{diagnostics.pretty(&vm, .nocolor)});
+    var error_details = ErrorDetails{};
+    defer error_details.deinit(testing.allocator);
+    errdefer std.debug.print("Error details:\n{f}\n", .{error_details.pretty(&vm, .nocolor)});
 
     var reader = Reader.init(&vm, "#");
-    const result = reader.readNext(&diagnostics);
+    const result = reader.readNext(&error_details);
     try testing.expectError(Error.ReadError, result);
-    try testing.expectEqual(Diagnostics.ReadErrorInfo.Kind.unexpected_token, diagnostics.diagnostics.items[0].reader.kind);
-    try testing.expectEqualStrings("invalid sharpsign literal", diagnostics.diagnostics.items[0].reader.message);
-    try testing.expect(diagnostics.diagnostics.items[0].reader.lexeme != null);
-    try testing.expectEqualStrings("#", diagnostics.diagnostics.items[0].reader.lexeme.?);
+    try testing.expectEqual(ErrorDetails.ReadErrorInfo.Kind.unexpected_token, error_details.diagnostics.items[0].reader.kind);
+    try testing.expectEqualStrings("invalid sharpsign literal", error_details.diagnostics.items[0].reader.message);
+    try testing.expect(error_details.diagnostics.items[0].reader.lexeme != null);
+    try testing.expectEqualStrings("#", error_details.diagnostics.items[0].reader.lexeme.?);
 }
 
 test "error invalid rational numerator" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
-
     // Test invalid character in numerator
     {
-        var diagnostics = Diagnostics.init(testing.allocator);
-        defer diagnostics.deinit();
-        errdefer std.debug.print("Diagnostics:\n{f}\n", .{diagnostics.pretty(&vm, .nocolor)});
+        var error_details = ErrorDetails{};
+        defer error_details.deinit(testing.allocator);
+        errdefer std.debug.print("Error details:\n{f}\n", .{error_details.pretty(&vm, .nocolor)});
 
         var reader = Reader.init(&vm, "12abc/5");
-        const result = reader.readNext(&diagnostics);
+        const result = reader.readNext(&error_details);
         try testing.expectError(Error.ReadError, result);
-        try testing.expectEqual(Diagnostics.ReadErrorInfo.Kind.invalid_number, diagnostics.diagnostics.items[0].reader.kind);
-        try testing.expectEqualStrings("invalid digit in rational numerator", diagnostics.diagnostics.items[0].reader.message);
+        try testing.expectEqual(ErrorDetails.ReadErrorInfo.Kind.invalid_number, error_details.diagnostics.items[0].reader.kind);
+        try testing.expectEqualStrings("invalid digit in rational numerator", error_details.diagnostics.items[0].reader.message);
     }
 
     // Test overflow in numerator (during initial parse, before reduction can help)
     {
-        var diagnostics = Diagnostics.init(testing.allocator);
-        defer diagnostics.deinit();
-        errdefer std.debug.print("Diagnostics:\n{f}\n", .{diagnostics.pretty(&vm, .nocolor)});
+        var error_details = ErrorDetails{};
+        defer error_details.deinit(testing.allocator);
+        errdefer std.debug.print("Error details:\n{f}\n", .{error_details.pretty(&vm, .nocolor)});
 
         var reader = Reader.init(&vm, "99999999999999999999/1");
-        const result = reader.readNext(&diagnostics);
+        const result = reader.readNext(&error_details);
         try testing.expectError(Error.ReadError, result);
-        try testing.expectEqual(Diagnostics.ReadErrorInfo.Kind.invalid_number, diagnostics.diagnostics.items[0].reader.kind);
-        try testing.expectEqualStrings("rational numerator is too large", diagnostics.diagnostics.items[0].reader.message);
+        try testing.expectEqual(ErrorDetails.ReadErrorInfo.Kind.invalid_number, error_details.diagnostics.items[0].reader.kind);
+        try testing.expectEqualStrings("rational numerator is too large", error_details.diagnostics.items[0].reader.message);
     }
 }
 
@@ -1245,28 +1213,28 @@ test "error invalid rational denominator" {
 
     // Test invalid character in denominator
     {
-        var diagnostics = Diagnostics.init(testing.allocator);
-        defer diagnostics.deinit();
-        errdefer std.debug.print("Diagnostics:\n{f}\n", .{diagnostics.pretty(&vm, .nocolor)});
+        var error_details = ErrorDetails{};
+        defer error_details.deinit(testing.allocator);
+        errdefer std.debug.print("Error details:\n{f}\n", .{error_details.pretty(&vm, .nocolor)});
 
         var reader = Reader.init(&vm, "5/12xyz");
-        const result = reader.readNext(&diagnostics);
+        const result = reader.readNext(&error_details);
         try testing.expectError(Error.ReadError, result);
-        try testing.expectEqual(Diagnostics.ReadErrorInfo.Kind.invalid_number, diagnostics.diagnostics.items[0].reader.kind);
-        try testing.expectEqualStrings("invalid digit in rational denominator", diagnostics.diagnostics.items[0].reader.message);
+        try testing.expectEqual(ErrorDetails.ReadErrorInfo.Kind.invalid_number, error_details.diagnostics.items[0].reader.kind);
+        try testing.expectEqualStrings("invalid digit in rational denominator", error_details.diagnostics.items[0].reader.message);
     }
 
     // Test overflow in denominator (during initial parse, before reduction can help)
     {
-        var diagnostics = Diagnostics.init(testing.allocator);
-        defer diagnostics.deinit();
-        errdefer std.debug.print("Diagnostics:\n{f}\n", .{diagnostics.pretty(&vm, .nocolor)});
+        var error_details = ErrorDetails{};
+        defer error_details.deinit(testing.allocator);
+        errdefer std.debug.print("Error details:\n{f}\n", .{error_details.pretty(&vm, .nocolor)});
 
         var reader = Reader.init(&vm, "1/99999999999999999999");
-        const result = reader.readNext(&diagnostics);
+        const result = reader.readNext(&error_details);
         try testing.expectError(Error.ReadError, result);
-        try testing.expectEqual(Diagnostics.ReadErrorInfo.Kind.invalid_number, diagnostics.diagnostics.items[0].reader.kind);
-        try testing.expectEqualStrings("rational denominator is too large", diagnostics.diagnostics.items[0].reader.message);
+        try testing.expectEqual(ErrorDetails.ReadErrorInfo.Kind.invalid_number, error_details.diagnostics.items[0].reader.kind);
+        try testing.expectEqualStrings("rational denominator is too large", error_details.diagnostics.items[0].reader.message);
     }
 }
 
@@ -1274,15 +1242,15 @@ test "error zero denominator" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    var diagnostics = Diagnostics.init(testing.allocator);
-    defer diagnostics.deinit();
-    errdefer std.debug.print("Diagnostics:\n{f}\n", .{diagnostics.pretty(&vm, .nocolor)});
+    var error_details = ErrorDetails{};
+    defer error_details.deinit(testing.allocator);
+    errdefer std.debug.print("Error details:\n{f}\n", .{error_details.pretty(&vm, .nocolor)});
 
     var reader = Reader.init(&vm, "1/0");
-    const result = reader.readNext(&diagnostics);
+    const result = reader.readNext(&error_details);
     try testing.expectError(Error.ReadError, result);
-    try testing.expectEqual(Diagnostics.ReadErrorInfo.Kind.invalid_number, diagnostics.diagnostics.items[0].reader.kind);
-    try testing.expectEqualStrings("rational denominator cannot be zero", diagnostics.diagnostics.items[0].reader.message);
+    try testing.expectEqual(ErrorDetails.ReadErrorInfo.Kind.invalid_number, error_details.diagnostics.items[0].reader.kind);
+    try testing.expectEqualStrings("rational denominator cannot be zero", error_details.diagnostics.items[0].reader.message);
 }
 
 test "read negative denominator rational gives error" {
@@ -1290,12 +1258,12 @@ test "read negative denominator rational gives error" {
     defer vm.deinit();
 
     // Negative denominators are not valid syntax
-    var diagnostics = Diagnostics.init(testing.allocator);
-    defer diagnostics.deinit();
-    errdefer std.debug.print("Diagnostics:\n{f}\n", .{diagnostics.pretty(&vm, .nocolor)});
+    var error_details = ErrorDetails{};
+    defer error_details.deinit(testing.allocator);
+    errdefer std.debug.print("Error details:\n{f}\n", .{error_details.pretty(&vm, .nocolor)});
 
     var reader = Reader.init(&vm, "1/-2");
-    const result = reader.readNext(&diagnostics);
+    const result = reader.readNext(&error_details);
     try testing.expectError(Error.ReadError, result);
 }
 
@@ -1305,41 +1273,41 @@ test "lexeme information in diagnostics" {
 
     // Test unexpected dot
     {
-        var diagnostics = Diagnostics.init(testing.allocator);
-        defer diagnostics.deinit();
-        errdefer std.debug.print("Diagnostics:\n{f}\n", .{diagnostics.pretty(&vm, .nocolor)});
+        var error_details = ErrorDetails{};
+        defer error_details.deinit(testing.allocator);
+        errdefer std.debug.print("Error details:\n{f}\n", .{error_details.pretty(&vm, .nocolor)});
 
         var reader = Reader.init(&vm, ".");
-        _ = reader.readNext(&diagnostics) catch {};
-        try testing.expectEqual(Diagnostics.ReadErrorInfo.Kind.unexpected_dot, diagnostics.diagnostics.items[0].reader.kind);
-        try testing.expect(diagnostics.diagnostics.items[0].reader.lexeme != null);
-        try testing.expectEqualStrings(".", diagnostics.diagnostics.items[0].reader.lexeme.?);
+        _ = reader.readNext(&error_details) catch {};
+        try testing.expectEqual(ErrorDetails.ReadErrorInfo.Kind.unexpected_dot, error_details.diagnostics.items[0].reader.kind);
+        try testing.expect(error_details.diagnostics.items[0].reader.lexeme != null);
+        try testing.expectEqualStrings(".", error_details.diagnostics.items[0].reader.lexeme.?);
     }
 
     // Test unexpected close paren
     {
-        var diagnostics = Diagnostics.init(testing.allocator);
-        defer diagnostics.deinit();
-        errdefer std.debug.print("Diagnostics:\n{f}\n", .{diagnostics.pretty(&vm, .nocolor)});
+        var error_details = ErrorDetails{};
+        defer error_details.deinit(testing.allocator);
+        errdefer std.debug.print("Error details:\n{f}\n", .{error_details.pretty(&vm, .nocolor)});
 
         var reader = Reader.init(&vm, "1 )");
-        _ = try reader.readNext(null);
-        _ = reader.readNext(&diagnostics) catch {};
-        try testing.expectEqual(Diagnostics.ReadErrorInfo.Kind.unexpected_close_paren, diagnostics.diagnostics.items[0].reader.kind);
-        try testing.expect(diagnostics.diagnostics.items[0].reader.lexeme != null);
-        try testing.expectEqualStrings(")", diagnostics.diagnostics.items[0].reader.lexeme.?);
+        _ = try reader.readNext(&error_details);
+        _ = reader.readNext(&error_details) catch {};
+        try testing.expectEqual(ErrorDetails.ReadErrorInfo.Kind.unexpected_close_paren, error_details.diagnostics.items[0].reader.kind);
+        try testing.expect(error_details.diagnostics.items[0].reader.lexeme != null);
+        try testing.expectEqualStrings(")", error_details.diagnostics.items[0].reader.lexeme.?);
     }
 
     // Test invalid bytevector element
     {
-        var diagnostics = Diagnostics.init(testing.allocator);
-        defer diagnostics.deinit();
-        errdefer std.debug.print("Diagnostics:\n{f}\n", .{diagnostics.pretty(&vm, .nocolor)});
+        var error_details = ErrorDetails{};
+        defer error_details.deinit(testing.allocator);
+        errdefer std.debug.print("Error details:\n{f}\n", .{error_details.pretty(&vm, .nocolor)});
 
         var reader = Reader.init(&vm, "#u8(256)");
-        _ = reader.readNext(&diagnostics) catch {};
-        try testing.expectEqual(Diagnostics.ReadErrorInfo.Kind.invalid_bytevector, diagnostics.diagnostics.items[0].reader.kind);
-        try testing.expect(diagnostics.diagnostics.items[0].reader.lexeme != null);
-        try testing.expectEqualStrings("256", diagnostics.diagnostics.items[0].reader.lexeme.?);
+        _ = reader.readNext(&error_details) catch {};
+        try testing.expectEqual(ErrorDetails.ReadErrorInfo.Kind.invalid_bytevector, error_details.diagnostics.items[0].reader.kind);
+        try testing.expect(error_details.diagnostics.items[0].reader.lexeme != null);
+        try testing.expectEqualStrings("256", error_details.diagnostics.items[0].reader.lexeme.?);
     }
 }

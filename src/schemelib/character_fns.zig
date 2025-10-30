@@ -1,7 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 
-const Diagnostics = @import("../Diagnostics.zig");
+const ErrorDetails = @import("../types/ErrorDetails.zig");
 const NativeProc = @import("../types/NativeProc.zig");
 const Val = @import("../types/Val.zig");
 const Vm = @import("../Vm.zig");
@@ -67,49 +67,46 @@ fn isGreaterThanOrEqualCaseInsensitive(a: u21, b: u21) bool {
 }
 
 /// Generic comparison helper that checks if all arguments are ordered according to compareFn
-fn checkOrdered(args: []const Val, comptime compare_fn: fn (u21, u21) bool, proc: *const NativeProc, diagnostics: ?*Diagnostics) Vm.Error!Val {
+fn checkOrdered(vm: *Vm, args: []const Val, comptime compare_fn: fn (u21, u21) bool, proc: *const NativeProc, diagnostics: *ErrorDetails) Vm.Error!Val {
     const is_ordered = switch (args.len) {
         0 => true,
         1 => blk: {
             // Validate single argument is a character
             _ = args[0].asChar() orelse {
-                if (diagnostics) |d| {
-                    d.addDiagnostic(.{ .wrong_arg_type = .{
-                        .expected = "char",
-                        .got = args[0],
-                        .proc = Val.initNativeProc(proc),
-                        .arg_name = null,
-                        .arg_position = 0,
-                    } });
-                }
+                @branchHint(.cold);
+                diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_type = .{
+                    .expected = "char",
+                    .got = args[0],
+                    .proc = Val.initNativeProc(proc),
+                    .arg_name = null,
+                    .arg_position = 0,
+                } });
                 return Vm.Error.UncaughtException;
             };
             break :blk true;
         },
         else => blk: {
             var prev = args[0].asChar() orelse {
-                if (diagnostics) |d| {
-                    d.addDiagnostic(.{ .wrong_arg_type = .{
-                        .expected = "char",
-                        .got = args[0],
-                        .proc = Val.initNativeProc(proc),
-                        .arg_name = null,
-                        .arg_position = 0,
-                    } });
-                }
+                @branchHint(.cold);
+                diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_type = .{
+                    .expected = "char",
+                    .got = args[0],
+                    .proc = Val.initNativeProc(proc),
+                    .arg_name = null,
+                    .arg_position = 0,
+                } });
                 return Vm.Error.UncaughtException;
             };
             for (args[1..], 1..) |v, idx| {
                 const curr = v.asChar() orelse {
-                    if (diagnostics) |d| {
-                        d.addDiagnostic(.{ .wrong_arg_type = .{
-                            .expected = "char",
-                            .got = v,
-                            .proc = Val.initNativeProc(proc),
-                            .arg_name = null,
-                            .arg_position = @intCast(idx),
-                        } });
-                    }
+                    @branchHint(.cold);
+                    diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_type = .{
+                        .expected = "char",
+                        .got = v,
+                        .proc = Val.initNativeProc(proc),
+                        .arg_name = null,
+                        .arg_position = @intCast(idx),
+                    } });
                     return Vm.Error.UncaughtException;
                 };
                 if (!compare_fn(prev, curr)) break :blk false;
@@ -130,8 +127,8 @@ pub const eq = NativeProc.withRawArgs(struct {
         \\(char=? #\a #\a)  =>  #t
         \\(char=? #\a #\b)  =>  #f
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
-        return checkOrdered(args, isEqual, &eq, diagnostics);
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, args: []const Val) Vm.Error!Val {
+        return checkOrdered(vm, args, isEqual, &eq, diagnostics);
     }
 });
 
@@ -143,8 +140,8 @@ pub const lt = NativeProc.withRawArgs(struct {
         \\Returns #t if characters are monotonically increasing.
         \\(char<? #\a #\b #\c)  =>  #t
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
-        return checkOrdered(args, isLessThan, &lt, diagnostics);
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, args: []const Val) Vm.Error!Val {
+        return checkOrdered(vm, args, isLessThan, &lt, diagnostics);
     }
 });
 
@@ -156,8 +153,8 @@ pub const lte = NativeProc.withRawArgs(struct {
         \\Returns #t if characters are monotonically non-decreasing.
         \\(char<=? #\a #\a #\b)  =>  #t
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
-        return checkOrdered(args, isLessThanOrEqual, &lte, diagnostics);
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, args: []const Val) Vm.Error!Val {
+        return checkOrdered(vm, args, isLessThanOrEqual, &lte, diagnostics);
     }
 });
 
@@ -169,8 +166,8 @@ pub const gt = NativeProc.withRawArgs(struct {
         \\Returns #t if characters are monotonically decreasing.
         \\(char>? #\c #\b #\a)  =>  #t
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
-        return checkOrdered(args, isGreaterThan, &gt, diagnostics);
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, args: []const Val) Vm.Error!Val {
+        return checkOrdered(vm, args, isGreaterThan, &gt, diagnostics);
     }
 });
 
@@ -182,8 +179,8 @@ pub const gte = NativeProc.withRawArgs(struct {
         \\Returns #t if characters are monotonically non-increasing.
         \\(char>=? #\c #\b #\b)  =>  #t
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
-        return checkOrdered(args, isGreaterThanOrEqual, &gte, diagnostics);
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, args: []const Val) Vm.Error!Val {
+        return checkOrdered(vm, args, isGreaterThanOrEqual, &gte, diagnostics);
     }
 });
 
@@ -195,8 +192,8 @@ pub const ci_eq = NativeProc.withRawArgs(struct {
         \\Returns #t if all characters are equal (case-insensitive).
         \\(char-ci=? #\a #\A)  =>  #t
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
-        return checkOrdered(args, isEqualCaseInsensitive, &ci_eq, diagnostics);
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, args: []const Val) Vm.Error!Val {
+        return checkOrdered(vm, args, isEqualCaseInsensitive, &ci_eq, diagnostics);
     }
 });
 
@@ -208,8 +205,8 @@ pub const ci_lt = NativeProc.withRawArgs(struct {
         \\Returns #t if characters are monotonically increasing (case-insensitive).
         \\(char-ci<? #\a #\B)  =>  #t
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
-        return checkOrdered(args, isLessThanCaseInsensitive, &ci_lt, diagnostics);
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, args: []const Val) Vm.Error!Val {
+        return checkOrdered(vm, args, isLessThanCaseInsensitive, &ci_lt, diagnostics);
     }
 });
 
@@ -221,8 +218,8 @@ pub const ci_lte = NativeProc.withRawArgs(struct {
         \\Returns #t if characters are monotonically non-decreasing (case-insensitive).
         \\(char-ci<=? #\a #\A #\B)  =>  #t
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
-        return checkOrdered(args, isLessThanOrEqualCaseInsensitive, &ci_lte, diagnostics);
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, args: []const Val) Vm.Error!Val {
+        return checkOrdered(vm, args, isLessThanOrEqualCaseInsensitive, &ci_lte, diagnostics);
     }
 });
 
@@ -234,8 +231,8 @@ pub const ci_gt = NativeProc.withRawArgs(struct {
         \\Returns #t if characters are monotonically decreasing (case-insensitive).
         \\(char-ci>? #\C #\b #\a)  =>  #t
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
-        return checkOrdered(args, isGreaterThanCaseInsensitive, &ci_gt, diagnostics);
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, args: []const Val) Vm.Error!Val {
+        return checkOrdered(vm, args, isGreaterThanCaseInsensitive, &ci_gt, diagnostics);
     }
 });
 
@@ -247,8 +244,8 @@ pub const ci_gte = NativeProc.withRawArgs(struct {
         \\Returns #t if characters are monotonically non-increasing (case-insensitive).
         \\(char-ci>=? #\C #\B #\b)  =>  #t
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, args: []const Val) Vm.Error!Val {
-        return checkOrdered(args, isGreaterThanOrEqualCaseInsensitive, &ci_gte, diagnostics);
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, args: []const Val) Vm.Error!Val {
+        return checkOrdered(vm, args, isGreaterThanOrEqualCaseInsensitive, &ci_gte, diagnostics);
     }
 });
 
@@ -261,7 +258,7 @@ pub const char_p = NativeProc.with1Arg(struct {
         \\(char? #\a)  =>  #t
         \\(char? 97)   =>  #f
     ;
-    pub inline fn impl(_: *Vm, _: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub inline fn impl(_: *Vm, _: *ErrorDetails, arg: Val) Vm.Error!Val {
         return Val.initBool(arg.asChar() != null);
     }
 });
@@ -275,17 +272,16 @@ pub const char_alphabetic_p = NativeProc.with1Arg(struct {
         \\(char-alphabetic? #\a)      =>  #t
         \\(char-alphabetic? #\0)      =>  #f
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, arg: Val) Vm.Error!Val {
         const c = arg.asChar() orelse {
-            if (diagnostics) |d| {
-                d.addDiagnostic(.{ .wrong_arg_type = .{
+            @branchHint(.cold);
+            diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_type = .{
                     .expected = "char",
                     .got = arg,
                     .proc = Val.initNativeProc(&char_alphabetic_p),
                     .arg_name = "char",
                     .arg_position = 0,
                 } });
-            }
             return Vm.Error.UncaughtException;
         };
         const is_alpha = if (c < 128)
@@ -307,17 +303,16 @@ pub const char_numeric_p = NativeProc.with1Arg(struct {
         \\(char-numeric? #\5)    =>  #t
         \\(char-numeric? #\a)    =>  #f
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, arg: Val) Vm.Error!Val {
         const c = arg.asChar() orelse {
-            if (diagnostics) |d| {
-                d.addDiagnostic(.{ .wrong_arg_type = .{
+            @branchHint(.cold);
+            diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_type = .{
                     .expected = "char",
                     .got = arg,
                     .proc = Val.initNativeProc(&char_numeric_p),
                     .arg_name = "char",
                     .arg_position = 0,
                 } });
-            }
             return Vm.Error.UncaughtException;
         };
         const is_numeric = if (c < 128)
@@ -337,15 +332,16 @@ pub const char_whitespace_p = NativeProc.with1Arg(struct {
         \\(char-whitespace? #\space)    =>  #t
         \\(char-whitespace? #\a)        =>  #f
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, arg: Val) Vm.Error!Val {
         const c = arg.asChar() orelse {
-            if (diagnostics) |d| d.addDiagnostic(.{ .wrong_arg_type = .{
-                .expected = "char",
-                .got = arg,
-                .proc = Val.initNativeProc(&char_whitespace_p),
-                .arg_name = "char",
-                .arg_position = 0,
-            } });
+            @branchHint(.cold);
+            diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_type = .{
+                    .expected = "char",
+                    .got = arg,
+                    .proc = Val.initNativeProc(&char_whitespace_p),
+                    .arg_name = "char",
+                    .arg_position = 0,
+                } });
             return Vm.Error.UncaughtException;
         };
 
@@ -373,15 +369,16 @@ pub const char_upper_case_p = NativeProc.with1Arg(struct {
         \\(char-upper-case? #\A)    =>  #t
         \\(char-upper-case? #\a)    =>  #f
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, arg: Val) Vm.Error!Val {
         const c = arg.asChar() orelse {
-            if (diagnostics) |d| d.addDiagnostic(.{ .wrong_arg_type = .{
-                .expected = "char",
-                .got = arg,
-                .proc = Val.initNativeProc(&char_upper_case_p),
-                .arg_name = "char",
-                .arg_position = 0,
-            } });
+            @branchHint(.cold);
+            diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_type = .{
+                    .expected = "char",
+                    .got = arg,
+                    .proc = Val.initNativeProc(&char_upper_case_p),
+                    .arg_name = "char",
+                    .arg_position = 0,
+                } });
             return Vm.Error.UncaughtException;
         };
 
@@ -403,15 +400,16 @@ pub const char_lower_case_p = NativeProc.with1Arg(struct {
         \\(char-lower-case? #\a)    =>  #t
         \\(char-lower-case? #\A)    =>  #f
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, arg: Val) Vm.Error!Val {
         const c = arg.asChar() orelse {
-            if (diagnostics) |d| d.addDiagnostic(.{ .wrong_arg_type = .{
-                .expected = "char",
-                .got = arg,
-                .proc = Val.initNativeProc(&char_lower_case_p),
-                .arg_name = "char",
-                .arg_position = 0,
-            } });
+            @branchHint(.cold);
+            diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_type = .{
+                    .expected = "char",
+                    .got = arg,
+                    .proc = Val.initNativeProc(&char_lower_case_p),
+                    .arg_name = "char",
+                    .arg_position = 0,
+                } });
             return Vm.Error.UncaughtException;
         };
 
@@ -432,17 +430,16 @@ pub const digit_value = NativeProc.with1Arg(struct {
         \\(digit-value #\5)    =>  5
         \\(digit-value #\a)    =>  #f
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, arg: Val) Vm.Error!Val {
         const c = arg.asChar() orelse {
-            if (diagnostics) |d| {
-                d.addDiagnostic(.{ .wrong_arg_type = .{
+            @branchHint(.cold);
+            diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_type = .{
                     .expected = "char",
                     .got = arg,
                     .proc = Val.initNativeProc(&digit_value),
                     .arg_name = "char",
                     .arg_position = 0,
                 } });
-            }
             return Vm.Error.UncaughtException;
         };
 
@@ -463,17 +460,16 @@ pub const char_to_integer = NativeProc.with1Arg(struct {
         \\(char->integer #\a)    =>  97
         \\(char->integer #\A)    =>  65
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, arg: Val) Vm.Error!Val {
         const c = arg.asChar() orelse {
-            if (diagnostics) |d| {
-                d.addDiagnostic(.{ .wrong_arg_type = .{
+            @branchHint(.cold);
+            diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_type = .{
                     .expected = "char",
                     .got = arg,
                     .proc = Val.initNativeProc(&char_to_integer),
                     .arg_name = "char",
                     .arg_position = 0,
                 } });
-            }
             return Vm.Error.UncaughtException;
         };
         const code: i64 = @intCast(c);
@@ -490,25 +486,23 @@ pub const integer_to_char = NativeProc.with1Arg(struct {
         \\(integer->char 97)    =>  #\a
         \\(integer->char 65)    =>  #\A
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, arg: Val) Vm.Error!Val {
         const n = arg.asInt() orelse {
-            if (diagnostics) |d| {
-                d.addDiagnostic(.{ .wrong_arg_type = .{
+            @branchHint(.cold);
+            diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_type = .{
                     .expected = "integer",
                     .got = arg,
                     .proc = Val.initNativeProc(&integer_to_char),
                     .arg_name = "n",
                     .arg_position = 0,
                 } });
-            }
             return Vm.Error.UncaughtException;
         };
 
         // Validate Unicode range
         if (n < 0 or n > 0x10FFFF) {
-            if (diagnostics) |d| {
-                d.addDiagnostic(.{ .other = "integer->char: argument must be in Unicode range [0, 0x10FFFF]" });
-            }
+            @branchHint(.cold);
+            diagnostics.addDiagnostic(vm.allocator(), .{ .other = "integer->char: argument must be in Unicode range [0, 0x10FFFF]" });
             return Vm.Error.UncaughtException;
         }
         const c: u21 = @intCast(n);
@@ -525,17 +519,16 @@ pub const char_upcase = NativeProc.with1Arg(struct {
         \\(char-upcase #\a)    =>  #\A
         \\(char-upcase #\A)    =>  #\A
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, arg: Val) Vm.Error!Val {
         const c = arg.asChar() orelse {
-            if (diagnostics) |d| {
-                d.addDiagnostic(.{ .wrong_arg_type = .{
+            @branchHint(.cold);
+            diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_type = .{
                     .expected = "char",
                     .got = arg,
                     .proc = Val.initNativeProc(&char_upcase),
                     .arg_name = "char",
                     .arg_position = 0,
                 } });
-            }
             return Vm.Error.UncaughtException;
         };
 
@@ -556,17 +549,16 @@ pub const char_downcase = NativeProc.with1Arg(struct {
         \\(char-downcase #\A)    =>  #\a
         \\(char-downcase #\a)    =>  #\a
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, arg: Val) Vm.Error!Val {
         const c = arg.asChar() orelse {
-            if (diagnostics) |d| {
-                d.addDiagnostic(.{ .wrong_arg_type = .{
+            @branchHint(.cold);
+            diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_type = .{
                     .expected = "char",
                     .got = arg,
                     .proc = Val.initNativeProc(&char_downcase),
                     .arg_name = "char",
                     .arg_position = 0,
                 } });
-            }
             return Vm.Error.UncaughtException;
         };
 
@@ -587,17 +579,16 @@ pub const char_foldcase = NativeProc.with1Arg(struct {
         \\(char-foldcase #\A)    =>  #\a
         \\(char-foldcase #\a)    =>  #\a
     ;
-    pub inline fn impl(_: *Vm, diagnostics: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, arg: Val) Vm.Error!Val {
         const c = arg.asChar() orelse {
-            if (diagnostics) |d| {
-                d.addDiagnostic(.{ .wrong_arg_type = .{
+            @branchHint(.cold);
+            diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_type = .{
                     .expected = "char",
                     .got = arg,
                     .proc = Val.initNativeProc(&char_foldcase),
                     .arg_name = "char",
                     .arg_position = 0,
                 } });
-            }
             return Vm.Error.UncaughtException;
         };
 

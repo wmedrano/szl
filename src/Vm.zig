@@ -4,7 +4,6 @@ const testing = std.testing;
 const Compiler = @import("compiler/Compiler.zig");
 const Reader = @import("compiler/Reader.zig");
 const Context = @import("Context.zig");
-const Diagnostics = @import("Diagnostics.zig");
 const Gc = @import("Gc.zig");
 const instruction = @import("instruction.zig");
 const Instruction = @import("instruction.zig").Instruction;
@@ -12,6 +11,7 @@ const builtins = @import("schemelib/base.zig");
 const sizzle_unstable_compiler = @import("schemelib/sizzle_unstable_compiler.zig");
 const Box = @import("types/Box.zig");
 const Continuation = @import("types/Continuation.zig");
+const ErrorDetails = @import("types/ErrorDetails.zig");
 const Module = @import("types/Module.zig");
 const NativeProc = @import("types/NativeProc.zig");
 const Handle = @import("types/object_pool.zig").Handle;
@@ -65,6 +65,7 @@ pub const Objects = struct {
     record_descriptors: ObjectPool(Record.Descriptor) = .{},
     parameters: ObjectPool(Parameter) = .{},
     ports: ObjectPool(Port) = .{},
+    error_details: ObjectPool(ErrorDetails) = .{},
 
     pub fn init(alloc: std.mem.Allocator) error{OutOfMemory}!Objects {
         return Objects{
@@ -104,6 +105,8 @@ pub const Objects = struct {
         self.parameters.applyAll(standard_deinit);
         self.parameters.deinit(alloc);
         self.ports.deinit(alloc);
+        self.error_details.applyAll(standard_deinit);
+        self.error_details.deinit(alloc);
     }
 };
 
@@ -114,16 +117,23 @@ pub fn init(options: Options) Error!Vm {
         .context = try Context.init(options.allocator),
     };
     errdefer vm.deinit();
-    try vm.initLibraries();
+    var error_details = ErrorDetails{};
+    errdefer {
+        // This should not happen since initialization is well tested in
+        // release.
+        std.debug.print("{f}", .{error_details.pretty(&vm, .color)});
+    }
+    defer error_details.deinit(options.allocator);
+    try vm.initLibraries(&error_details);
     _ = try vm.runGc();
     return vm;
 }
 
-fn initLibraries(vm: *Vm) Error!void {
+fn initLibraries(vm: *Vm, error_details: *ErrorDetails) Error!void {
     const b = vm.builder();
 
     // (scheme base)
-    const global_handle = try builtins.init(vm);
+    const global_handle = try builtins.init(vm, error_details);
     // (sizzle unstable compiler)
     _ = try sizzle_unstable_compiler.init(vm);
 
@@ -205,30 +215,30 @@ pub fn evalStr(
     self: *Vm,
     source: []const u8,
     maybe_env: ?Handle(Module),
-    diagnostics: ?*Diagnostics,
+    error_details: *ErrorDetails,
 ) Error!Val {
     var reader = Reader.init(self, source);
     var return_val = Val.initUnspecified();
 
-    while (try reader.readNext(diagnostics)) |raw_expr| {
-        return_val = try self.evalExpr(raw_expr, maybe_env, diagnostics);
+    while (try reader.readNext(error_details)) |raw_expr| {
+        return_val = try self.evalExpr(raw_expr, maybe_env, error_details);
     }
     return return_val;
 }
 
 pub fn expectEval(self: *Vm, expect: []const u8, source: []const u8) !void {
-    var diag = Diagnostics.init(testing.allocator);
-    defer diag.deinit();
-    errdefer std.debug.print("Diagnostics:\n{f}\n", .{diag.pretty(self, .nocolor)});
+    var diag: ErrorDetails = .{};
+    defer diag.deinit(testing.allocator);
+    errdefer std.debug.print("Error details:\n{f}\n", .{diag.pretty(self, .nocolor)});
 
     const actual = try self.evalStr(source, null, &diag);
     try testing.expectFmt(expect, "{f}", .{self.pretty(actual, .{})});
 }
 
 pub fn expectError(self: *Vm, expected_error: anyerror, source: []const u8) !void {
-    var diag = Diagnostics.init(testing.allocator);
-    defer diag.deinit();
-    errdefer std.debug.print("Diagnostics:\n{f}\n", .{diag.pretty(self, .nocolor)});
+    var diag: ErrorDetails = .{};
+    defer diag.deinit(testing.allocator);
+    errdefer std.debug.print("Error details:\n{f}\n", .{diag.pretty(self, .nocolor)});
 
     const actual_error = self.evalStr(source, null, &diag);
     try testing.expectError(expected_error, actual_error);
@@ -238,21 +248,21 @@ pub fn evalExpr(
     self: *Vm,
     expr: Val,
     maybe_env: ?Handle(Module),
-    diagnostics: ?*Diagnostics,
+    error_details: *ErrorDetails,
 ) Error!Val {
-    const env = maybe_env orelse try self.inspector().getReplEnv(diagnostics);
-    const proc = try self.compile(expr, env, diagnostics);
+    const env = maybe_env orelse try self.inspector().getReplEnv(error_details);
+    const proc = try self.compile(expr, env, error_details);
     self.context.reset();
     try self.context.push(self.allocator(), proc);
-    try (Instruction{ .eval = 0 }).execute(self, diagnostics);
-    return try instruction.executeUntilEnd(self, diagnostics);
+    try (Instruction{ .eval = 0 }).execute(self, error_details);
+    return try instruction.executeUntilEnd(self, error_details);
 }
 
-fn compile(self: *Vm, expr: Val, env: Handle(Module), diagnostics: ?*Diagnostics) !Val {
+fn compile(self: *Vm, expr: Val, env: Handle(Module), error_details: *ErrorDetails) !Val {
     var arena = std.heap.ArenaAllocator.init(self.allocator());
     defer arena.deinit();
     var compiler = Compiler.init(&arena, self, env);
-    const proc = try compiler.compile(expr, diagnostics);
+    const proc = try compiler.compile(expr, error_details);
     return proc;
 }
 
@@ -260,9 +270,11 @@ test evalStr {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
+    var error_details = ErrorDetails{};
+    defer error_details.deinit(testing.allocator);
     try testing.expectEqual(
         Val.initInt(42),
-        try vm.evalStr("((lambda (x) (+ x 30 2)) 10)", null, null),
+        try vm.evalStr("((lambda (x) (+ x 30 2)) 10)", null, &error_details),
     );
 }
 
@@ -298,7 +310,9 @@ test "make-parameter creates procedure" {
     var vm = try Vm.init(.{ .allocator = testing.allocator });
     defer vm.deinit();
 
-    _ = try vm.evalStr("(define p (make-parameter 10))", null, null);
+    var error_details = ErrorDetails{};
+    defer error_details.deinit(testing.allocator);
+    _ = try vm.evalStr("(define p (make-parameter 10))", null, &error_details);
     try vm.expectEval("10", "(p)");
 }
 
@@ -312,6 +326,8 @@ test "make-parameter with wrong arg count returns error" {
     try vm.expectError(error.UncaughtException, "(make-parameter 1 2 3)");
 
     // Calling parameter with > 1 arg is an error
-    _ = try vm.evalStr("(define p (make-parameter 10))", null, null);
+    var error_details = ErrorDetails{};
+    defer error_details.deinit(testing.allocator);
+    _ = try vm.evalStr("(define p (make-parameter 10))", null, &error_details);
     try vm.expectError(error.UncaughtException, "(p 1 2)");
 }

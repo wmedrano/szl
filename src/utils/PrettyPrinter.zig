@@ -107,6 +107,10 @@ pub fn format(self: PrettyPrinter, writer: *std.Io.Writer) std.Io.Writer.Error!v
             .external => try writer.print("#<procedure:parameter-{}>", .{h.id}),
         },
         .port => |h| try self.formatPort(writer, h),
+        .error_details => |h| switch (self.options.repr) {
+            .display => try writer.writeAll("#<error-details>"),
+            .external => try writer.print("#<error-details-{}>", .{h.id}),
+        },
     }
 }
 
@@ -354,6 +358,7 @@ pub fn typeName(self: PrettyPrinter) []const u8 {
         .record_descriptor => "record descriptor",
         .parameter => "parameter",
         .port => "port",
+        .error_details => "error details",
     };
 }
 

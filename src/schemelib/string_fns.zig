@@ -1,7 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 
-const Diagnostics = @import("../Diagnostics.zig");
+const ErrorDetails = @import("../types/ErrorDetails.zig");
 const NativeProc = @import("../types/NativeProc.zig");
 const Val = @import("../types/Val.zig");
 const Vm = @import("../Vm.zig");
@@ -15,18 +15,17 @@ pub const string_length = NativeProc.with1Arg(struct {
         \\(string-length "")           =>  0
         \\(string-length "hello")      =>  5
     ;
-    pub inline fn impl(vm: *Vm, diagnostics: ?*Diagnostics, arg: Val) Vm.Error!Val {
+    pub inline fn impl(vm: *Vm, diagnostics: *ErrorDetails, arg: Val) Vm.Error!Val {
         const inspector = vm.inspector();
         const string = inspector.asString(arg) catch {
-            if (diagnostics) |d| {
-                d.addDiagnostic(.{ .wrong_arg_type = .{
+            @branchHint(.cold);
+            diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_type = .{
                     .expected = "string",
                     .got = arg,
                     .proc = Val.initNativeProc(&string_length),
                     .arg_name = "string",
                     .arg_position = 0,
                 } });
-            }
             return Vm.Error.UncaughtException;
         };
         const len: i64 = @intCast(string.asSlice().len);

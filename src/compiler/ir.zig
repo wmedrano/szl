@@ -33,12 +33,12 @@ pub const Ir = union(enum) {
     eval: Eval,
     lambda: Lambda,
 
-    pub fn init(arena: *std.heap.ArenaAllocator, vm: *Vm, module: Handle(Module), expr: Val, diagnostics: ?*@import("../Diagnostics.zig")) Error!Ir {
+    pub fn init(arena: *std.heap.ArenaAllocator, vm: *Vm, module: Handle(Module), expr: Val, error_details: ?*@import("../types/ErrorDetails.zig")) Error!Ir {
         var builder = Builder{
             .arena = arena,
             .vm = vm,
             .module = module,
-            .diagnostics = diagnostics,
+            .error_details = error_details,
         };
         return builder.build(expr);
     }
@@ -80,7 +80,7 @@ const Builder = struct {
     arena: *std.heap.ArenaAllocator,
     vm: *Vm,
     module: Handle(Module),
-    diagnostics: ?*@import("../Diagnostics.zig"),
+    error_details: ?*@import("../types/ErrorDetails.zig"),
 
     pub fn build(self: *Builder, expr: Val) Error!Ir {
         // Try to expand macros first
@@ -106,6 +106,7 @@ const Builder = struct {
             .record_descriptor,
             .parameter,
             .port,
+            .error_details,
             => return Ir{ .push_const = expanded },
             .pair => {
                 const list = try self.valToSlice(expanded);
@@ -161,8 +162,8 @@ const Builder = struct {
             if (sym.eq(lambda)) {
                 if (list.len < 2) {
                     @branchHint(.cold);
-                    if (self.diagnostics) |d| {
-                        d.addDiagnostic(.{
+                    if (self.error_details) |d| {
+                        d.addDiagnostic(self.vm.allocator(), .{
                             .invalid_expression = .{
                                 .message = "lambda requires a parameter list",
                                 .hint = "syntax is (lambda (param1 param2 ...) body ...)\nexample: (lambda (x y) (+ x y))",
@@ -342,7 +343,7 @@ const Builder = struct {
             .arena = self.arena,
             .vm = self.vm,
             .module = self.module,
-            .diagnostics = self.diagnostics,
+            .error_details = self.error_details,
         };
         return Ir{
             .lambda = .{
@@ -366,8 +367,8 @@ const Builder = struct {
         const vals = self.valToSlice(val) catch |e| {
             if (e == Error.UndefinedBehavior) {
                 @branchHint(.cold);
-                if (self.diagnostics) |d| {
-                    d.addDiagnostic(.{
+                if (self.error_details) |d| {
+                    d.addDiagnostic(self.vm.allocator(), .{
                         .invalid_expression = .{
                             .message = "expected a list of parameter names, but got a non-list value",
                             .expr = val,
@@ -383,8 +384,8 @@ const Builder = struct {
         for (vals, syms) |v, *sym| {
             const s = v.asSymbol() orelse {
                 @branchHint(.cold);
-                if (self.diagnostics) |d| {
-                    d.addDiagnostic(.{
+                if (self.error_details) |d| {
+                    d.addDiagnostic(self.vm.allocator(), .{
                         .invalid_expression = .{
                             .message = "parameter names must be symbols",
                             .expr = v,
@@ -564,6 +565,7 @@ const Builder = struct {
             .record_descriptor,
             .parameter,
             .port,
+            .error_details,
             => {
                 return expr;
             },
