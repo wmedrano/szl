@@ -1,0 +1,24 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    name: Build and Release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v3
+      - uses: mlugg/setup-zig@v2
+      - name: Build
+        run: zig build -Doptimize=ReleaseSafe
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: zig-out/bin/szl
+          draft: false
+          prerelease: false
