@@ -18,11 +18,10 @@ pub fn main() !void {
 
     // Check if stdin is a TTY (interactive terminal)
     const stdin = std.fs.File.stdin();
-    if (stdin.isTty()) {
-        try runRepl(gpa.allocator());
-    } else {
-        try runScript(gpa.allocator());
-    }
+    if (stdin.isTty())
+        return runRepl(gpa.allocator())
+    else
+        return runScript(gpa.allocator());
 }
 
 fn runScript(allocator: std.mem.Allocator) !void {
@@ -120,10 +119,9 @@ fn replEval(allocator: std.mem.Allocator, vm: *szl.Vm, source: []const u8, expr_
     const use_color = stdout.isTty();
     const syntax_highlighting: szl.ErrorDetails.SyntaxHighlighting = if (use_color) .color else .nocolor;
 
-    var temp = std.io.Writer.Allocating.init(allocator);
-    defer temp.deinit();
-
     const result = vm.evalStr(source, null, &error_details) catch |err| {
+        var temp = std.io.Writer.Allocating.init(allocator);
+        defer temp.deinit();
         const fatal = blk: switch (err) {
             error.OutOfMemory,
             error.UndefinedBehavior,
@@ -145,13 +143,15 @@ fn replEval(allocator: std.mem.Allocator, vm: *szl.Vm, source: []const u8, expr_
         try stdout.writeAll(temp.writer.buffered());
         if (fatal) return err else return;
     };
-    expr_count.* += 1;
 
     // Don't print unspecified values - they're returned by side-effecting functions
     if (result.data == .unspecified_value) {
         return;
     }
+    expr_count.* += 1;
 
+    var temp = std.io.Writer.Allocating.init(allocator);
+    defer temp.deinit();
     if (use_color) {
         try temp.writer.print(
             COLOR_CYAN ++ "${}" ++ COLOR_RESET ++ " => " ++ COLOR_GREEN ++ "{f}" ++ COLOR_RESET ++ "\n",
@@ -161,5 +161,20 @@ fn replEval(allocator: std.mem.Allocator, vm: *szl.Vm, source: []const u8, expr_
         try temp.writer.print("${} => {f}\n", .{ expr_count.*, vm.pretty(result, .{}) });
     }
     try stdout.writeAll(temp.writer.buffered());
-    temp.clearRetainingCapacity();
+
+    // Define $<expr_count> in the REPL environment
+    blk: {
+        const b = vm.builder();
+        const inspector = vm.inspector();
+
+        // Create the symbol name (e.g., "$1", "$2", etc.)
+        const symbol_name = std.fmt.allocPrint(allocator, "${}", .{expr_count.*}) catch break :blk;
+        defer allocator.free(symbol_name);
+        const symbol = b.makeSymbolHandle(symbol_name) catch break :blk;
+
+        // Bind the result to the symbol in the REPL module
+        const repl_handle = inspector.getReplEnv(&error_details) catch break :blk;
+        const repl_module = inspector.handleToModule(repl_handle) catch break :blk;
+        repl_module.setBySymbol(vm.allocator(), symbol, result) catch break :blk;
+    }
 }

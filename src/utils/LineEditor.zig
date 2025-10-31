@@ -20,6 +20,9 @@ allocator: std.mem.Allocator,
 buffer: std.ArrayList(u8),
 cursor_pos: usize,
 original_termios: ?std.posix.termios = null,
+history: std.ArrayList(std.ArrayList(u8)),
+history_index: ?usize,
+temp_buffer: std.ArrayList(u8),
 
 pub fn init(allocator: std.mem.Allocator) !LineEditor {
     return .{
@@ -27,11 +30,19 @@ pub fn init(allocator: std.mem.Allocator) !LineEditor {
         .buffer = std.ArrayList(u8).empty,
         .cursor_pos = 0,
         .original_termios = null,
+        .history = std.ArrayList(std.ArrayList(u8)).empty,
+        .history_index = null,
+        .temp_buffer = std.ArrayList(u8).empty,
     };
 }
 
 pub fn deinit(self: *LineEditor) void {
     self.buffer.deinit(self.allocator);
+    for (self.history.items) |*line| {
+        line.deinit(self.allocator);
+    }
+    self.history.deinit(self.allocator);
+    self.temp_buffer.deinit(self.allocator);
     self.restoreTerminal() catch {};
 }
 
@@ -40,9 +51,10 @@ pub fn readLine(self: *LineEditor, prompt: []const u8) !?[]const u8 {
     try self.enableRawMode();
     defer self.restoreTerminal() catch {};
 
-    // Clear the buffer
+    // Clear the buffer and reset history navigation
     self.buffer.clearRetainingCapacity();
     self.cursor_pos = 0;
+    self.history_index = null;
 
     // Get stdin and stdout
     const stdin = std.fs.File.stdin();
@@ -66,6 +78,21 @@ pub fn readLine(self: *LineEditor, prompt: []const u8) !?[]const u8 {
         // Handle control characters
         if (c == ENTER) {
             try stdout.writeAll("\r\n");
+
+            // Add to history if non-empty and different from last entry
+            if (self.buffer.items.len > 0) {
+                const should_add = if (self.history.items.len == 0)
+                    true
+                else
+                    !std.mem.eql(u8, self.buffer.items, self.history.items[self.history.items.len - 1].items);
+
+                if (should_add) {
+                    var history_line = std.ArrayList(u8).empty;
+                    try history_line.appendSlice(self.allocator, self.buffer.items);
+                    try self.history.append(self.allocator, history_line);
+                }
+            }
+
             return self.buffer.items;
         } else if (c == CTRL_C) {
             try stdout.writeAll("^C\n");
@@ -92,8 +119,36 @@ pub fn readLine(self: *LineEditor, prompt: []const u8) !?[]const u8 {
             const seq_n = try stdin.read(&seq_buf);
             if (seq_n == 2 and seq_buf[0] == '[') {
                 switch (seq_buf[1]) {
-                    'A' => {}, // Up arrow - ignore for now
-                    'B' => {}, // Down arrow - ignore for now
+                    'A' => { // Up arrow - navigate backward in history
+                        if (self.history.items.len > 0) {
+                            // Save current buffer if starting to navigate history
+                            if (self.history_index == null) {
+                                self.temp_buffer.clearRetainingCapacity();
+                                try self.temp_buffer.appendSlice(self.allocator, self.buffer.items);
+                                self.history_index = self.history.items.len;
+                            }
+
+                            if (self.history_index.? > 0) {
+                                self.history_index = self.history_index.? - 1;
+                                try self.loadHistoryEntry(prompt);
+                            }
+                        }
+                    },
+                    'B' => { // Down arrow - navigate forward in history
+                        if (self.history_index) |index| {
+                            if (index + 1 < self.history.items.len) {
+                                self.history_index = index + 1;
+                                try self.loadHistoryEntry(prompt);
+                            } else {
+                                // Reached the end, restore temp buffer
+                                self.history_index = null;
+                                self.buffer.clearRetainingCapacity();
+                                try self.buffer.appendSlice(self.allocator, self.temp_buffer.items);
+                                self.cursor_pos = self.buffer.items.len;
+                                try self.refreshLine(prompt);
+                            }
+                        }
+                    },
                     'C' => { // Right arrow
                         if (self.cursor_pos < self.buffer.items.len) {
                             try self.moveCursorTo(self.cursor_pos + 1, prompt);
@@ -178,4 +233,13 @@ fn refreshLine(self: *LineEditor, prompt: []const u8) !void {
 fn moveCursorTo(self: *LineEditor, new_pos: usize, prompt: []const u8) !void {
     self.cursor_pos = new_pos;
     try self.refreshLine(prompt);
+}
+
+fn loadHistoryEntry(self: *LineEditor, prompt: []const u8) !void {
+    if (self.history_index) |index| {
+        self.buffer.clearRetainingCapacity();
+        try self.buffer.appendSlice(self.allocator, self.history.items[index].items);
+        self.cursor_pos = self.buffer.items.len;
+        try self.refreshLine(prompt);
+    }
 }
