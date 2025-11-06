@@ -78,12 +78,7 @@ pub fn format(self: PrettyPrinter, writer: *std.Io.Writer) std.Io.Writer.Error!v
                 .external => try writer.print("\"{s}\"", .{string.asSlice()}),
             }
         },
-        .symbol => |h| {
-            const s = self.vm.objects.symbols.asString(h) orelse {
-                return writer.print("#<symbol-{}>", .{h.id});
-            };
-            try writer.writeAll(s);
-        },
+        .symbol => |sym| try writer.print("{f}", .{self.vm.objects.symbols.formatted(sym)}),
         .module => |h| try self.formatModule(writer, h),
         .proc => |h| try self.formatProc(writer, h),
         .native_proc => |p| {
@@ -186,12 +181,10 @@ fn formatProc(
     const proc = self.vm.objects.procs.get(proc_h) orelse {
         return try writer.writeAll("#<procedure:invalid>");
     };
-    const sym = self.vm.objects.symbols.asString(proc.name) orelse {
-        return try writer.print("#<procedure:{}>", .{proc_h.id});
-    };
+    const sym = self.vm.objects.symbols.formatted(proc.name);
     switch (self.options.repr) {
-        .display => try writer.print("{s}", .{sym}),
-        .external => try writer.print("#<procedure:{s}>", .{sym}),
+        .display => try writer.print("{f}", .{sym}),
+        .external => try writer.print("#<procedure:{f}>", .{sym}),
     }
 }
 

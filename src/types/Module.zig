@@ -66,6 +66,8 @@ pub fn set(self: *Module, slot: Slot, val: Val) Vm.Error!void {
 }
 
 pub fn import(self: *Module, allocator: std.mem.Allocator, other: Module) Vm.Error!void {
+    try self.symbol_to_slot.ensureUnusedCapacity(allocator, other.symbol_to_slot.size);
+    try self.slots.ensureUnusedCapacity(allocator, other.slots.items.len);
     var symbol_slots_iter = other.symbol_to_slot.iterator();
     while (symbol_slots_iter.next()) |symbol_slot| {
         const val = other.get(symbol_slot.value_ptr.*) orelse

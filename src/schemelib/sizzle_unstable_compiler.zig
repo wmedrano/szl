@@ -139,10 +139,10 @@ const proc_instructions = NativeProc.withRawArgs(struct {
         if (args.len != 1) {
             @branchHint(.cold);
             diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_count = .{
-                    .expected = 1,
-                    .got = @intCast(args.len),
-                    .proc = Val.initNativeProc(&proc_instructions),
-                } });
+                .expected = 1,
+                .got = @intCast(args.len),
+                .proc = Val.initNativeProc(&proc_instructions),
+            } });
             return Vm.Error.UncaughtException;
         }
         const raw_instructions = switch (args[0].data) {
@@ -157,12 +157,12 @@ const proc_instructions = NativeProc.withRawArgs(struct {
             else => {
                 @branchHint(.cold);
                 diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_type = .{
-                        .expected = "procedure",
-                        .got = args[0],
-                        .proc = Val.initNativeProc(&proc_instructions),
-                        .arg_name = "proc",
-                        .arg_position = 0,
-                    } });
+                    .expected = "procedure",
+                    .got = args[0],
+                    .proc = Val.initNativeProc(&proc_instructions),
+                    .arg_name = "proc",
+                    .arg_position = 0,
+                } });
                 return Vm.Error.UncaughtException;
             },
         };

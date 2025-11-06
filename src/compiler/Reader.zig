@@ -101,7 +101,7 @@ const ReadResult = union(enum) {
     end,
 };
 
-fn readNextImpl(self: *Reader, error_details: *ErrorDetails) Error!ReadResult {
+inline fn readNextImpl(self: *Reader, error_details: *ErrorDetails) Error!ReadResult {
     const next_token = self.tokenizer.nextToken() orelse
         return ReadResult{ .end = {} };
     self.last_token = next_token;
