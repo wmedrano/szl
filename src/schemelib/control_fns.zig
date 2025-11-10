@@ -61,10 +61,10 @@ pub const apply = NativeProc{
     ,
 };
 
-fn applyImpl(vm: *Vm, diagnostics: *ErrorDetails, arg_count: u32) Vm.Error!void {
+fn applyImpl(vm: *Vm, error_details: *ErrorDetails, arg_count: u32) Vm.Error!void {
     if (arg_count < 2) {
         @branchHint(.cold);
-        diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_count = .{
+        error_details.addDiagnostic(vm.allocator(), .{ .wrong_arg_count = .{
             .expected = 2,
             .got = arg_count,
             .proc = Val.initNativeProc(&apply),
@@ -75,7 +75,9 @@ fn applyImpl(vm: *Vm, diagnostics: *ErrorDetails, arg_count: u32) Vm.Error!void 
     const proc = args[0];
     @memmove(args[0 .. args.len - 1], args[1..]);
     _ = vm.context.pop();
-    const proc_args = vm.context.pop() orelse return Vm.Error.UndefinedBehavior;
+    const proc_args = vm.context.pop() orelse {
+        return Vm.Error.UndefinedBehavior;
+    };
     var rest_iter = vm.inspector().iteratePairs(proc_args);
     var proc_args_count = arg_count - 2;
     while (rest_iter.next()) |maybe_next| {
@@ -87,7 +89,7 @@ fn applyImpl(vm: *Vm, diagnostics: *ErrorDetails, arg_count: u32) Vm.Error!void 
         @branchHint(.cold);
         switch (err) {
             error.UncaughtException => {
-                diagnostics.addDiagnostic(vm.allocator(), .{ .wrong_arg_type = .{
+                error_details.addDiagnostic(vm.allocator(), .{ .wrong_arg_type = .{
                     .expected = "list",
                     .got = proc_args,
                     .proc = Val.initNativeProc(&apply),
@@ -97,7 +99,7 @@ fn applyImpl(vm: *Vm, diagnostics: *ErrorDetails, arg_count: u32) Vm.Error!void 
                 return Vm.Error.UncaughtException;
             },
             error.UndefinedBehavior => {
-                diagnostics.addDiagnostic(
+                error_details.addDiagnostic(
                     vm.allocator(),
                     .{ .undefined_behavior = "Invalid list structure in apply" },
                 );
@@ -106,9 +108,7 @@ fn applyImpl(vm: *Vm, diagnostics: *ErrorDetails, arg_count: u32) Vm.Error!void 
         }
     }
     try vm.context.push(vm.allocator(), proc);
-    var error_details = ErrorDetails{};
-    // Note: Don't deinit - if it gets converted to a Val, the VM will manage it
-    try (Instruction{ .eval = proc_args_count }).execute(vm, &error_details);
+    try (Instruction{ .eval = proc_args_count }).execute(vm, error_details);
 }
 
 test "call/cc can stop exception from propagating" {

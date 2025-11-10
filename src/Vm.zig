@@ -118,12 +118,12 @@ pub fn init(options: Options) Error!Vm {
     };
     errdefer vm.deinit();
     var error_details = ErrorDetails{};
+    defer error_details.deinit(options.allocator);
     errdefer {
         // This should not happen since initialization is well tested in
         // release.
         std.debug.print("{f}", .{error_details.pretty(&vm, .color)});
     }
-    defer error_details.deinit(options.allocator);
     try vm.initLibraries(&error_details);
     _ = try vm.runGc();
     return vm;

@@ -204,6 +204,7 @@ pub inline fn makeClosure(self: Builder, base_proc: Proc, captures: []const Val)
         .arg_count = base_proc.arg_count,
         .locals_count = base_proc.locals_count,
         .captures_count = 0,
+        .has_rest_args = base_proc.has_rest_args,
     };
     return try self.makeClosureHandle(closure);
 }

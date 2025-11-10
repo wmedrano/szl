@@ -42,8 +42,14 @@ fn importImpl(vm: *Vm, diagnostics: *ErrorDetails, arg_count: u32) Vm.Error!void
         return Vm.Error.UncaughtException;
     }
     const inspector = vm.inspector();
-    const module_specifier = try inspector.listToSliceAlloc(vm.allocator(), vm.context.top() orelse
-        return Vm.Error.UndefinedBehavior);
+    const arg = vm.context.top() orelse return Vm.Error.UndefinedBehavior;
+    const module_specifier = inspector.listToSliceAlloc(vm.allocator(), arg) catch |e| {
+        switch (e) {
+            error.ImproperList => return Vm.Error.InvalidExpression,
+            error.OutOfMemory => return Vm.Error.OutOfMemory,
+            error.UndefinedBehavior => return Vm.Error.UndefinedBehavior,
+        }
+    };
     defer vm.allocator().free(module_specifier);
     const module_symbols = try vm.allocator().alloc(Symbol, module_specifier.len);
     defer vm.allocator().free(module_symbols);
@@ -237,6 +243,7 @@ pub fn init(vm: *Vm, error_details: *ErrorDetails) Vm.Error!Handle(Module) {
             .arg_count = 1,
             .locals_count = 0,
             .captures_count = 0,
+            .has_rest_args = false,
         },
     ));
     try env.setBySymbol(vm.allocator(), try b.makeStaticSymbolHandle("raise"), raise_proc);
@@ -264,6 +271,7 @@ pub fn init(vm: *Vm, error_details: *ErrorDetails) Vm.Error!Handle(Module) {
             .arg_count = 1,
             .locals_count = 0,
             .captures_count = 0,
+            .has_rest_args = false,
         },
     ));
     try env.setBySymbol(

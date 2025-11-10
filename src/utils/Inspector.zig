@@ -63,8 +63,8 @@ pub inline fn handleToPair(self: Inspector, h: Handle(Pair)) Vm.Error!*Pair {
 
 const AsListError = error{
     OutOfMemory,
+    ImproperList,
     UndefinedBehavior,
-    UncaughtException,
 };
 
 pub fn listToSliceAlloc(self: Inspector, allocator: std.mem.Allocator, val: Val) AsListError![]Val {
@@ -77,11 +77,11 @@ pub fn listToSliceAlloc(self: Inspector, allocator: std.mem.Allocator, val: Val)
             .empty_list => break,
             .pair => |h| {
                 const pair = self.vm.objects.pairs.get(h) orelse
-                    return Vm.Error.UndefinedBehavior;
+                    return AsListError.UndefinedBehavior;
                 try items.append(allocator, pair.car);
                 current = pair.cdr;
             },
-            else => return Vm.Error.UncaughtException,
+            else => return AsListError.ImproperList,
         }
     }
 

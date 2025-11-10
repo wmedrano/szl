@@ -47,7 +47,7 @@ pub fn compile(self: *Compiler, expr: Val, error_details: *ErrorDetails) Error!V
     const ir = try Ir.init(self.arena, self.vm, self.scope.module, expr, error_details);
     try self.addIr(ir, true, error_details);
     // Ir -> Val(Proc)
-    const proc = try self.makeProc(null);
+    const proc = try self.makeProc(null, false);
     if (proc.captures.len > 0) return Error.UndefinedBehavior;
     return Val.initProc(proc.handle);
 }
@@ -141,7 +141,7 @@ fn addLambda(self: *Compiler, lambda: Ir.Lambda, error_details: *ErrorDetails) E
         },
     };
     try sub_compiler.addIrs(lambda.body, true, error_details);
-    const proc = try sub_compiler.makeProc(lambda.name);
+    const proc = try sub_compiler.makeProc(lambda.name, lambda.has_rest_args);
     if (proc.captures.len == 0) {
         return self.addConst(Val.initProc(proc.handle));
     }
@@ -250,7 +250,7 @@ fn addLet(self: *Compiler, bindings: []const Ir.LetBinding, body: []Ir, return_v
     try self.addIrs(body, return_value, error_details);
 }
 
-fn makeProc(self: Compiler, name: ?Symbol) Error!struct {
+fn makeProc(self: Compiler, name: ?Symbol, has_rest_args: bool) Error!struct {
     handle: Handle(Proc),
     proc: Proc,
     captures: []Symbol,
@@ -275,6 +275,9 @@ fn makeProc(self: Compiler, name: ?Symbol) Error!struct {
             else => {},
         }
     }
+    if (has_rest_args and self.scope.args.len == 0) {
+        return Error.UndefinedBehavior;
+    }
     var proc = Proc{
         .name = proc_name,
         .instructions = try self.vm.allocator().dupe(Instruction, self.instructions.items),
@@ -283,6 +286,7 @@ fn makeProc(self: Compiler, name: ?Symbol) Error!struct {
         .arg_count = @intCast(self.scope.args.len),
         .locals_count = @intCast(self.scope.locals.items.len),
         .captures_count = @intCast(captures.len),
+        .has_rest_args = has_rest_args,
     };
     errdefer proc.deinit(self.vm.allocator());
     const handle = try self.vm.objects.procs.put(self.vm.allocator(), proc);
@@ -394,6 +398,14 @@ test "define without args create callable thunk" {
     defer vm.deinit();
 
     try vm.expectEval("42", "(define (get-answer) 42) (get-answer)");
+}
+
+test "define with improper list binds rest of the arguments" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    try vm.expectEval("(1 2 3)", "((lambda args args) 1 2 3)");
+    try vm.expectEval("(2 3)", "((lambda (ignore . args) args) 1 2 3)");
 }
 
 test "define can call recursively" {

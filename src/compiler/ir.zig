@@ -62,6 +62,7 @@ pub const Ir = union(enum) {
     pub const Lambda = struct {
         name: ?Symbol,
         args: []Symbol,
+        has_rest_args: bool,
         body: []Ir,
     };
 
@@ -225,7 +226,8 @@ const Builder = struct {
         }
         // (define (name args...) body...)
         if (symbol_val.data == .pair) {
-            return self.buildDefineProcedure(symbol_val, exprs);
+            const ir = try self.buildDefineProcedure(symbol_val, exprs);
+            return ir;
         }
         return Error.InvalidExpression;
     }
@@ -345,10 +347,51 @@ const Builder = struct {
             .module = self.module,
             .error_details = self.error_details,
         };
+
+        var args = std.ArrayList(Symbol){};
+        var has_rest = false;
+        const inspector = self.vm.inspector();
+        var parameters_iter = parameters;
+        while (!parameters_iter.isNull()) {
+            if (parameters_iter.asSymbol()) |sym| {
+                has_rest = true;
+                try args.append(self.arena.allocator(), sym);
+                break;
+            }
+            const pair = inspector.asPair(parameters_iter) catch {
+                @branchHint(.cold);
+                if (self.error_details) |d| {
+                    d.addDiagnostic(self.vm.allocator(), .{
+                        .invalid_expression = .{
+                            .message = "expected a list of parameter names, but got a non-list value",
+                            .expr = parameters,
+                            .hint = "lambda syntax is (lambda (param1 param2 ...) body ...)",
+                        },
+                    });
+                }
+                return Error.InvalidExpression;
+            };
+            const sym = pair.car.asSymbol() orelse {
+                @branchHint(.cold);
+                if (self.error_details) |d| {
+                    d.addDiagnostic(self.vm.allocator(), .{
+                        .invalid_expression = .{
+                            .message = "parameter names must be symbols",
+                            .expr = pair.car,
+                            .hint = "use identifiers like x, y, or foo (not numbers or strings)",
+                        },
+                    });
+                }
+                return Error.InvalidExpression;
+            };
+            try args.append(self.arena.allocator(), sym);
+            parameters_iter = pair.cdr;
+        }
         return Ir{
             .lambda = .{
                 .name = name,
-                .args = try self.valToSymbolsSlice(parameters),
+                .args = args.items,
+                .has_rest_args = has_rest,
                 .body = try lambda_builder.buildMany(body),
             },
         };
@@ -358,7 +401,8 @@ const Builder = struct {
         const inspector = self.vm.inspector();
         const list = inspector.listToSliceAlloc(self.arena.allocator(), val) catch |e| switch (e) {
             error.OutOfMemory => return error.OutOfMemory,
-            error.UncaughtException, error.UndefinedBehavior => return Error.UndefinedBehavior,
+            error.ImproperList => return Error.UndefinedBehavior,
+            error.UndefinedBehavior => return Error.UndefinedBehavior,
         };
         return list;
     }
@@ -544,7 +588,7 @@ const Builder = struct {
     /// Expand macros in an expression recursively
     fn expandMacros(self: *Builder, expr: Val) Error!?Val {
         // Base cases: atoms don't need expansion
-        switch (expr.data) {
+        const list = switch (expr.data) {
             .boolean,
             .int,
             .rational,
@@ -558,6 +602,7 @@ const Builder = struct {
             .proc,
             .native_proc,
             .continuation,
+            .syntax_rules,
             .vector,
             .bytevector,
             .box,
@@ -566,18 +611,27 @@ const Builder = struct {
             .parameter,
             .port,
             .error_details,
-            => {
-                return expr;
+            => return expr,
+            .pair => blk: {
+                var items = std.ArrayList(Val){};
+                var current = expr;
+                while (!current.isNull()) {
+                    switch (current.data) {
+                        .pair => |h| {
+                            const pair = self.vm.objects.pairs.get(h) orelse
+                                return Vm.Error.UndefinedBehavior;
+                            try items.append(self.arena.allocator(), pair.car);
+                            current = pair.cdr;
+                        },
+                        else => return expr,
+                    }
+                }
+                break :blk items.items;
             },
-            .syntax_rules => return expr,
-            .pair => {},
-        }
-
-        // For lists, check if the head is a macro
-        const list = try self.valToSlice(expr);
-        if (list.len == 0) return expr;
+        };
 
         // Check if the first element is a symbol bound to a macro
+        if (list.len == 0) return expr;
         if (list[0].asSymbol()) |sym| {
             // Look up the symbol in the module
             const module_ptr = self.vm.objects.modules.get(self.module) orelse return Error.UndefinedBehavior;

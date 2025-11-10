@@ -183,24 +183,45 @@ fn eval(vm: *Vm, arg_count: u32, error_details: *ErrorDetails) Vm.Error!void {
     }
 }
 
-fn evalProc(vm: *Vm, h: Handle(Proc), arg_count: u32, _: usize, error_details: *ErrorDetails) !void {
+fn evalProc(vm: *Vm, h: Handle(Proc), arg_count: u32, start: usize, error_details: *ErrorDetails) !void {
     const proc = try vm.inspector().handleToProc(h);
     // 1. Check arguments.
-    if (arg_count != proc.arg_count) {
-        @branchHint(.cold);
-        error_details.addDiagnostic(vm.allocator(), .{ .wrong_arg_count = .{
-            .expected = proc.arg_count,
-            .got = arg_count,
-            .proc = Val.initProc(h),
-        } });
-        return Vm.Error.UncaughtException;
+    if (proc.has_rest_args) {
+        if (arg_count < proc.arg_count - 1) {
+            @branchHint(.cold);
+            error_details.addDiagnostic(vm.allocator(), .{
+                .wrong_arg_count = .{
+                    // arg_count includes the `rest` binding.
+                    .expected = proc.arg_count - 1,
+                    .got = arg_count,
+                    .proc = Val.initProc(h),
+                },
+            });
+            return Vm.Error.UncaughtException;
+        }
+        const rest_start = @as(usize, @intCast(proc.arg_count - 1)) + start;
+        const rest_end = @as(usize, @intCast(arg_count)) + start;
+        const rest = vm.context.stack.items[rest_start..rest_end];
+        const rest_val = try vm.builder().makeList(rest);
+        vm.context.popMany(@intCast(rest_end - rest_start));
+        try vm.context.push(vm.allocator(), rest_val);
+    } else {
+        if (arg_count != proc.arg_count) {
+            @branchHint(.cold);
+            error_details.addDiagnostic(vm.allocator(), .{ .wrong_arg_count = .{
+                .expected = proc.arg_count,
+                .got = arg_count,
+                .proc = Val.initProc(h),
+            } });
+            return Vm.Error.UncaughtException;
+        }
     }
     // 2. Initialize locals.
     try vm.context.pushMany(vm.allocator(), Val.initBool(false), proc.locals_count);
     // 3. Set the context.
     try vm.context.pushStackFrame(
         vm,
-        arg_count,
+        proc.arg_count,
         proc.locals_count,
         Val.initProc(h),
         proc.module,
