@@ -6,9 +6,9 @@ on:
       - "v*"
 
 jobs:
-  release:
+  release-linux:
     runs-on: ubuntu-latest
-    name: Build and Release
+    name: Build and Release Linux
     permissions:
       contents: write
     steps:
@@ -16,9 +16,52 @@ jobs:
       - uses: mlugg/setup-zig@v2
       - name: Build
         run: zig build -Doptimize=ReleaseSafe
+      - name: Package Release
+        run: |
+          tar -czf szl-linux-x86_64.tar.gz -C zig-out/bin szl
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          files: zig-out/bin/szl
+          files: szl-linux-x86_64.tar.gz
+          draft: false
+          prerelease: false
+
+  release-macos:
+    runs-on: macos-26
+    name: Build and Release macOS
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v3
+      - uses: mlugg/setup-zig@v2
+      - name: Build
+        run: zig build -Doptimize=ReleaseSafe
+      - name: Package Release
+        run: |
+          tar -czf szl-macos-arm64.tar.gz -C zig-out/bin szl
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: szl-macos-arm64.tar.gz
+          draft: false
+          prerelease: false
+
+  release-windows:
+    runs-on: windows-latest
+    name: Build and Release Windows
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v3
+      - uses: mlugg/setup-zig@v2
+      - name: Build
+        run: zig build -Doptimize=ReleaseSafe
+      - name: Package Release
+        run: |
+          Compress-Archive -Path zig-out/bin/szl.exe -DestinationPath szl-windows-x86_64.zip
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: szl-windows-x86_64.zip
           draft: false
           prerelease: false
