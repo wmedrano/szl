@@ -24,13 +24,13 @@ unsafe_impl: *const fn (*Vm, *ErrorDetails, arg_count: u32) Vm.Error!void,
 /// pub const my_variadic = NativeProc.withRawArgs(struct {
 ///     pub const name = "my-variadic";
 ///     pub const docstring = "(my-variadic . args) - Takes any number of args";
-///     pub fn impl(vm: *Vm, diagnostics: ?*ErrorDetails, args: []Val) Vm.Error!Val {
+///     pub fn impl(vm: *Vm, error_details: ?*ErrorDetails, args: []Val) Vm.Error!Val {
 ///         // Process all arguments
 ///         var sum: i64 = 0;
 ///         for (args) |arg| {
 ///             const num = arg.asInt() orelse {
 ///                 @branchHint(.cold);
-///                 if (diagnostics) |d| {
+///                 if (error_details) |d| {
 ///                     d.addDiagnostic(vm.allocator(),.{ .wrong_arg_type = .{
 ///                         .expected = "int",
 ///                         .proc = Val.initNativeProc(&def),
@@ -64,7 +64,7 @@ pub fn withRawArgs(T: type) NativeProc {
 
 /// Create a NativeProc for functions taking exactly 1 argument.
 ///
-/// Automatically validates argument count and reports errors via diagnostics.
+/// Automatically validates argument count and reports errors via error_details.
 /// The implementation function receives the single argument directly as `Val`.
 ///
 /// # Example:
@@ -125,6 +125,60 @@ pub fn with2Args(T: type) NativeProc {
             const val = try T.impl(vm, error_details, args[0], args[1]);
             vm.context.stack.items[dst_idx] = val;
             vm.context.stack.items.len -= 1;
+        }
+    }.def;
+}
+
+pub fn with3Args(T: type) NativeProc {
+    return struct {
+        const def = NativeProc{
+            .name = T.name,
+            .unsafe_impl = &wrapped,
+            .docstring = if (@hasDecl(T, "docstring")) T.docstring else "",
+        };
+
+        fn wrapped(vm: *Vm, error_details: *ErrorDetails, arg_count: u32) Vm.Error!void {
+            if (arg_count != 3) {
+                @branchHint(.cold);
+                error_details.addDiagnostic(vm.allocator(), .{ .wrong_arg_count = .{
+                    .expected = 3,
+                    .got = arg_count,
+                    .proc = Val.initNativeProc(&def),
+                } });
+                return Vm.Error.UncaughtException;
+            }
+            const dst_idx = vm.context.stack.items.len - 3;
+            const args = vm.context.stackTopN(3);
+            const val = try T.impl(vm, error_details, args[0], args[1], args[2]);
+            vm.context.stack.items[dst_idx] = val;
+            vm.context.stack.items.len -= 2;
+        }
+    }.def;
+}
+
+pub fn with4Args(T: type) NativeProc {
+    return struct {
+        const def = NativeProc{
+            .name = T.name,
+            .unsafe_impl = &wrapped,
+            .docstring = if (@hasDecl(T, "docstring")) T.docstring else "",
+        };
+
+        fn wrapped(vm: *Vm, error_details: *ErrorDetails, arg_count: u32) Vm.Error!void {
+            if (arg_count != 4) {
+                @branchHint(.cold);
+                error_details.addDiagnostic(vm.allocator(), .{ .wrong_arg_count = .{
+                    .expected = 4,
+                    .got = arg_count,
+                    .proc = Val.initNativeProc(&def),
+                } });
+                return Vm.Error.UncaughtException;
+            }
+            const dst_idx = vm.context.stack.items.len - 4;
+            const args = vm.context.stackTopN(4);
+            const val = try T.impl(vm, error_details, args[0], args[1], args[2], args[3]);
+            vm.context.stack.items[dst_idx] = val;
+            vm.context.stack.items.len -= 3;
         }
     }.def;
 }

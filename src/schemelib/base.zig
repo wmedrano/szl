@@ -20,6 +20,7 @@ const number_fns = @import("number_fns.zig");
 const pair_fns = @import("pair_fns.zig");
 const parameter_fns = @import("parameter_fns.zig");
 const port_fns = @import("port_fns.zig");
+const record_fns = @import("record_fns.zig");
 const string_fns = @import("string_fns.zig");
 const system_interface_fns = @import("system_interface_fns.zig");
 
@@ -219,6 +220,12 @@ pub fn init(vm: *Vm, error_details: *ErrorDetails) Vm.Error!Handle(Module) {
         .{ .symbol = (try b.makeStaticSymbolHandle("exit")), .value = Val.initNativeProc(&system_interface_fns.exit) },
         // 5.6 Libraries
         .{ .symbol = (try b.makeStaticSymbolHandle("%szl-import")), .value = Val.initNativeProc(&import) },
+        // Records
+        .{ .symbol = (try b.makeStaticSymbolHandle("%sizzle-make-record-descriptor")), .value = Val.initNativeProc(&record_fns.make_record_descriptor) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("%sizzle-make-record")), .value = Val.initNativeProc(&record_fns.make_record) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("%sizzle-record?")), .value = Val.initNativeProc(&record_fns.record_p) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("%sizzle-record-get")), .value = Val.initNativeProc(&record_fns.record_get) },
+        .{ .symbol = (try b.makeStaticSymbolHandle("%sizzle-record-set!")), .value = Val.initNativeProc(&record_fns.record_set_b) },
     });
     const inspector = vm.inspector();
     const env = try inspector.handleToModule(env_handle);

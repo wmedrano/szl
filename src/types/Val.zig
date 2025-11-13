@@ -117,6 +117,10 @@ pub fn initErrorDetails(error_details: Handle(ErrorDetails)) Val {
     return Val{ .data = .{ .error_details = error_details } };
 }
 
+pub fn initRecordDescriptor(record_descriptor: Handle(Record.Descriptor)) Val {
+    return Val{ .data = .{ .record_descriptor = record_descriptor } };
+}
+
 pub fn isUnspecified(self: Val) bool {
     return self.data == .unspecified_value;
 }

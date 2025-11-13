@@ -2,6 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 
 const Instruction = @import("../instruction.zig").Instruction;
+const record_fns = @import("../schemelib/record_fns.zig");
 const ErrorDetails = @import("../types/ErrorDetails.zig");
 const Module = @import("../types/Module.zig");
 const Handle = @import("../types/object_pool.zig").Handle;
@@ -27,6 +28,7 @@ instructions: std.ArrayList(Instruction) = .{},
 constants: std.ArrayList(Val) = .{},
 
 pub const Error = error{
+    ReadError,
     InvalidExpression,
     OutOfMemory,
     NotImplemented,
@@ -62,6 +64,7 @@ fn addIr(self: *Compiler, ir: Ir, return_value: bool, error_details: *ErrorDetai
         .let_expr => |expr| return self.addLet(expr.bindings, expr.body, return_value, error_details),
         .eval => |e| try self.addEval(e, error_details),
         .lambda => |l| try self.addLambda(l, error_details),
+        .define_record_type => |d| try self.addDefineRecordType(d, error_details),
     }
     if (return_value) try self.addInstruction(.{ .ret = {} });
 }
@@ -149,6 +152,149 @@ fn addLambda(self: *Compiler, lambda: Ir.Lambda, error_details: *ErrorDetails) E
     try self.addInstruction(.{ .make_closure = proc.handle });
 }
 
+fn addDefineRecordType(self: *Compiler, def: Ir.DefineRecordType, error_details: *ErrorDetails) Error!void {
+    const builder = self.vm.builder();
+
+    // Descriptor
+    var make_descriptor_args = try self.arena.allocator().alloc(Val, 1 + def.field.len);
+    make_descriptor_args[0] = Val.initSymbol(def.name);
+    for (def.field, 0..def.field.len) |f, idx| {
+        make_descriptor_args[idx + 1] = Val.initSymbol(f.name());
+    }
+    const descriptor = try record_fns.make_record_descriptor_impl(self.vm, error_details, make_descriptor_args);
+
+    // constructor
+    var make_record_args = try self.arena.allocator().alloc(Ir, 1 + def.field.len);
+    make_record_args[0] = Ir{ .push_const = descriptor };
+    for (def.field, 0..def.field.len) |_, idx| {
+        const arg_name = try std.fmt.allocPrint(
+            self.arena.allocator(),
+            "field-{d}",
+            .{idx},
+        );
+        const arg_sym = try builder.makeSymbolHandle(arg_name);
+        make_record_args[idx + 1] = Ir{ .get = arg_sym };
+    }
+
+    var lambda_args = try self.arena.allocator().alloc(Symbol, def.field.len);
+    for (def.field, 0..def.field.len) |_, idx| {
+        const arg_name = try std.fmt.allocPrint(
+            self.arena.allocator(),
+            "field-{d}",
+            .{idx},
+        );
+        lambda_args[idx] = try builder.makeSymbolHandle(arg_name);
+    }
+    try self.addDefine(
+        def.constructor_name,
+        Ir{
+            .lambda = Ir.Lambda{
+                .name = def.constructor_name,
+                .args = lambda_args,
+                .has_rest_args = false,
+                .body = &.{
+                    Ir{
+                        .eval = Ir.Eval{
+                            .proc = &Ir{ .push_const = Val.initNativeProc(&record_fns.make_record) },
+                            .args = make_record_args,
+                        },
+                    },
+                },
+            },
+        },
+        error_details,
+    );
+
+    // pred
+    try self.addDefine(
+        def.pred,
+        Ir{
+            .lambda = Ir.Lambda{
+                .name = def.pred,
+                .args = &.{Symbol.init("arg")},
+                .has_rest_args = false,
+                .body = &.{
+                    Ir{
+                        .eval = Ir.Eval{
+                            .proc = &Ir{ .push_const = Val.initNativeProc(&record_fns.record_p) },
+                            .args = &.{
+                                Ir{ .push_const = descriptor },
+                                Ir{ .get = Symbol.init("arg") },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+        error_details,
+    );
+
+    // getters and setters
+    for (def.field, 0..def.field.len) |field, field_idx| {
+        const slot_idx_val = Val.initInt(@intCast(field_idx));
+
+        // Define getter if present
+        if (field.getterSym()) |getter_sym| {
+            try self.addDefine(
+                getter_sym,
+                Ir{
+                    .lambda = Ir.Lambda{
+                        .name = getter_sym,
+                        .args = &.{Symbol.init("record")},
+                        .has_rest_args = false,
+                        .body = &.{
+                            Ir{
+                                .eval = Ir.Eval{
+                                    .proc = &Ir{ .push_const = Val.initNativeProc(&record_fns.record_get) },
+                                    .args = &.{
+                                        Ir{ .push_const = descriptor },
+                                        Ir{ .get = Symbol.init("record") },
+                                        Ir{ .push_const = slot_idx_val },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+                error_details,
+            );
+        }
+
+        // Define setter if present
+        if (field.setterSym()) |setter_sym| {
+            try self.addDefine(
+                setter_sym,
+                Ir{
+                    .define = .{
+                        .symbol = setter_sym,
+                        .expr = &Ir{
+                            .lambda = Ir.Lambda{
+                                .name = setter_sym,
+                                .args = &.{ Symbol.init("record"), Symbol.init("val") },
+                                .has_rest_args = false,
+                                .body = &.{
+                                    Ir{
+                                        .eval = Ir.Eval{
+                                            .proc = &Ir{ .push_const = Val.initNativeProc(&record_fns.record_set_b) },
+                                            .args = &.{
+                                                Ir{ .push_const = descriptor },
+                                                Ir{ .get = Symbol.init("record") },
+                                                Ir{ .push_const = slot_idx_val },
+                                                Ir{ .get = Symbol.init("val") },
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+                error_details,
+            );
+        }
+    }
+}
+
 fn jumpDistance(src: usize, dst: usize) i32 {
     const dst_i32: i32 = @intCast(dst);
     const src_i32: i32 = @intCast(src);
@@ -226,7 +372,7 @@ fn addIf(self: *Compiler, test_expr: Ir, true_expr: Ir, false_expr: Ir, return_v
     }
 }
 
-fn addLet(self: *Compiler, bindings: []const Ir.LetBinding, body: []Ir, return_value: bool, error_details: *ErrorDetails) !void {
+fn addLet(self: *Compiler, bindings: []const Ir.LetBinding, body: []const Ir, return_value: bool, error_details: *ErrorDetails) !void {
     // 1. Reserve bindings.
     const start_idx = self.scope.locals.items.len;
     const end_idx = self.scope.locals.items.len + bindings.len;
@@ -507,4 +653,82 @@ test "call/cc that calls continuation returns specified value" {
 
     // The final expression is an error. We never call it so the vm is ok.
     try vm.expectEval("1", "(call/cc (lambda (k) (k 1) (+ #f) 2))");
+}
+
+test "define-record-type creates constructor" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const source =
+        \\ (define-record-type <point>
+        \\   (make-point x y)
+        \\   point?
+        \\   (x point-x)
+        \\   (y point-y))
+        \\ (make-point 10 20)
+    ;
+    try vm.expectEval("#<record:<point> x => 10 y => 20>", source);
+}
+
+test "define-record-type creates predicate" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const source =
+        \\ (define-record-type <point>
+        \\   (make-point x y)
+        \\   point?
+        \\   (x point-x)
+        \\   (y point-y))
+        \\ (define p (make-point 10 20))
+        \\ (point? p)
+    ;
+    try vm.expectEval("#t", source);
+}
+
+test "define-record-type predicate returns false for non-records" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const source =
+        \\ (define-record-type <point>
+        \\   (make-point x y)
+        \\   point?
+        \\   (x point-x)
+        \\   (y point-y))
+        \\ (point? 42)
+    ;
+    try vm.expectEval("#f", source);
+}
+
+test "define-record-type getter retrieves field value" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const source =
+        \\ (define-record-type <point>
+        \\   (make-point x y)
+        \\   point?
+        \\   (x point-x)
+        \\   (y point-y))
+        \\ (define p (make-point 10 20))
+        \\ (point-x p)
+    ;
+    try vm.expectEval("10", source);
+}
+
+test "define-record-type getter retrieves multiple fields" {
+    var vm = try Vm.init(.{ .allocator = testing.allocator });
+    defer vm.deinit();
+
+    const source =
+        \\ (define-record-type <point>
+        \\   (make-point x y)
+        \\   point?
+        \\   (x point-x)
+        \\   (y point-y))
+        \\ (define p (make-point 10 20))
+        \\ (+ (point-x p) (point-y p))
+    ;
+    try vm.expectEval("30", source);
 }

@@ -11,6 +11,7 @@ const Pair = @import("../types/Pair.zig");
 const Parameter = @import("../types/Parameter.zig");
 const Port = @import("../types/Port.zig");
 const Proc = @import("../types/Proc.zig");
+const Record = @import("../types/Record.zig");
 const String = @import("../types/String.zig");
 const Symbol = @import("../types/Symbol.zig");
 const SyntaxRules = @import("../types/SyntaxRules.zig");
@@ -220,4 +221,8 @@ pub inline fn makeErrorDetails(self: Builder, error_details: ErrorDetails) error
 
 pub inline fn makeErrorDetailsHandle(self: Builder, error_details: ErrorDetails) error{OutOfMemory}!Handle(ErrorDetails) {
     return try self.vm.objects.error_details.put(self.vm.allocator(), error_details);
+}
+
+pub inline fn makeRecordDescriptor(self: Builder, descriptor: Record.Descriptor) error{OutOfMemory}!Handle(Record.Descriptor) {
+    return try self.vm.objects.record_descriptors.put(self.vm.allocator(), descriptor);
 }

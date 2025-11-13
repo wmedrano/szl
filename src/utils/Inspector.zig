@@ -53,6 +53,13 @@ pub inline fn asString(self: Inspector, val: Val) Vm.Error!*String {
     };
 }
 
+pub inline fn asRecord(self: Inspector, val: Val) Vm.Error!*Record {
+    return switch (val.data) {
+        .record => |h| self.vm.objects.records.get(h) orelse return Vm.Error.UndefinedBehavior,
+        else => Vm.Error.UncaughtException,
+    };
+}
+
 pub inline fn handleToString(self: Inspector, h: Handle(String)) Vm.Error!*String {
     return self.vm.objects.strings.get(h) orelse return Vm.Error.UndefinedBehavior;
 }

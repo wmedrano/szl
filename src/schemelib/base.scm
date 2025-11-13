@@ -1,9 +1,9 @@
 (define-syntax import
   (syntax-rules ()
-    ((_ lib) (%szl-import (quote lib)))
+    ((_ lib) (%szl-import 'lib))
     ((_ lib1 lib2 ...)
      (begin
-       (%szl-import (quote lib1))
+       (%szl-import 'lib1)
        (import lib2 ...)))))
 
 (define-syntax parameterize

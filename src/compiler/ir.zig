@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const ErrorDetails = @import("../types/ErrorDetails.zig");
 const Module = @import("../types/Module.zig");
 const Handle = @import("../types/object_pool.zig").Handle;
 const Symbol = @import("../types/Symbol.zig");
@@ -19,7 +20,7 @@ pub const Ir = union(enum) {
     get: Symbol,
     define: struct {
         symbol: Symbol,
-        expr: *Ir,
+        expr: *const Ir,
     },
     set: struct {
         symbol: Symbol,
@@ -32,8 +33,15 @@ pub const Ir = union(enum) {
     },
     eval: Eval,
     lambda: Lambda,
+    define_record_type: DefineRecordType,
 
-    pub fn init(arena: *std.heap.ArenaAllocator, vm: *Vm, module: Handle(Module), expr: Val, error_details: ?*@import("../types/ErrorDetails.zig")) Error!Ir {
+    pub fn init(
+        arena: *std.heap.ArenaAllocator,
+        vm: *Vm,
+        module: Handle(Module),
+        expr: Val,
+        error_details: ?*ErrorDetails,
+    ) Error!Ir {
         var builder = Builder{
             .arena = arena,
             .vm = vm,
@@ -55,15 +63,52 @@ pub const Ir = union(enum) {
     };
 
     pub const Eval = struct {
-        proc: *Ir,
-        args: []Ir,
+        proc: *const Ir,
+        args: []const Ir,
     };
 
     pub const Lambda = struct {
         name: ?Symbol,
-        args: []Symbol,
+        args: []const Symbol,
         has_rest_args: bool,
-        body: []Ir,
+        body: []const Ir,
+    };
+
+    pub const DefineRecordType = struct {
+        name: Symbol,
+        constructor_name: Symbol,
+        constructor_args: []Symbol,
+        pred: Symbol,
+        field: []Field,
+
+        pub const Field = union(enum) {
+            plain: Symbol,
+            getter: struct { name: Symbol, getter: Symbol },
+            setter: struct { name: Symbol, getter: Symbol, setter: Symbol },
+
+            pub fn name(self: Field) Symbol {
+                return switch (self) {
+                    .plain => |n| n,
+                    .getter => |g| g.name,
+                    .setter => |s| s.name,
+                };
+            }
+
+            pub fn getterSym(self: Field) ?Symbol {
+                return switch (self) {
+                    .plain => null,
+                    .getter => |g| g.getter,
+                    .setter => |s| s.getter,
+                };
+            }
+
+            pub fn setterSym(self: Field) ?Symbol {
+                return switch (self) {
+                    .plain, .getter => null,
+                    .setter => |s| s.setter,
+                };
+            }
+        };
     };
 
     pub const Variable = struct {
@@ -138,6 +183,7 @@ const Builder = struct {
         const begin = try self.vm.builder().makeStaticSymbolHandle("begin");
         const quote = try self.vm.builder().makeStaticSymbolHandle("quote");
         const syntax_rules = try self.vm.builder().makeStaticSymbolHandle("syntax-rules");
+        const define_record_type = try self.vm.builder().makeStaticSymbolHandle("define-record-type");
         if (list[0].asSymbol()) |sym| {
             if (sym.eq(define)) {
                 switch (list.len) {
@@ -205,6 +251,10 @@ const Builder = struct {
                 if (list.len < 2) return Error.InvalidExpression;
                 return self.buildSyntaxRules(list[1], list[2..]);
             }
+            if (sym.eq(define_record_type)) {
+                if (list.len < 4) return Error.InvalidExpression;
+                return self.buildDefineRecordType(list[1], list[2], list[3], list[4..]);
+            }
         }
         const irs = try self.arena.allocator().alloc(Ir, list.len);
         for (list, irs) |expr, *ir| {
@@ -267,6 +317,220 @@ const Builder = struct {
             .define = .{
                 .symbol = symbol,
                 .expr = expr_ir,
+            },
+        };
+    }
+
+    fn buildDefineRecordType(
+        self: *Builder,
+        name_val: Val,
+        constructor_val: Val,
+        pred_val: Val,
+        field_vals: []const Val,
+    ) Error!Ir {
+        // Parse name
+        const name = name_val.asSymbol() orelse {
+            @branchHint(.cold);
+            if (self.error_details) |d| {
+                d.addDiagnostic(self.vm.allocator(), .{
+                    .invalid_expression = .{
+                        .message = "record type name must be a symbol",
+                        .expr = name_val,
+                        .hint = "syntax: (define-record-type <name> ...)",
+                    },
+                });
+            }
+            return Error.InvalidExpression;
+        };
+
+        // Parse predicate
+        const pred = pred_val.asSymbol() orelse {
+            @branchHint(.cold);
+            if (self.error_details) |d| {
+                d.addDiagnostic(self.vm.allocator(), .{
+                    .invalid_expression = .{
+                        .message = "record predicate must be a symbol",
+                        .expr = pred_val,
+                        .hint = "syntax: (define-record-type <name> <constructor> <predicate> ...)",
+                    },
+                });
+            }
+            return Error.InvalidExpression;
+        };
+
+        // Parse constructor clause: (constructor-name field1 field2 ...)
+        const constructor_list = try self.valToSlice(constructor_val);
+        if (constructor_list.len == 0) {
+            @branchHint(.cold);
+            if (self.error_details) |d| {
+                d.addDiagnostic(self.vm.allocator(), .{
+                    .invalid_expression = .{
+                        .message = "constructor clause cannot be empty",
+                        .expr = constructor_val,
+                        .hint = "syntax: (constructor-name field1 field2 ...)",
+                    },
+                });
+            }
+            return Error.InvalidExpression;
+        }
+
+        const constructor_name = constructor_list[0].asSymbol() orelse {
+            @branchHint(.cold);
+            if (self.error_details) |d| {
+                d.addDiagnostic(self.vm.allocator(), .{
+                    .invalid_expression = .{
+                        .message = "constructor name must be a symbol",
+                        .expr = constructor_list[0],
+                        .hint = "syntax: (constructor-name field1 field2 ...)",
+                    },
+                });
+            }
+            return Error.InvalidExpression;
+        };
+
+        const constructor_args = try self.arena.allocator().alloc(Symbol, constructor_list.len - 1);
+        for (constructor_list[1..], constructor_args) |val, *sym| {
+            const s = val.asSymbol() orelse {
+                @branchHint(.cold);
+                if (self.error_details) |d| {
+                    d.addDiagnostic(self.vm.allocator(), .{
+                        .invalid_expression = .{
+                            .message = "constructor field names must be symbols",
+                            .expr = val,
+                            .hint = "syntax: (constructor-name field1 field2 ...)",
+                        },
+                    });
+                }
+                return Error.InvalidExpression;
+            };
+            sym.* = s;
+        }
+
+        // Parse field clauses
+        const fields = try self.arena.allocator().alloc(Ir.DefineRecordType.Field, field_vals.len);
+        for (field_vals, fields) |field_val, *field| {
+            // Field can be:
+            // - symbol: plain field
+            // - (field accessor): getter only
+            // - (field accessor modifier): getter and setter
+            if (field_val.asSymbol()) |sym| {
+                // Plain field
+                field.* = .{ .plain = sym };
+                continue;
+            }
+
+            // Must be a list
+            const field_list = self.valToSlice(field_val) catch {
+                @branchHint(.cold);
+                if (self.error_details) |d| {
+                    d.addDiagnostic(self.vm.allocator(), .{
+                        .invalid_expression = .{
+                            .message = "field clause must be a symbol or list",
+                            .expr = field_val,
+                            .hint = "valid forms: field, (field accessor), (field accessor modifier)",
+                        },
+                    });
+                }
+                return Error.InvalidExpression;
+            };
+
+            switch (field_list.len) {
+                2 => {
+                    // (field accessor)
+                    const field_name = field_list[0].asSymbol() orelse {
+                        @branchHint(.cold);
+                        if (self.error_details) |d| {
+                            d.addDiagnostic(self.vm.allocator(), .{
+                                .invalid_expression = .{
+                                    .message = "field name must be a symbol",
+                                    .expr = field_list[0],
+                                    .hint = "syntax: (field-name accessor-name)",
+                                },
+                            });
+                        }
+                        return Error.InvalidExpression;
+                    };
+                    const getter = field_list[1].asSymbol() orelse {
+                        @branchHint(.cold);
+                        if (self.error_details) |d| {
+                            d.addDiagnostic(self.vm.allocator(), .{
+                                .invalid_expression = .{
+                                    .message = "accessor name must be a symbol",
+                                    .expr = field_list[1],
+                                    .hint = "syntax: (field-name accessor-name)",
+                                },
+                            });
+                        }
+                        return Error.InvalidExpression;
+                    };
+                    field.* = .{ .getter = .{ .name = field_name, .getter = getter } };
+                },
+                3 => {
+                    // (field accessor modifier)
+                    const field_name = field_list[0].asSymbol() orelse {
+                        @branchHint(.cold);
+                        if (self.error_details) |d| {
+                            d.addDiagnostic(self.vm.allocator(), .{
+                                .invalid_expression = .{
+                                    .message = "field name must be a symbol",
+                                    .expr = field_list[0],
+                                    .hint = "syntax: (field-name accessor-name modifier-name)",
+                                },
+                            });
+                        }
+                        return Error.InvalidExpression;
+                    };
+                    const getter = field_list[1].asSymbol() orelse {
+                        @branchHint(.cold);
+                        if (self.error_details) |d| {
+                            d.addDiagnostic(self.vm.allocator(), .{
+                                .invalid_expression = .{
+                                    .message = "accessor name must be a symbol",
+                                    .expr = field_list[1],
+                                    .hint = "syntax: (field-name accessor-name modifier-name)",
+                                },
+                            });
+                        }
+                        return Error.InvalidExpression;
+                    };
+                    const setter = field_list[2].asSymbol() orelse {
+                        @branchHint(.cold);
+                        if (self.error_details) |d| {
+                            d.addDiagnostic(self.vm.allocator(), .{
+                                .invalid_expression = .{
+                                    .message = "modifier name must be a symbol",
+                                    .expr = field_list[2],
+                                    .hint = "syntax: (field-name accessor-name modifier-name)",
+                                },
+                            });
+                        }
+                        return Error.InvalidExpression;
+                    };
+                    field.* = .{ .setter = .{ .name = field_name, .getter = getter, .setter = setter } };
+                },
+                else => {
+                    @branchHint(.cold);
+                    if (self.error_details) |d| {
+                        d.addDiagnostic(self.vm.allocator(), .{
+                            .invalid_expression = .{
+                                .message = "field clause must have 2 or 3 elements",
+                                .expr = field_val,
+                                .hint = "valid forms: (field accessor) or (field accessor modifier)",
+                            },
+                        });
+                    }
+                    return Error.InvalidExpression;
+                },
+            }
+        }
+
+        return Ir{
+            .define_record_type = .{
+                .name = name,
+                .constructor_name = constructor_name,
+                .constructor_args = constructor_args,
+                .pred = pred,
+                .field = fields,
             },
         };
     }
