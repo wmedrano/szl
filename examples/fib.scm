@@ -4,4 +4,8 @@
       (+ (fib (- n 1))
          (fib (- n 2)))))
 
-(fib 35)
+(displayln "Computing...")
+(let ((ans (fib 35)))
+  (display "(fib 35) => ")
+  (display (fib 35))
+  (newline))

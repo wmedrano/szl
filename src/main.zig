@@ -26,8 +26,9 @@ pub fn main() !void {
 
 fn runScript(allocator: std.mem.Allocator) !void {
     // Read source
-    var source = try readInput(allocator);
-    defer source.deinit(allocator);
+    var reader = std.fs.File.stdin();
+    const source = try reader.readToEndAlloc(allocator, 1 << 30);
+    defer allocator.free(source);
 
     // Evaluate each expression
     var vm = try szl.Vm.init(.{ .allocator = allocator });
@@ -36,7 +37,7 @@ fn runScript(allocator: std.mem.Allocator) !void {
     var error_details = szl.ErrorDetails{};
     defer error_details.deinit(allocator);
 
-    _ = vm.evalStr(source.items, null, &error_details) catch |err| {
+    _ = vm.evalStr(source, null, &error_details) catch |err| {
         const stderr = std.fs.File.stderr();
         // Detect if stderr is a TTY to enable/disable color output
         const use_color = stderr.isTty();
@@ -54,17 +55,6 @@ fn runScript(allocator: std.mem.Allocator) !void {
         try stderr.writeAll(temp.writer.buffered());
         return err;
     };
-}
-
-fn readInput(allocator: std.mem.Allocator) !std.ArrayList(u8) {
-    var buf: [1024 * 1024]u8 = undefined;
-    var reader = std.fs.File.stdin().reader(&buf);
-
-    var writer = std.Io.Writer.Allocating.init(allocator);
-    defer writer.deinit();
-
-    _ = try reader.interface.streamRemaining(&writer.writer);
-    return writer.toArrayList();
 }
 
 fn runRepl(allocator: std.mem.Allocator) !void {
